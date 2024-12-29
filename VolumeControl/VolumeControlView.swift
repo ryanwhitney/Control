@@ -100,16 +100,15 @@ struct VolumeControlView: View {
 
     private func getVolume() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
+        appendOutput("$ \(command)")
         sshClient.executeCommand(command) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .failure(let error):
-                    print("Volume fetch error: \(error)")
                     self.errorMessage = "Failed to get volume: \(error.localizedDescription)"
-                    self.appendOutput("Error: \(error.localizedDescription)")
+                    self.appendOutput("[Error] \(error.localizedDescription)")
                 case .success(let output):
-                    print("Raw volume output: \(output)")
-                    self.appendOutput("Volume output: \(output)")
+                    self.appendOutput(output)
                     if let volumeStr = output.split(separator: ",").first,
                        let volumeNum = volumeStr.split(separator: ":").last,
                        let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
@@ -125,18 +124,17 @@ struct VolumeControlView: View {
     private func setVolume() {
         let volumeInt = Int(volume * 100)
         let command = "/usr/bin/osascript -e 'set volume output volume \(volumeInt)'"
+        appendOutput("$ \(command)")
         
         sshClient.executeCommand(command) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .failure(let error):
-                    print("Set volume error: \(error)")
                     self.errorMessage = "Failed to set volume: \(error.localizedDescription)"
-                    self.appendOutput("Error setting volume: \(error.localizedDescription)")
+                    self.appendOutput("[Error] \(error.localizedDescription)")
                 case .success(let output):
-                    print("Set volume success: \(output)")
-                    self.appendOutput("Volume set successfully")
-                    getVolume()
+                    self.appendOutput(output)
+                    self.getVolume()
                 }
             }
         }
@@ -144,17 +142,15 @@ struct VolumeControlView: View {
 
     private func testCommand() {
         let command = "say 'hello ryan'"
+        appendOutput("$ \(command)")
         sshClient.executeCommand(command) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .failure(let error):
-                    print("Test command error: \(error)")
                     self.errorMessage = "Failed to run test: \(error.localizedDescription)"
-                    self.appendOutput("Test error: \(error.localizedDescription)")
+                    self.appendOutput("[Error] \(error.localizedDescription)")
                 case .success(let output):
-                    print("Test command output: \(output)")
-                    self.errorMessage = "Test command executed successfully"
-                    self.appendOutput("Test output: \(output)")
+                    self.appendOutput(output)
                 }
             }
         }
@@ -162,7 +158,14 @@ struct VolumeControlView: View {
 
     private func appendOutput(_ text: String) {
         DispatchQueue.main.async {
-            self.sshOutput = String((text + "\n" + self.sshOutput).prefix(2000))
+            let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            if text.hasPrefix("$") {
+                // Command being sent
+                self.sshOutput = "\(text)\n" + self.sshOutput
+            } else {
+                // Command output
+                self.sshOutput = text + "\n" + self.sshOutput
+            }
         }
     }
 }
