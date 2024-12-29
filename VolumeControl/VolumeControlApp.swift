@@ -25,7 +25,7 @@ struct VolumeControlApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ComputerListView()
         }
         .modelContainer(sharedModelContainer)
     }
