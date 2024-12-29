@@ -49,7 +49,6 @@ class SSHClient {
                 print("Connection successful!")
                 self.connection = channel
                 
-                // After connection, create a session
                 self.createSession { result in
                     switch result {
                     case .success:
@@ -150,32 +149,52 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
 class SSHCommandHandler: ChannelInboundHandler {
     typealias InboundIn = SSHChannelData
     typealias OutboundOut = SSHChannelData
+    typealias OutboundIn = SSHChannelRequestEvent
 
     private var pendingCommandPromise: EventLoopPromise<String>?
     private var buffer: String = ""
+    private var isChannelActive = false
+
+    func channelActive(context: ChannelHandlerContext) {
+        isChannelActive = true
+        context.fireChannelActive()
+    }
 
     func sendCommand(_ command: String, on channel: Channel) -> EventLoopFuture<String> {
         let promise = channel.eventLoop.makePromise(of: String.self)
+        
+        guard isChannelActive else {
+            promise.fail(SSHError.channelNotConnected)
+            return promise.futureResult
+        }
+        
         pendingCommandPromise = promise
 
-        // Use login shell with proper environment setup
-        let wrappedCommand = """
-        /bin/bash -l -c 'export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH"; \
-        export LANG="en_US.UTF-8"; \
-        \(command)'
-        """
+        print("Executing command: \(command)")
         
-        print("Executing wrapped command: \(wrappedCommand)")
-        
-        // Convert command to channel data
-        let commandBuffer = channel.allocator.buffer(string: wrappedCommand)
-        let commandData = SSHChannelData(type: .channel, data: .byteBuffer(commandBuffer))
-        
-        channel.writeAndFlush(commandData).whenFailure { error in
-            promise.fail(error)
+        guard let context = context else {
+            promise.fail(SSHError.channelNotConnected)
+            return promise.futureResult
         }
 
+        // Convert command to channel data
+        var buffer = channel.allocator.buffer(capacity: command.utf8.count)
+        buffer.writeString(command)
+        
+        let channelData = SSHChannelData(type: .channel, data: .byteBuffer(buffer))
+        context.writeAndFlush(wrapOutboundOut(channelData), promise: nil)
+
         return promise.futureResult
+    }
+
+    private var context: ChannelHandlerContext?
+    
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.context = context
+    }
+    
+    func handlerRemoved(context: ChannelHandlerContext) {
+        self.context = nil
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -184,28 +203,48 @@ class SSHCommandHandler: ChannelInboundHandler {
         switch sshData.type {
         case .channel:
             guard case .byteBuffer(let buffer) = sshData.data else {
+                print("Received non-buffer channel data")
                 return
             }
             
             if let output = buffer.getString(at: 0, length: buffer.readableBytes) {
+                print("Received output: '\(output)'")
                 self.buffer += output
-                completeCommand()
+                
+                if output.contains("\n") || buffer.readableBytes == 0 {
+                    completeCommand()
+                }
+            } else {
+                print("Could not get string from buffer")
             }
         case .stdErr:
             guard case .byteBuffer(let buffer) = sshData.data,
                   let errorOutput = buffer.getString(at: 0, length: buffer.readableBytes) else {
+                print("Received non-buffer stderr data")
                 return
             }
-            print("Command stderr: \(errorOutput)")
+            print("Command stderr: '\(errorOutput)'")
             self.buffer += "[Error] " + errorOutput
+            completeCommand()
         default:
+            print("Received unknown channel data type: \(sshData.type)")
             break
+        }
+    }
+
+    func channelReadComplete(context: ChannelHandlerContext) {
+        context.fireChannelReadComplete()
+        
+        if !buffer.isEmpty {
+            completeCommand()
         }
     }
     
     private func completeCommand() {
         if !buffer.isEmpty {
-            pendingCommandPromise?.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+            let output = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("Completing command with output: \(output)")
+            pendingCommandPromise?.succeed(output)
             pendingCommandPromise = nil
             buffer = ""
         }
@@ -216,11 +255,10 @@ class SSHCommandHandler: ChannelInboundHandler {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        print("Command handler error: \(error)")
         pendingCommandPromise?.fail(error)
         pendingCommandPromise = nil
         buffer = ""
-        
-        // Close the channel on error
         context.close(promise: nil)
     }
 }
@@ -232,13 +270,10 @@ enum SSHError: Error {
 
 class AcceptAllHostKeysDelegate: NIOSSHClientServerAuthenticationDelegate {
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
-        // WARNING: This accepts all host keys without verification
-        // In a production environment, you should properly verify host keys
         validationCompletePromise.succeed(())
     }
 }
 
-// Add this helper class for error handling
 private class ErrorHandler: ChannelInboundHandler {
     typealias InboundIn = Any
     

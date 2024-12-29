@@ -10,6 +10,7 @@ struct VolumeControlView: View {
     @State private var connectionState: ConnectionState = .connecting
     @Environment(\.dismiss) private var dismiss
     private let sshClient = SSHClient()
+    @State private var sshOutput: String = ""
 
     enum ConnectionState {
         case connecting
@@ -38,7 +39,22 @@ struct VolumeControlView: View {
                     Button("Set Volume") {
                         setVolume()
                     }
+                    
+                    Button("Test Command") {
+                        testCommand()
+                    }
                 }
+                .padding()
+
+                ScrollView {
+                    Text(sshOutput)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .frame(height: 100)
+                .background(Color.black.opacity(0.1))
+                .cornerRadius(8)
                 .padding()
 
             case .failed(let error):
@@ -72,8 +88,10 @@ struct VolumeControlView: View {
                 switch result {
                 case .failure(let error):
                     self.connectionState = .failed(error.localizedDescription)
+                    self.appendOutput("Connection failed: \(error.localizedDescription)")
                 case .success:
                     self.connectionState = .connected
+                    self.appendOutput("Connected successfully")
                     self.getVolume()
                 }
             }
@@ -81,21 +99,6 @@ struct VolumeControlView: View {
     }
 
     private func getVolume() {
-        // First test with a simple command
-        sshClient.executeCommand("echo $PATH") { result in
-            switch result {
-            case .success(let output):
-                print("PATH test succeeded: \(output)")
-                // Now try the volume command
-                self.executeVolumeCommand()
-            case .failure(let error):
-                print("PATH test failed: \(error)")
-                self.errorMessage = "Failed to execute test command: \(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func executeVolumeCommand() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
         sshClient.executeCommand(command) { result in
             DispatchQueue.main.async {
@@ -103,9 +106,10 @@ struct VolumeControlView: View {
                 case .failure(let error):
                     print("Volume fetch error: \(error)")
                     self.errorMessage = "Failed to get volume: \(error.localizedDescription)"
+                    self.appendOutput("Error: \(error.localizedDescription)")
                 case .success(let output):
                     print("Raw volume output: \(output)")
-                    // Parse the output which looks like "output volume:50, input volume:0, ..."
+                    self.appendOutput("Volume output: \(output)")
                     if let volumeStr = output.split(separator: ",").first,
                        let volumeNum = volumeStr.split(separator: ":").last,
                        let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
@@ -128,12 +132,37 @@ struct VolumeControlView: View {
                 case .failure(let error):
                     print("Set volume error: \(error)")
                     self.errorMessage = "Failed to set volume: \(error.localizedDescription)"
+                    self.appendOutput("Error setting volume: \(error.localizedDescription)")
                 case .success(let output):
                     print("Set volume success: \(output)")
-                    // Optionally refresh the volume after setting it
+                    self.appendOutput("Volume set successfully")
                     getVolume()
                 }
             }
+        }
+    }
+
+    private func testCommand() {
+        let command = "say 'hello ryan'"
+        sshClient.executeCommand(command) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .failure(let error):
+                    print("Test command error: \(error)")
+                    self.errorMessage = "Failed to run test: \(error.localizedDescription)"
+                    self.appendOutput("Test error: \(error.localizedDescription)")
+                case .success(let output):
+                    print("Test command output: \(output)")
+                    self.errorMessage = "Test command executed successfully"
+                    self.appendOutput("Test output: \(output)")
+                }
+            }
+        }
+    }
+
+    private func appendOutput(_ text: String) {
+        DispatchQueue.main.async {
+            self.sshOutput = String((text + "\n" + self.sshOutput).prefix(2000))
         }
     }
 }
