@@ -5,38 +5,45 @@ struct AuthenticationView: View {
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
-    let onSuccess: () -> Void
+    @State private var customName: String = ""
+    let onSuccess: (String?) -> Void
     let onCancel: () -> Void
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 20) {
-                Text("Connect to \(name)")
-                    .font(.headline)
-
-                TextField("Username", text: $username)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .autocapitalization(.none)
-                    .textContentType(.username)
-
-                SecureField("Password", text: $password)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .textContentType(.password)
-
-                Toggle("Save credentials for one-tap login", isOn: $saveCredentials)
-                    .padding(.horizontal)
-
-                HStack(spacing: 20) {
-                    Button("Cancel", role: .cancel, action: onCancel)
-
+            Form {
+                Section(header: Text("Computer")) {
+                    Text(name)
+                        .font(.headline)
+                    
+                    if saveCredentials {
+                        TextField("Custom name (optional)", text: $customName)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                    }
+                }
+                
+                Section(header: Text("Credentials")) {
+                    TextField("Username", text: $username)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .textContentType(.username)
+                    
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                    
+                    Toggle("Save credentials for quick connect", isOn: $saveCredentials)
+                }
+                
+                Section {
                     Button("Connect") {
-                        onSuccess()
+                        onSuccess(saveCredentials && !customName.isEmpty ? customName : nil)
                     }
                     .disabled(username.isEmpty || password.isEmpty)
                 }
             }
-            .padding()
-            .navigationTitle("Authentication")
+            .navigationTitle("Connect")
+            .navigationBarItems(trailing: Button("Cancel", action: onCancel))
         }
     }
 }
@@ -48,7 +55,7 @@ struct AuthenticationView_Previews: PreviewProvider {
             username: .constant("testuser"),
             password: .constant(""),
             saveCredentials: .constant(false),
-            onSuccess: {},
+            onSuccess: { _ in },
             onCancel: {}
         )
     }

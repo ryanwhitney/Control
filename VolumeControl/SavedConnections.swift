@@ -39,17 +39,19 @@ class SavedConnections: ObservableObject {
         }
     }
     
-    func updateLastUsername(for hostname: String, username: String, password: String? = nil) {
+    func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil) {
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
             items[index].username = username
+            if let name = name {
+                items[index].name = name
+            }
             save()
             
-            // Update password in keychain if provided
             if let password = password {
                 savePassword(password, for: hostname)
             }
         } else {
-            add(hostname: hostname, name: nil, username: username, password: password)
+            add(hostname: hostname, name: name, username: username, password: password)
         }
     }
     

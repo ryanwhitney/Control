@@ -104,7 +104,7 @@ struct ComputerListView: View {
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
-                AddComputerView { host, username, password in
+                AddComputerView { host, customName, username, password in
                     addManualComputer(host, username: username, password: password)
                     showingAddDialog = false
                 }
@@ -116,8 +116,20 @@ struct ComputerListView: View {
                         username: $username,
                         password: $password,
                         saveCredentials: $saveCredentials,
-                        onSuccess: {
-                            tryConnect(computer: computer)
+                        onSuccess: { customName in
+                            if let customName = customName {
+                                // Create new computer with updated name
+                                let updatedComputer = Computer(
+                                    id: computer.id,
+                                    name: customName,
+                                    host: computer.host,
+                                    type: computer.type,
+                                    lastUsername: computer.lastUsername
+                                )
+                                tryConnect(computer: updatedComputer)
+                            } else {
+                                tryConnect(computer: computer)
+                            }
                         },
                         onCancel: {
                             isAuthenticating = false
@@ -129,6 +141,7 @@ struct ComputerListView: View {
                 if let computer = selectedComputer {
                     ControlView(
                         host: computer.host,
+                        displayName: computer.name,
                         username: username,
                         password: password,
                         sshClient: sshManager.currentClient
@@ -224,10 +237,19 @@ struct ComputerListView: View {
                 switch result {
                 case .success:
                     if self.saveCredentials {
-                        self.savedConnections.updateLastUsername(for: computer.host, username: self.username, password: self.password)
+                        self.savedConnections.updateLastUsername(
+                            for: computer.host,
+                            name: computer.name,  // Use the potentially customized name
+                            username: self.username,
+                            password: self.password
+                        )
                     } else {
-                        self.savedConnections.updateLastUsername(for: computer.host, username: self.username)
+                        self.savedConnections.updateLastUsername(
+                            for: computer.host,
+                            username: self.username
+                        )
                     }
+                    self.selectedComputer = computer  // Update selected computer with new name
                     self.navigateToControl = true
                     self.isAuthenticating = false
                 case .failure(let error):
@@ -318,16 +340,21 @@ struct ComputerListView: View {
 struct AddComputerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hostname = ""
+    @State private var customName = ""
     @State private var username = ""
     @State private var password = ""
     @State private var saveCredentials = false
-    let onAdd: (String, String?, String?) -> Void
+    let onAdd: (String, String?, String?, String?) -> Void
     
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Computer")) {
                     TextField("Hostname or IP", text: $hostname)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                    
+                    TextField("Name (optional)", text: $customName)
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                 }
@@ -341,14 +368,16 @@ struct AddComputerView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                     
-                    Toggle("Save credentials for one-tap login", isOn: $saveCredentials)
+                    Toggle("Save credentials for quick connect", isOn: $saveCredentials)
                 }
                 
                 Section {
                     Button("Add") {
                         onAdd(hostname, 
-                             username.isEmpty ? nil : username,
+                             !customName.isEmpty ? customName : nil,
+                             !username.isEmpty ? username : nil,
                              saveCredentials ? password : nil)
+                        dismiss()
                     }
                     .disabled(hostname.isEmpty)
                 }
@@ -448,7 +477,7 @@ struct ComputerListView_Previews: PreviewProvider {
 // Add preview for AddComputerView
 struct AddComputerView_Previews: PreviewProvider {
     static var previews: some View {
-        AddComputerView { host, username, password in
+        AddComputerView { host, customName, username, password in
             print("Would add computer: \(host)")
         }
     }
