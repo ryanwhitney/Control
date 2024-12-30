@@ -38,7 +38,11 @@ class SSHClient {
                         guard channelType == .session else {
                             return channel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
                         }
-                        return childChannel.pipeline.addHandler(SSHCommandHandler())
+                        let commandHandler = SSHCommandHandler()
+                        return childChannel.pipeline.addHandlers([
+                            commandHandler,
+                            ErrorHandler()
+                        ])
                     }
                 )
                 return channel.pipeline.addHandler(sshHandler)
@@ -110,8 +114,8 @@ class SSHClient {
             return
         }
 
-        print("$ \(command)")  // Print the actual command being sent
-        
+        print("$ \(command)")
+
         // Get the existing command handler
         session.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler -> EventLoopFuture<String> in
             // Set up the promise for this command
@@ -121,6 +125,47 @@ class SSHClient {
             let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
             return session.triggerUserOutboundEvent(execRequest).flatMap { _ in
                 return handler.pendingCommandPromise!.futureResult
+            }
+        }.whenComplete { result in
+            completion(result)
+        }
+    }
+
+    // New method for subsequent commands
+    func executeCommandWithNewChannel(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
+        guard let connection = connection else {
+            print("No active session")
+            completion(.failure(SSHError.channelNotConnected))
+            return
+        }
+
+        print("$ \(command)")
+        
+        // Create a new channel for this command
+        connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { sshHandler -> EventLoopFuture<Channel> in
+            let childPromise = connection.eventLoop.makePromise(of: Channel.self)
+            
+            sshHandler.createChannel(childPromise) { (childChannel: Channel, channelType: SSHChannelType) -> EventLoopFuture<Void> in
+                guard channelType == .session else {
+                    return childChannel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
+                }
+                
+                let commandHandler = SSHCommandHandler()
+                commandHandler.pendingCommandPromise = childChannel.eventLoop.makePromise(of: String.self)
+                
+                return childChannel.pipeline.addHandlers([
+                    commandHandler,
+                    ErrorHandler()
+                ])
+            }
+            
+            return childPromise.futureResult
+        }.flatMap { channel -> EventLoopFuture<String> in
+            channel.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler in
+                let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
+                return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
+                    return handler.pendingCommandPromise!.futureResult
+                }
             }
         }.whenComplete { result in
             completion(result)
@@ -162,6 +207,7 @@ class SSHCommandHandler: ChannelInboundHandler {
 
     var pendingCommandPromise: EventLoopPromise<String>?
     private var buffer: String = ""
+    private var isExecutingCommand = false
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let channelData = unwrapInboundIn(data)
@@ -198,7 +244,15 @@ class SSHCommandHandler: ChannelInboundHandler {
             pendingCommandPromise?.succeed(output)
             pendingCommandPromise = nil
             buffer = ""
+            isExecutingCommand = false
         }
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is SSHChannelRequestEvent.ExecRequest {
+            isExecutingCommand = true
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
@@ -206,7 +260,7 @@ class SSHCommandHandler: ChannelInboundHandler {
         pendingCommandPromise?.fail(error)
         pendingCommandPromise = nil
         buffer = ""
-        context.close(promise: nil)
+        isExecutingCommand = false
     }
 }
 

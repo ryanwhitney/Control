@@ -126,15 +126,17 @@ struct VolumeControlView: View {
         let command = "/usr/bin/osascript -e 'set volume output volume \(volumeInt)'"
         appendOutput("$ \(command)")
         
-        sshClient.executeCommand(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to set volume: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
-                    self.getVolume()
+        if let client = sshClient as? SSHClient {
+            client.executeCommandWithNewChannel(command) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .failure(let error):
+                        self.errorMessage = "Failed to set volume: \(error.localizedDescription)"
+                        self.appendOutput("[Error] \(error.localizedDescription)")
+                    case .success(let output):
+                        self.appendOutput(output)
+                        self.getVolume()
+                    }
                 }
             }
         }
@@ -143,14 +145,17 @@ struct VolumeControlView: View {
     private func testCommand() {
         let command = "say 'hello ryan'"
         appendOutput("$ \(command)")
-        sshClient.executeCommand(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to run test: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
+        
+        if let client = sshClient as? SSHClient {
+            client.executeCommandWithNewChannel(command) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .failure(let error):
+                        self.errorMessage = "Failed to run test: \(error.localizedDescription)"
+                        self.appendOutput("[Error] \(error.localizedDescription)")
+                    case .success(let output):
+                        self.appendOutput(output)
+                    }
                 }
             }
         }
