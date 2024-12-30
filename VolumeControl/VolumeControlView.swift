@@ -9,8 +9,11 @@ struct VolumeControlView: View {
     @State private var volume: Float = 0.5
     @State private var errorMessage: String?
     @State private var connectionState: ConnectionState = .connecting
-    @Environment(\.dismiss) private var dismiss
+    @State private var isQuickTimePlaying: Bool = false
     @State private var sshOutput: String = ""
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var volumeChangeWorkItem: DispatchWorkItem?
 
     enum ConnectionState {
         case connecting
@@ -25,81 +28,74 @@ struct VolumeControlView: View {
                 ProgressView("Connecting to \(host)...")
 
             case .connected:
-
                 Spacer()
-                Spacer()
-                // Quicktime Controls
                 VStack(spacing: 20) {
-                    Text("Quicktime")
-                        .padding(.top)
+                    Text("Quicktime").padding(.top)
                     HStack(spacing: 20) {
-                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") { quickTimeAction("backward") }
+                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
+                            quickTimeAction("backward")
+                        }
+                        .styledButton()
 
-                            .styledButton()
-                        Button("Play/pause", systemImage: "playpause") { quickTimeAction("togglePlayPause") }
-                            .styledButton()
-                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") { quickTimeAction("forward") }
-                            .styledButton()
+                        Button(action: {
+                            toggleQuickTimePlayPause()
+                        }) {
+                            Image(systemName: isQuickTimePlaying ? "pause.circle.fill" : "play.circle.fill")
+                        }
+                        .styledButton()
+
+                        Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
+                            quickTimeAction("forward")
+                        }
+                        .styledButton()
                     }
-
                 }
-
                 Spacer()
-                // Volume Controls
                 VStack(spacing: 20) {
-                    Text("Volume: \(Int(volume * 100))%")
-                        .padding(.top)
-
+                    Text("Volume: \(Int(volume * 100))%").padding(.top)
                     Slider(value: $volume, in: 0...1, step: 0.01)
                         .padding(.horizontal)
                         .onAppear {
                             getVolume()
                         }
-                        .onChange(of: volume) { _ in
-                            setVolume()
+                        .onChange(of: volume) { newValue in
+                            debounceVolumeChange()
                         }
-
                     HStack(spacing: 20) {
-                        Button("-5") { adjustVolume(by: -5) }
-                            .styledButton()
-                        Button("-1") { adjustVolume(by: -1) }
-                            .styledButton()
-                        Button("+1") { adjustVolume(by: 1) }
-                            .styledButton()
-                        Button("+5") { adjustVolume(by: 5) }
-                            .styledButton()
+                        Button("-5") { adjustVolume(by: -5) }.styledButton()
+                        Button("-1") { adjustVolume(by: -1) }.styledButton()
+                        Button("+1") { adjustVolume(by: 1) }.styledButton()
+                        Button("+5") { adjustVolume(by: 5) }.styledButton()
                     }
-
                 }
-
-                Spacer()
-
                 Spacer()
 
             case .failed(let error):
                 VStack {
-                    Text("Connection Failed")
-                        .font(.headline)
-                    Text(error)
-                        .foregroundColor(.red)
-                    Button("Go Back") {
-                        dismiss()
-                    }
-                    .padding()
+                    Text("Connection Failed").font(.headline)
+                    Text(error).foregroundColor(.red)
+                    Button("Go Back") { dismiss() }.padding()
                 }
             }
 
             if let error = errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
-                    .padding()
+                Text(error).foregroundColor(.red).padding()
             }
         }
         .padding()
         .onAppear {
             connectToSSH()
+            refreshQuickTimeState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            refreshQuickTimeState()
         }
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Refresh", systemImage: "arrow.clockwise") {
+                    refreshQuickTimeState()
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Test Speaker", systemImage: "speaker.wave.2.bubble.fill") {
                     testCommand()
@@ -118,7 +114,7 @@ struct VolumeControlView: View {
                 case .success:
                     self.connectionState = .connected
                     self.appendOutput("Connected successfully")
-                    self.getVolume()
+                    refreshQuickTimeState()
                 }
             }
         }
@@ -147,6 +143,52 @@ struct VolumeControlView: View {
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
         volume = Float(newVolume) / 100.0
         setVolume()
+    }
+
+    private func debounceVolumeChange() {
+        volumeChangeWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [volume] in
+            setVolume()
+        }
+        volumeChangeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+    }
+
+    private func fetchQuickTimeState(completion: (() -> Void)? = nil) {
+        let script = """
+            tell application "QuickTime Player"
+                if not (exists document 1) then return "no-document"
+                set theDocument to document 1
+                if playing of theDocument then
+                    return "playing"
+                else
+                    return "paused"
+                end if
+            end tell
+        """
+        let command = "/usr/bin/osascript -e '\(script)'"
+        executeCommand(command) { output in
+            DispatchQueue.main.async {
+                self.isQuickTimePlaying = (output.trimmingCharacters(in: .whitespacesAndNewlines) == "playing")
+                completion?()
+            }
+        }
+    }
+
+    private func toggleQuickTimePlayPause() {
+        isQuickTimePlaying.toggle()
+        quickTimeAction("togglePlayPause")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            fetchQuickTimeState()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            fetchQuickTimeState()
+        }
+    }
+
+    private func refreshQuickTimeState() {
+        getVolume()
+        fetchQuickTimeState()
     }
 
     private func quickTimeAction(_ action: String) {
@@ -200,7 +242,6 @@ struct VolumeControlView: View {
         executeCommand(command)
     }
 
-
     private func executeCommand(_ command: String, completion: ((String) -> Void)? = nil) {
         appendOutput("$ \(command)")
         sshClient.executeCommandWithNewChannel(command) { result in
@@ -230,9 +271,10 @@ private extension Button {
             .labelStyle(.iconOnly)
     }
 }
+
 struct VolumeControlView_Previews: PreviewProvider {
     static var previews: some View {
-        NavigationStack(){
+        NavigationStack {
             VolumeControlView(
                 host: "rwhitney-mac.local",
                 username: "ryan",
