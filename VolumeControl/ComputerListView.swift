@@ -45,7 +45,7 @@ struct ComputerListView: View {
                     if computers.isEmpty {
                         HStack {
                             Text("No computers found")
-                                .foregroundColor(.gray)
+                                .foregroundColor(.secondary)
                             Spacer()
                             ProgressView()
                         }
@@ -61,7 +61,7 @@ struct ComputerListView: View {
                 Section(header: Text("Recent").textCase(.none)) {
                     if savedComputers.isEmpty {
                         Text("No recent computers")
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
                     } else {
                         ForEach(savedComputers) { computer in
                             ComputerRow(computer: computer) {
@@ -80,8 +80,8 @@ struct ComputerListView: View {
             .navigationTitle("") // Empty to avoid default title
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("SOUND CONTROL")
-                        .font(.system(size: 12, weight: .bold, design: .default).width(.expanded))
+                    Text("CONTROL")
+                        .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
                         .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
                 }
             }            .toolbar {
@@ -162,11 +162,11 @@ struct ComputerListView: View {
                         .font(.headline)
                     Text(computer.host)
                         .font(.subheadline)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.secondary)
                     if let username = computer.lastUsername {
                         Text(username)
                             .font(.caption)
-                            .foregroundColor(.gray)
+                            .foregroundColor(.secondary)
                     }
                 }
             }

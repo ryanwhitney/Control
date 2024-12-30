@@ -9,6 +9,7 @@ struct VolumeControlView: View {
     @State private var volume: Float = 0.5
     @State private var errorMessage: String?
     @State private var connectionState: ConnectionState = .connecting
+    @State private var isReady: Bool = false
     @State private var isQuickTimePlaying: Bool = false
     @State private var sshOutput: String = ""
     @Environment(\.dismiss) private var dismiss
@@ -28,47 +29,57 @@ struct VolumeControlView: View {
                 ProgressView("Connecting to \(host)...")
 
             case .connected:
-                Spacer()
-                VStack(spacing: 20) {
-                    Text("Quicktime").padding(.top)
-                    HStack(spacing: 20) {
-                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
-                            quickTimeAction("backward")
-                        }
-                        .styledButton()
+                VStack{
+                    Spacer()
+                    VStack(spacing: 20) {
+                        Text("QuickTime")
+                            .fontWeight(.bold)
+                            .fontWidth(.expanded)
+                        HStack(spacing: 20) {
+                            Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
+                                quickTimeAction("backward")
+                            }
+                            .styledButton()
 
-                        Button(action: {
-                            toggleQuickTimePlayPause()
-                        }) {
-                            Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
-                        }
-                        .styledButton()
+                            Button(action: {
+                                toggleQuickTimePlayPause()
+                            }) {
+                                Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
+                            }
+                            .styledButton()
 
-                        Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
-                            quickTimeAction("forward")
+                            Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
+                                quickTimeAction("forward")
+                            }
+                            .styledButton()
                         }
-                        .styledButton()
                     }
-                }
-                Spacer()
-                VStack(spacing: 20) {
-                    Text("Volume: \(Int(volume * 100))%").padding(.top)
-                    Slider(value: $volume, in: 0...1, step: 0.01)
-                        .padding(.horizontal)
-                        .onAppear {
-                            getVolume()
+                    Spacer()
+                    VStack(spacing: 20) {
+                        Text("Volume: \(Int(volume * 100))%")
+                            .fontWeight(.bold)
+                            .fontWidth(.expanded)
+                        Slider(value: $volume, in: 0...1, step: 0.01)
+                            .padding(.horizontal)
+                            .onAppear {
+                                getVolume()
+                            }
+                            .onChange(of: volume) { newValue in
+                                debounceVolumeChange()
+                            }
+                        HStack(spacing: 20) {
+                            Button("-5") { adjustVolume(by: -5) }.styledButton()
+                            Button("-1") { adjustVolume(by: -1) }.styledButton()
+                            Button("+1") { adjustVolume(by: 1) }.styledButton()
+                            Button("+5") { adjustVolume(by: 5) }.styledButton()
                         }
-                        .onChange(of: volume) { newValue in
-                            debounceVolumeChange()
-                        }
-                    HStack(spacing: 20) {
-                        Button("-5") { adjustVolume(by: -5) }.styledButton()
-                        Button("-1") { adjustVolume(by: -1) }.styledButton()
-                        Button("+1") { adjustVolume(by: 1) }.styledButton()
-                        Button("+5") { adjustVolume(by: 5) }.styledButton()
                     }
+                    Spacer()
                 }
-                Spacer()
+                .opacity(isReady ? 1 : 0)
+                .animation(.easeInOut(duration: 0.5), value: isReady)
+
+
 
             case .failed(let error):
                 VStack {
@@ -115,6 +126,10 @@ struct VolumeControlView: View {
                     self.connectionState = .connected
                     self.appendOutput("Connected successfully")
                     refreshQuickTimeState()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        self.isReady = true
+                    }
+
                 }
             }
         }
@@ -266,7 +281,7 @@ private extension Button {
     func styledButton() -> some View {
         self.padding(12)
             .frame(width: 60, height: 60)
-            .background(Color(.systemGray6))
+            .background(.ultraThinMaterial)
             .clipShape(Circle())
             .labelStyle(.iconOnly)
     }
