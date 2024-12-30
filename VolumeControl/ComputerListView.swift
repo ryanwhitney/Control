@@ -42,7 +42,7 @@ struct ComputerListView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section(header: Text("On Your Network").textCase(.none)) {
+                Section(header: Text("On Your Network".capitalized)) {
                     if isSearching {
                         HStack {
                             Text("Searching for computers...")
@@ -62,7 +62,7 @@ struct ComputerListView: View {
                     }
                 }
                 
-                Section(header: Text("Recent").textCase(.none)) {
+                Section(header: Text("Recent".capitalized)) {
                     if savedComputers.isEmpty {
                         Text("No recent computers")
                             .foregroundColor(.secondary)
@@ -81,6 +81,7 @@ struct ComputerListView: View {
                     }
                 }
             }
+            .toolbarTitleDisplayMode(.inline)
             .navigationTitle("") // Empty to avoid default title
             .toolbar {
                 ToolbarItem(placement: .principal) {
