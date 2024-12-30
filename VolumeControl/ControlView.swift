@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct VolumeControlView: View {
+struct ControlView: View {
     let host: String
     let username: String
     let password: String
@@ -33,6 +33,32 @@ struct VolumeControlView: View {
             case .connected:
                 VStack{
                     Spacer()
+                    //VLC
+                    VStack(spacing: 20) {
+                        Text("VLC")
+                            .fontWeight(.bold)
+                            .fontWidth(.expanded)
+                        HStack(spacing: 20) {
+                            Button("Back 10 seconds", systemImage: "10.arrow.trianglehead.counterclockwise") {
+                                vlcAction("backward")
+                            }
+                            .styledButton()
+
+                            Button(action: {
+                                vlcAction("togglePlayPause")
+                            }) {
+                                Image(systemName: "playpause.fill")
+                            }
+                            .styledButton()
+
+                            Button("Forward 10 seconds", systemImage: "10.arrow.trianglehead.clockwise") {
+                                vlcAction("forward")
+                            }
+                            .styledButton()
+                        }
+                    }
+                    Spacer()
+                    // QUICKTIME
                     VStack(spacing: 20) {
                         Text("QuickTime")
                             .fontWeight(.bold)
@@ -57,6 +83,7 @@ struct VolumeControlView: View {
                         }
                     }
                     Spacer()
+                    // VOLUME
                     VStack(spacing: 20) {
                         Text("Volume: \(Int(volume * 100))%")
                             .fontWeight(.bold)
@@ -66,7 +93,7 @@ struct VolumeControlView: View {
                             .onAppear {
                                 getVolume()
                             }
-                            .onChange(of: volume) { newValue in
+                            .onChange(of: volume) {
                                 debounceVolumeChange()
                             }
                         HStack(spacing: 20) {
@@ -106,12 +133,23 @@ struct VolumeControlView: View {
         .padding()
         .navigationTitle(host)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(host)
+                    .font(.subheadline)
+                    .accessibilityAddTraits(.isHeader)
+                    .foregroundStyle(.secondary)
+            }
+        }
         .onAppear {
             connectToSSH()
             refreshQuickTimeState()
         }
-        .onChange(of: scenePhase) { phase in
-            switch phase {
+        .onChange(of: scenePhase) { newPhase, oldPhase in
+            print("Old phase: \(String(describing: oldPhase))")
+            print("New phase: \(newPhase)")
+
+            switch newPhase {
             case .active:
                 print("App active, reconnecting...")
                 connectToSSH()
@@ -189,7 +227,7 @@ struct VolumeControlView: View {
 
     private func debounceVolumeChange() {
         volumeChangeWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [volume] in
+        let workItem = DispatchWorkItem {
             setVolume()
         }
         volumeChangeWorkItem = workItem
@@ -233,6 +271,35 @@ struct VolumeControlView: View {
         fetchQuickTimeState()
     }
 
+
+    private func vlcAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "VLC"
+                step backward
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "VLC"
+                step forward
+            end tell
+            """
+        case "togglePlayPause":
+            script = """
+            tell application "VLC"
+                play 
+            end tell
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
+
     private func quickTimeAction(_ action: String) {
         let script: String
         switch action {
@@ -274,8 +341,7 @@ struct VolumeControlView: View {
         default:
             return
         }
-
-        let command = "/usr/bin/osascript -e '\(script)'"
+        let command = "osascript -e '\(script)'"
         executeCommand(command)
     }
 
@@ -292,6 +358,7 @@ struct VolumeControlView: View {
                 case .failure(let error):
                     self.errorMessage = "Error: \(error.localizedDescription)"
                 case .success(let output):
+                    self.errorMessage = nil  // Clear error message on success
                     self.appendOutput(output)
                     completion?(output)
                 }
@@ -314,10 +381,10 @@ private extension Button {
     }
 }
 
-struct VolumeControlView_Previews: PreviewProvider {
+struct ControlView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
-            VolumeControlView(
+            ControlView(
                 host: "rwhitney-mac.local",
                 username: "ryan",
                 password: "",

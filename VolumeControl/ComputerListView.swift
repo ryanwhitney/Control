@@ -82,14 +82,12 @@ struct ComputerListView: View {
                 }
             }
             .toolbarTitleDisplayMode(.inline)
-            .navigationTitle("") // Empty to avoid default title
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("CONTROL")
                         .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
                         .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
                 }
-            }            .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
                         Button(action: startBrowsing) {
@@ -126,7 +124,7 @@ struct ComputerListView: View {
             }
             .navigationDestination(isPresented: $navigateToControl) {
                 if let computer = selectedComputer {
-                    VolumeControlView(
+                    ControlView(
                         host: computer.host,
                         username: username,
                         password: password,
@@ -141,16 +139,11 @@ struct ComputerListView: View {
         .onDisappear {
             browser?.cancel()
         }
-        // Handle app lifecycle
-        .onChange(of: scenePhase) { phase in
-            switch phase {
-            case .background:
+        .onChange(of: scenePhase) {
+            if scenePhase == .background {
                 sshManager.disconnect()
-            case .active:
+            } else if scenePhase == .active {
                 // Optionally reconnect if needed
-                break
-            default:
-                break
             }
         }
     }
@@ -293,7 +286,7 @@ struct ComputerListView: View {
                         return nil
                     }
                     print("Found service: \(name)")
-                    print("Endpoint details: \(endpoint)")
+                    print("Endpoint details: \(String(describing: endpoint))")
                     
                     // Create NetService and start resolution
                     let service = NetService(domain: domain, type: type, name: name)
