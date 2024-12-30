@@ -40,7 +40,7 @@ struct VolumeControlView: View {
                         Button(action: {
                             toggleQuickTimePlayPause()
                         }) {
-                            Image(systemName: isQuickTimePlaying ? "pause.circle.fill" : "play.circle.fill")
+                            Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
                         }
                         .styledButton()
 
