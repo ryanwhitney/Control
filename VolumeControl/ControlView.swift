@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ControlView: View {
     let host: String
+    let displayName: String
     let username: String
     let password: String
     let sshClient: SSHClient
@@ -34,6 +35,54 @@ struct ControlView: View {
                 VStack{
                     Spacer()
                     TabView {
+                        // TV
+                        VStack(spacing: 20) {
+                            Text("Music")
+                                .fontWeight(.bold)
+                                .fontWidth(.expanded)
+                            HStack(spacing: 20) {
+                                Button("Previous track", systemImage: "arrowtriangle.backward.fill") {
+                                    musicAction("backward")
+                                }
+                                .styledButton()
+
+                                Button(action: {
+                                    musicAction("togglePlayPause")
+                                }) {
+                                    Image(systemName: "playpause.fill")
+                                }
+                                .styledButton()
+
+                                Button("Next track", systemImage: "arrowtriangle.forward.fill") {
+                                    musicAction("forward")
+                                }
+                                .styledButton()
+                            }
+                        }
+                        // TV
+                        VStack(spacing: 20) {
+                            Text("TV")
+                                .fontWeight(.bold)
+                                .fontWidth(.expanded)
+                            HStack(spacing: 20) {
+                                Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
+                                    tvAction("backward")
+                                }
+                                .styledButton()
+
+                                Button(action: {
+                                    tvAction("togglePlayPause")
+                                }) {
+                                    Image(systemName: "playpause.fill")
+                                }
+                                .styledButton()
+
+                                Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
+                                    tvAction("forward")
+                                }
+                                .styledButton()
+                            }
+                        }
                         // VLC
                         VStack(spacing: 20) {
                             Text("VLC")
@@ -137,11 +186,11 @@ struct ControlView: View {
 //            }
         }
         .padding()
-        .navigationTitle(host)
+        .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(host)
+                Text(displayName)
                     .font(.subheadline)
                     .accessibilityAddTraits(.isHeader)
                     .foregroundStyle(.secondary)
@@ -280,6 +329,79 @@ struct ControlView: View {
         fetchQuickTimeState()
     }
 
+    private func musicAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "Music"
+                previous track
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "Music"
+                next track
+            end tell
+            """
+        case "togglePlayPause":
+            script = """
+            tell application "Music"
+                if player state is stopped then return
+                if player state is playing then
+                    pause
+                else
+                    play
+                end if
+            end tell
+            
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
+    private func tvAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "TV"
+                if player state is stopped then return
+                set currentPos to the player position
+                set newPos to currentPos - 5
+                if newPos < 0 then set newPos to 0
+                set the player position to newPos
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "TV"
+                if player state is stopped then return
+                set currentPos to player position
+                set newPos to currentPos + 5
+                set player position to newPos
+                end tell
+            """
+        case "togglePlayPause":
+            script = """
+            tell application "TV"
+                if player state is stopped then return
+                if player state is playing then
+                    pause
+                else
+                    play
+                end if
+            end tell
+            
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
 
     private func vlcAction(_ action: String) {
         let script: String
@@ -395,6 +517,7 @@ struct ControlView_Previews: PreviewProvider {
         NavigationStack {
             ControlView(
                 host: "rwhitney-mac.local",
+                displayName: "Ryan's Mac",
                 username: "ryan",
                 password: "",
                 sshClient: SSHClient()
