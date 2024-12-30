@@ -77,8 +77,14 @@ struct ComputerListView: View {
                     }
                 }
             }
-            .navigationTitle("Computers")
+            .navigationTitle("") // Empty to avoid default title
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("SOUND CONTROL")
+                        .font(.system(size: 12, weight: .bold, design: .default).width(.expanded))
+                        .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
+                }
+            }            .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
                         Button(action: refreshComputers) {

@@ -23,47 +23,58 @@ struct VolumeControlView: View {
             switch connectionState {
             case .connecting:
                 ProgressView("Connecting to \(host)...")
-                
-            case .connected:
-                Text("Volume: \(Int(volume * 100))%")
-                    .padding(.top)
-                
-                Slider(value: $volume, in: 0...1, step: 0.01)
-                    .padding(.horizontal)
-                
-                HStack(spacing: 20) {
-                    Button("-5") { adjustVolume(by: -5) }
-                    Button("-1") { adjustVolume(by: -1) }
-                    Button("+1") { adjustVolume(by: 1) }
-                    Button("+5") { adjustVolume(by: 5) }
-                }
-                .padding(.vertical, 5)
-                
-                HStack(spacing: 20) {
-                    Button("Get Volume") {
-                        getVolume()
-                    }
-                    
-                    Button("Set Volume") {
-                        setVolume()
-                    }
-                    
-                    Button("Test Command") {
-                        testCommand()
-                    }
-                }
-                .padding()
 
-                ScrollView {
-                    Text(sshOutput)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
+            case .connected:
+
+                Spacer()
+                Spacer()
+                // Quicktime Controls
+                VStack(spacing: 20) {
+                    Text("Quicktime")
+                        .padding(.top)
+                    HStack(spacing: 20) {
+                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") { quickTimeAction("backward") }
+
+                            .styledButton()
+                        Button("Play/pause", systemImage: "playpause") { quickTimeAction("togglePlayPause") }
+                            .styledButton()
+                        Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") { quickTimeAction("forward") }
+                            .styledButton()
+                    }
+
                 }
-                .frame(height: 100)
-                .background(Color.black.opacity(0.1))
-                .cornerRadius(8)
-                .padding()
+
+                Spacer()
+                // Volume Controls
+                VStack(spacing: 20) {
+                    Text("Volume: \(Int(volume * 100))%")
+                        .padding(.top)
+
+                    Slider(value: $volume, in: 0...1, step: 0.01)
+                        .padding(.horizontal)
+                        .onAppear {
+                            getVolume()
+                        }
+                        .onChange(of: volume) { _ in
+                            setVolume()
+                        }
+
+                    HStack(spacing: 20) {
+                        Button("-5") { adjustVolume(by: -5) }
+                            .styledButton()
+                        Button("-1") { adjustVolume(by: -1) }
+                            .styledButton()
+                        Button("+1") { adjustVolume(by: 1) }
+                            .styledButton()
+                        Button("+5") { adjustVolume(by: 5) }
+                            .styledButton()
+                    }
+
+                }
+
+                Spacer()
+
+                Spacer()
 
             case .failed(let error):
                 VStack {
@@ -88,6 +99,13 @@ struct VolumeControlView: View {
         .onAppear {
             connectToSSH()
         }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Test Speaker", systemImage: "speaker.wave.2.bubble.fill") {
+                    testCommand()
+                }
+            }
+        }
     }
 
     private func connectToSSH() {
@@ -108,24 +126,13 @@ struct VolumeControlView: View {
 
     private func getVolume() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
-        appendOutput("$ \(command)")
-        
-        sshClient.executeCommandWithNewChannel(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to get volume: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
-                    if let volumeStr = output.split(separator: ",").first,
-                       let volumeNum = volumeStr.split(separator: ":").last,
-                       let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
-                        self.volume = volumeLevel / 100.0
-                    } else {
-                        self.errorMessage = "Invalid volume format: \(output)"
-                    }
-                }
+        executeCommand(command) { output in
+            if let volumeStr = output.split(separator: ",").first,
+               let volumeNum = volumeStr.split(separator: ":").last,
+               let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
+                self.volume = volumeLevel / 100.0
+            } else {
+                self.errorMessage = "Invalid volume format: \(output)"
             }
         }
     }
@@ -133,50 +140,7 @@ struct VolumeControlView: View {
     private func setVolume() {
         let volumeInt = Int(volume * 100)
         let command = "/usr/bin/osascript -e 'set volume output volume \(volumeInt)'"
-        appendOutput("$ \(command)")
-        
-        sshClient.executeCommandWithNewChannel(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to set volume: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
-                    self.getVolume()
-                }
-            }
-        }
-    }
-
-    private func testCommand() {
-        let command = "say 'hello ryan'"
-        appendOutput("$ \(command)")
-        
-        sshClient.executeCommandWithNewChannel(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to run test: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
-                }
-            }
-        }
-    }
-
-    private func appendOutput(_ text: String) {
-        DispatchQueue.main.async {
-            let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-            if text.hasPrefix("$") {
-                // Command being sent
-                self.sshOutput = "\(text)\n" + self.sshOutput
-            } else {
-                // Command output
-                self.sshOutput = text + "\n" + self.sshOutput
-            }
-        }
+        executeCommand(command)
     }
 
     private func adjustVolume(by amount: Int) {
@@ -184,15 +148,97 @@ struct VolumeControlView: View {
         volume = Float(newVolume) / 100.0
         setVolume()
     }
+
+    private func quickTimeAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "QuickTime Player"
+                if not (exists document 1) then return
+                set theDocument to document 1
+                set currentTime to current time of theDocument
+                set newTime to currentTime - 5
+                if newTime < 0 then set newTime to 0
+                set current time of theDocument to newTime
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "QuickTime Player"
+                if not (exists document 1) then return
+                set theDocument to document 1
+                set currentTime to current time of theDocument
+                set videoDuration to duration of theDocument
+                set newTime to currentTime + 5
+                if newTime > videoDuration then set newTime to videoDuration - 0.01
+                set current time of theDocument to newTime
+            end tell
+            """
+        case "togglePlayPause":
+            script = """
+            tell application "QuickTime Player"
+                if not (exists document 1) then return
+                set theDocument to document 1
+                if playing of theDocument then
+                    pause theDocument
+                else
+                    play theDocument
+                end if
+            end tell
+            """
+        default:
+            return
+        }
+
+        let command = "/usr/bin/osascript -e '\(script)'"
+        executeCommand(command)
+    }
+
+    private func testCommand() {
+        let command = "say 'hello ryan'"
+        executeCommand(command)
+    }
+
+
+    private func executeCommand(_ command: String, completion: ((String) -> Void)? = nil) {
+        appendOutput("$ \(command)")
+        sshClient.executeCommandWithNewChannel(command) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .failure(let error):
+                    self.errorMessage = "Error: \(error.localizedDescription)"
+                case .success(let output):
+                    self.appendOutput(output)
+                    completion?(output)
+                }
+            }
+        }
+    }
+
+    private func appendOutput(_ text: String) {
+        sshOutput = "\(text)\n" + sshOutput
+    }
 }
 
+private extension Button {
+    func styledButton() -> some View {
+        self.padding(12)
+            .frame(width: 60, height: 60)
+            .background(Color(.systemGray6))
+            .clipShape(Circle())
+            .labelStyle(.iconOnly)
+    }
+}
 struct VolumeControlView_Previews: PreviewProvider {
     static var previews: some View {
-        VolumeControlView(
-            host: "example.local",
-            username: "test",
-            password: "test",
-            sshClient: SSHClient()
-        )
+        NavigationStack(){
+            VolumeControlView(
+                host: "rwhitney-mac.local",
+                username: "ryan",
+                password: "",
+                sshClient: SSHClient()
+            )
+        }
     }
 }

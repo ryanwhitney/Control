@@ -32,6 +32,7 @@ struct VolumeControlApp: App {
                 .onAppear {
                     networkPermissions.requestPermissions()
                 }
+                .tint(Color.green)
         }
         .modelContainer(sharedModelContainer)
     }
