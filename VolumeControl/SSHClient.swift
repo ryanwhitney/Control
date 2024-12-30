@@ -208,6 +208,7 @@ class SSHCommandHandler: ChannelInboundHandler {
     var pendingCommandPromise: EventLoopPromise<String>?
     private var buffer: String = ""
     private var isExecutingCommand = false
+    private var hasReceivedOutput = false
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let channelData = unwrapInboundIn(data)
@@ -221,7 +222,12 @@ class SSHCommandHandler: ChannelInboundHandler {
             if let output = buffer.getString(at: 0, length: buffer.readableBytes) {
                 print("Received output: \(output)")
                 self.buffer += output
-                completeCommand()
+                hasReceivedOutput = true
+                
+                // Only complete if we've received actual output
+                if !output.isEmpty {
+                    completeCommand()
+                }
             }
             
         case .stdErr:
@@ -231,6 +237,7 @@ class SSHCommandHandler: ChannelInboundHandler {
             }
             print("Received error: \(errorOutput)")
             self.buffer += "[Error] " + errorOutput
+            hasReceivedOutput = true
             completeCommand()
             
         default:
@@ -239,18 +246,20 @@ class SSHCommandHandler: ChannelInboundHandler {
     }
 
     private func completeCommand() {
-        if !buffer.isEmpty {
+        if hasReceivedOutput {
             let output = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
             pendingCommandPromise?.succeed(output)
             pendingCommandPromise = nil
             buffer = ""
             isExecutingCommand = false
+            hasReceivedOutput = false
         }
     }
 
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if event is SSHChannelRequestEvent.ExecRequest {
             isExecutingCommand = true
+            hasReceivedOutput = false
         }
         context.fireUserInboundEventTriggered(event)
     }
@@ -261,6 +270,7 @@ class SSHCommandHandler: ChannelInboundHandler {
         pendingCommandPromise = nil
         buffer = ""
         isExecutingCommand = false
+        hasReceivedOutput = false
     }
 }
 

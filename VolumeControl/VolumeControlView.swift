@@ -101,20 +101,23 @@ struct VolumeControlView: View {
     private func getVolume() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
         appendOutput("$ \(command)")
-        sshClient.executeCommand(command) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .failure(let error):
-                    self.errorMessage = "Failed to get volume: \(error.localizedDescription)"
-                    self.appendOutput("[Error] \(error.localizedDescription)")
-                case .success(let output):
-                    self.appendOutput(output)
-                    if let volumeStr = output.split(separator: ",").first,
-                       let volumeNum = volumeStr.split(separator: ":").last,
-                       let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
-                        self.volume = volumeLevel / 100.0
-                    } else {
-                        self.errorMessage = "Invalid volume format: \(output)"
+        
+        if let client = sshClient as? SSHClient {
+            client.executeCommandWithNewChannel(command) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .failure(let error):
+                        self.errorMessage = "Failed to get volume: \(error.localizedDescription)"
+                        self.appendOutput("[Error] \(error.localizedDescription)")
+                    case .success(let output):
+                        self.appendOutput(output)
+                        if let volumeStr = output.split(separator: ",").first,
+                           let volumeNum = volumeStr.split(separator: ":").last,
+                           let volumeLevel = Float(volumeNum.trimmingCharacters(in: .whitespaces)) {
+                            self.volume = volumeLevel / 100.0
+                        } else {
+                            self.errorMessage = "Invalid volume format: \(output)"
+                        }
                     }
                 }
             }
