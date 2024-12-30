@@ -4,6 +4,8 @@ import Network
 
 struct ComputerListView: View {
     @StateObject private var savedConnections = SavedConnections()
+    @StateObject private var sshManager = SSHManager()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var computers: [NetService] = []
     @State private var isAuthenticating = false
     @State private var selectedComputer: Computer?
@@ -13,8 +15,7 @@ struct ComputerListView: View {
     @State private var saveCredentials = false
     @State private var errorMessage: String?
     @State private var navigateToControl = false
-    private var sshClient = SSHClient()  // Single SSH client instance
-    private let browser = NetServiceBrowser()  // Add back the browser instance
+    private let browser = NetServiceBrowser()
 
     struct Computer: Identifiable, Hashable {
         let id: String
@@ -98,13 +99,29 @@ struct ComputerListView: View {
                     VolumeControlView(
                         host: computer.host,
                         username: username,
-                        password: password
+                        password: password,
+                        sshClient: sshManager.currentClient
                     )
                 }
             }
         }
         .onAppear {
             refreshComputers()
+        }
+        .onDisappear {
+            browser.stop()
+        }
+        // Handle app lifecycle
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background:
+                sshManager.disconnect()
+            case .active:
+                // Optionally reconnect if needed
+                break
+            default:
+                break
+            }
         }
     }
 
@@ -156,11 +173,10 @@ struct ComputerListView: View {
     }
     
     private func tryConnect(computer: Computer, showAuthOnFail: Bool = false) {
-        sshClient.connect(host: computer.host, username: username, password: password) { result in
+        sshManager.connect(host: computer.host, username: username, password: password) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    // Save the successful credentials if requested
                     if self.saveCredentials {
                         self.savedConnections.updateLastUsername(for: computer.host, username: self.username, password: self.password)
                     } else {
@@ -171,8 +187,7 @@ struct ComputerListView: View {
                 case .failure(let error):
                     print("Connection failed: \(error)")
                     if showAuthOnFail {
-                        // Show auth view on failure if requested
-                        self.password = ""  // Clear failed password
+                        self.password = ""
                         self.isAuthenticating = true
                     }
                 }
@@ -281,6 +296,48 @@ class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
     }
 }
 
+// Update SSH Manager to handle its own client state
+class SSHManager: ObservableObject {
+    private var client = SSHClient()
+    private var isConnected = false
+    
+    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        // Ensure clean state before new connection
+        disconnect()
+        
+        // Create new client if needed
+        if !isConnected {
+            client = SSHClient()
+        }
+        
+        client.connect(host: host, username: username, password: password) { result in
+            switch result {
+            case .success:
+                self.isConnected = true
+            case .failure:
+                self.isConnected = false
+            }
+            completion(result)
+        }
+    }
+    
+    func disconnect() {
+        client = SSHClient()  // Create fresh client, old one will be deallocated
+        isConnected = false
+    }
+    
+    func executeCommand(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
+        client.executeCommandWithNewChannel(command, completion: completion)
+    }
+    
+    var currentClient: SSHClient {
+        return client
+    }
+    
+    deinit {
+        disconnect()
+    }
+}
 
 struct ComputerListView_Previews: PreviewProvider {
     static var previews: some View {
