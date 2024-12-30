@@ -40,3 +40,16 @@ struct AuthenticationView: View {
         }
     }
 }
+
+struct AuthenticationView_Previews: PreviewProvider {
+    static var previews: some View {
+        AuthenticationView(
+            name: "Test Computer",
+            username: .constant("testuser"),
+            password: .constant(""),
+            saveCredentials: .constant(false),
+            onSuccess: {},
+            onCancel: {}
+        )
+    }
+}

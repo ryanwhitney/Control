@@ -7,9 +7,12 @@
 
 import SwiftUI
 import SwiftData
+import Network
 
 @main
 struct VolumeControlApp: App {
+    @StateObject private var networkPermissions = NetworkPermissions()
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,
@@ -26,7 +29,28 @@ struct VolumeControlApp: App {
     var body: some Scene {
         WindowGroup {
             ComputerListView()
+                .onAppear {
+                    networkPermissions.requestPermissions()
+                }
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+// Class to handle network permissions
+class NetworkPermissions: ObservableObject {
+    private let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: .tcp)
+    
+    func requestPermissions() {
+        // Start and immediately stop the browser to trigger the permission request
+        browser.stateUpdateHandler = { state in
+            switch state {
+            case .ready, .failed:
+                self.browser.cancel()
+            default:
+                break
+            }
+        }
+        browser.start(queue: .main)
     }
 }

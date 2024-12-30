@@ -115,4 +115,18 @@ class SavedConnections: ObservableObject {
         guard let encoded = try? JSONEncoder().encode(items) else { return }
         UserDefaults.standard.set(encoded, forKey: saveKey)
     }
+    
+    func remove(hostname: String) {
+        // Remove from saved items
+        items.removeAll { $0.hostname == hostname }
+        save()
+        
+        // Remove password from keychain
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "VolumeControl",
+            kSecAttrAccount as String: hostname
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+    }
 } 

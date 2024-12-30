@@ -41,18 +41,37 @@ struct ComputerListView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(allComputers) { computer in
-                    Button(action: { selectComputer(computer) }) {
-                        VStack(alignment: .leading) {
-                            Text(computer.name)
-                                .font(.headline)
-                            Text(computer.host)
-                                .font(.subheadline)
+                Section(header: Text("On Your Network").textCase(.none)) {
+                    if computers.isEmpty {
+                        HStack {
+                            Text("No computers found")
                                 .foregroundColor(.gray)
-                            if let username = computer.lastUsername {
-                                Text(username)
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
+                            Spacer()
+                            ProgressView()
+                        }
+                    } else {
+                        ForEach(networkComputers) { computer in
+                            ComputerRow(computer: computer) {
+                                selectComputer(computer)
+                            }
+                        }
+                    }
+                }
+                
+                Section(header: Text("Recent").textCase(.none)) {
+                    if savedComputers.isEmpty {
+                        Text("No recent computers")
+                            .foregroundColor(.gray)
+                    } else {
+                        ForEach(savedComputers) { computer in
+                            ComputerRow(computer: computer) {
+                                selectComputer(computer)
+                            }
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let computer = savedComputers[index]
+                                savedConnections.remove(hostname: computer.host)
                             }
                         }
                     }
@@ -125,23 +144,45 @@ struct ComputerListView: View {
         }
     }
 
-    private var allComputers: [Computer] {
-        var result = Set<Computer>()
+    // Separate computer row view for reuse
+    struct ComputerRow: View {
+        let computer: Computer
+        let action: () -> Void
         
-        // Add Bonjour computers
-        result.formUnion(computers.compactMap { service in
-            guard let host = service.hostName else { return nil }
+        var body: some View {
+            Button(action: action) {
+                VStack(alignment: .leading) {
+                    Text(computer.name)
+                        .font(.headline)
+                    Text(computer.host)
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                    if let username = computer.lastUsername {
+                        Text(username)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+    }
+
+    private var networkComputers: [Computer] {
+        computers.compactMap { service in
+            guard let hostName = service.hostName else { return nil }
+            let name = service.name.replacingOccurrences(of: "\\032", with: " ")
             return Computer(
-                id: host,
-                name: service.name,
-                host: host,
+                id: hostName,
+                name: name,
+                host: hostName,
                 type: .bonjour(service),
-                lastUsername: savedConnections.lastUsername(for: host)
+                lastUsername: savedConnections.lastUsername(for: hostName)
             )
-        })
-        
-        // Add manual computers
-        result.formUnion(savedConnections.items.map { saved in
+        }.sorted { $0.name < $1.name }
+    }
+    
+    private var savedComputers: [Computer] {
+        savedConnections.items.map { saved in
             Computer(
                 id: saved.hostname,
                 name: saved.name ?? saved.hostname,
@@ -149,9 +190,7 @@ struct ComputerListView: View {
                 type: .manual,
                 lastUsername: saved.username
             )
-        })
-        
-        return Array(result).sorted { $0.name < $1.name }
+        }.sorted { $0.name < $1.name }
     }
 
     private func selectComputer(_ computer: Computer) {
@@ -200,15 +239,21 @@ struct ComputerListView: View {
     }
 
     func refreshComputers() {
+        print("Starting computer refresh...")
         computers.removeAll()
         errorMessage = nil
         
         // Stop any existing search
         browser.stop()
+        print("Stopped existing browser")
         
         // Create new delegate and start search
         let delegate = BonjourDelegate(computers: $computers, errorMessage: $errorMessage)
         browser.delegate = delegate
+        
+        // Search for SSH service
+        print("Starting SSH service search...")
+        browser.includesPeerToPeer = false
         browser.searchForServices(ofType: "_ssh._tcp.", inDomain: "local.")
     }
 }
@@ -263,36 +308,78 @@ struct AddComputerView: View {
 class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
     @Binding var computers: [NetService]
     @Binding var errorMessage: String?
+    private var resolving: Set<String> = []
     
     init(computers: Binding<[NetService]>, errorMessage: Binding<String?>) {
         _computers = computers
         _errorMessage = errorMessage
         super.init()
+        print("BonjourDelegate initialized")
+    }
+    
+    func netServiceBrowserWillSearch(_ browser: NetServiceBrowser) {
+        print("Bonjour browser will start searching")
+        DispatchQueue.main.async {
+            self.errorMessage = nil
+            self.computers.removeAll()
+            self.resolving.removeAll()
+        }
     }
     
     func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        service.delegate = self
-        service.resolve(withTimeout: 5)
+        // Only resolve if we haven't seen this name before
+        let serviceName = service.name.replacingOccurrences(of: "\\032", with: " ")
+        if !resolving.contains(serviceName) {
+            print("Found service: \(serviceName) type: \(service.type) domain: \(service.domain)")
+            resolving.insert(serviceName)
+            service.delegate = self
+            service.resolve(withTimeout: 10.0)
+        } else {
+            print("Already resolving service: \(serviceName)")
+        }
     }
     
     func netServiceDidResolveAddress(_ sender: NetService) {
-        DispatchQueue.main.async { [weak self] in
-            if !(self?.computers.contains(where: { $0.name == sender.name }) ?? false) {
-                self?.computers.append(sender)
+        let serviceName = sender.name.replacingOccurrences(of: "\\032", with: " ")
+        print("Resolved service: \(serviceName) host: \(sender.hostName ?? "unknown")")
+        
+        DispatchQueue.main.async {
+            // Only add if we don't already have this computer
+            if !self.computers.contains(where: { $0.name == serviceName }) {
+                print("Adding computer: \(serviceName) (\(sender.hostName ?? "unknown"))")
+                self.computers.append(sender)
             }
         }
     }
     
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        DispatchQueue.main.async { [weak self] in
-            self?.errorMessage = "Failed to search: \(errorDict)"
+        let error = "Failed to search: \(errorDict)"
+        print(error)
+        DispatchQueue.main.async {
+            self.errorMessage = error
         }
     }
     
     func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        DispatchQueue.main.async { [weak self] in
-            self?.errorMessage = "Failed to resolve: \(errorDict)"
+        let serviceName = sender.name.replacingOccurrences(of: "\\032", with: " ")
+        let error = "Failed to resolve \(serviceName): \(errorDict)"
+        print(error)
+        // Remove from resolving set so we can try again
+        resolving.remove(serviceName)
+    }
+    
+    func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
+        let serviceName = service.name.replacingOccurrences(of: "\\032", with: " ")
+        print("Service removed: \(serviceName)")
+        DispatchQueue.main.async {
+            self.computers.removeAll { $0.name == serviceName }
         }
+        resolving.remove(serviceName)
+    }
+    
+    func netServiceBrowserDidStopSearch(_ browser: NetServiceBrowser) {
+        print("Bonjour browser did stop searching")
+        resolving.removeAll()
     }
 }
 
@@ -342,5 +429,14 @@ class SSHManager: ObservableObject {
 struct ComputerListView_Previews: PreviewProvider {
     static var previews: some View {
         ComputerListView()
+    }
+}
+
+// Add preview for AddComputerView
+struct AddComputerView_Previews: PreviewProvider {
+    static var previews: some View {
+        AddComputerView { host, username, password in
+            print("Would add computer: \(host)")
+        }
     }
 }

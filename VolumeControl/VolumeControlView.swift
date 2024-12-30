@@ -32,6 +32,14 @@ struct VolumeControlView: View {
                     .padding(.horizontal)
                 
                 HStack(spacing: 20) {
+                    Button("-5") { adjustVolume(by: -5) }
+                    Button("-1") { adjustVolume(by: -1) }
+                    Button("+1") { adjustVolume(by: 1) }
+                    Button("+5") { adjustVolume(by: 5) }
+                }
+                .padding(.vertical, 5)
+                
+                HStack(spacing: 20) {
                     Button("Get Volume") {
                         getVolume()
                     }
@@ -169,5 +177,22 @@ struct VolumeControlView: View {
                 self.sshOutput = text + "\n" + self.sshOutput
             }
         }
+    }
+
+    private func adjustVolume(by amount: Int) {
+        let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
+        volume = Float(newVolume) / 100.0
+        setVolume()
+    }
+}
+
+struct VolumeControlView_Previews: PreviewProvider {
+    static var previews: some View {
+        VolumeControlView(
+            host: "example.local",
+            username: "test",
+            password: "test",
+            sshClient: SSHClient()
+        )
     }
 }
