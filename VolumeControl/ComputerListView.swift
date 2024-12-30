@@ -10,10 +10,11 @@ struct ComputerListView: View {
     @State private var showingAddDialog = false
     @State private var username: String = ""
     @State private var password: String = ""
+    @State private var saveCredentials = false
     @State private var errorMessage: String?
     @State private var navigateToControl = false
-
-    private let browser = NetServiceBrowser()
+    private var sshClient = SSHClient()  // Single SSH client instance
+    private let browser = NetServiceBrowser()  // Add back the browser instance
 
     struct Computer: Identifiable, Hashable {
         let id: String
@@ -47,6 +48,11 @@ struct ComputerListView: View {
                             Text(computer.host)
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                            if let username = computer.lastUsername {
+                                Text(username)
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
                         }
                     }
                 }
@@ -66,8 +72,8 @@ struct ComputerListView: View {
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
-                AddComputerView { host in
-                    addManualComputer(host)
+                AddComputerView { host, username, password in
+                    addManualComputer(host, username: username, password: password)
                     showingAddDialog = false
                 }
             }
@@ -77,10 +83,9 @@ struct ComputerListView: View {
                         name: computer.name,
                         username: $username,
                         password: $password,
+                        saveCredentials: $saveCredentials,
                         onSuccess: {
-                            savedConnections.updateLastUsername(for: computer.host, username: username)
-                            navigateToControl = true
-                            isAuthenticating = false
+                            tryConnect(computer: computer)
                         },
                         onCancel: {
                             isAuthenticating = false
@@ -135,11 +140,48 @@ struct ComputerListView: View {
     private func selectComputer(_ computer: Computer) {
         selectedComputer = computer
         username = computer.lastUsername ?? ""
-        isAuthenticating = true
+        password = ""  // Reset password
+        saveCredentials = false  // Reset save credentials toggle
+        
+        if let savedUsername = computer.lastUsername,
+           let savedPassword = savedConnections.password(for: computer.host) {
+            // We have complete saved credentials, try connecting
+            username = savedUsername
+            password = savedPassword
+            tryConnect(computer: computer, showAuthOnFail: true)
+        } else {
+            // Missing some credentials, show auth view
+            isAuthenticating = true
+        }
+    }
+    
+    private func tryConnect(computer: Computer, showAuthOnFail: Bool = false) {
+        sshClient.connect(host: computer.host, username: username, password: password) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    // Save the successful credentials if requested
+                    if self.saveCredentials {
+                        self.savedConnections.updateLastUsername(for: computer.host, username: self.username, password: self.password)
+                    } else {
+                        self.savedConnections.updateLastUsername(for: computer.host, username: self.username)
+                    }
+                    self.navigateToControl = true
+                    self.isAuthenticating = false
+                case .failure(let error):
+                    print("Connection failed: \(error)")
+                    if showAuthOnFail {
+                        // Show auth view on failure if requested
+                        self.password = ""  // Clear failed password
+                        self.isAuthenticating = true
+                    }
+                }
+            }
+        }
     }
 
-    private func addManualComputer(_ host: String) {
-        savedConnections.add(hostname: host)
+    private func addManualComputer(_ host: String, username: String? = nil, password: String? = nil) {
+        savedConnections.add(hostname: host, username: username, password: password)
     }
 
     func refreshComputers() {
@@ -156,23 +198,44 @@ struct ComputerListView: View {
     }
 }
 
-// Simplified Add Computer view
+// Add Computer view with credential options
 struct AddComputerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var hostname = ""
-    let onAdd: (String) -> Void
+    @State private var username = ""
+    @State private var password = ""
+    @State private var saveCredentials = false
+    let onAdd: (String, String?, String?) -> Void
     
     var body: some View {
         NavigationView {
             Form {
-                TextField("Hostname or IP", text: $hostname)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-                
-                Button("Add") {
-                    onAdd(hostname)
+                Section(header: Text("Computer")) {
+                    TextField("Hostname or IP", text: $hostname)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
                 }
-                .disabled(hostname.isEmpty)
+                
+                Section(header: Text("Credentials (Optional)")) {
+                    TextField("Username", text: $username)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .textContentType(.username)
+                    
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                    
+                    Toggle("Save credentials for one-tap login", isOn: $saveCredentials)
+                }
+                
+                Section {
+                    Button("Add") {
+                        onAdd(hostname, 
+                             username.isEmpty ? nil : username,
+                             saveCredentials ? password : nil)
+                    }
+                    .disabled(hostname.isEmpty)
+                }
             }
             .navigationTitle("Add Computer")
             .navigationBarItems(trailing: Button("Cancel") {
@@ -217,7 +280,6 @@ class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
         }
     }
 }
-
 
 
 struct ComputerListView_Previews: PreviewProvider {

@@ -4,6 +4,7 @@ struct AuthenticationView: View {
     let name: String
     @Binding var username: String
     @Binding var password: String
+    @Binding var saveCredentials: Bool
     let onSuccess: () -> Void
     let onCancel: () -> Void
 
@@ -22,9 +23,12 @@ struct AuthenticationView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                     .textContentType(.password)
 
+                Toggle("Save credentials for one-tap login", isOn: $saveCredentials)
+                    .padding(.horizontal)
+
                 HStack(spacing: 20) {
                     Button("Cancel", role: .cancel, action: onCancel)
-                    
+
                     Button("Connect") {
                         onSuccess()
                     }
@@ -35,4 +39,4 @@ struct AuthenticationView: View {
             .navigationTitle("Authentication")
         }
     }
-} 
+}
