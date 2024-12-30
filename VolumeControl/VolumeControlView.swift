@@ -13,12 +13,14 @@ struct VolumeControlView: View {
     @State private var isQuickTimePlaying: Bool = false
     @State private var sshOutput: String = ""
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var volumeChangeWorkItem: DispatchWorkItem?
 
     enum ConnectionState {
         case connecting
         case connected
+        case disconnected
         case failed(String)
     }
 
@@ -79,7 +81,15 @@ struct VolumeControlView: View {
                 .opacity(isReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.5), value: isReady)
 
-
+            case .disconnected:
+                VStack {
+                    Text("Disconnected").font(.headline)
+                    Button("Reconnect") {
+                        connectToSSH()
+                        refreshQuickTimeState()
+                    }
+                    .padding()
+                }
 
             case .failed(let error):
                 VStack {
@@ -100,8 +110,21 @@ struct VolumeControlView: View {
             connectToSSH()
             refreshQuickTimeState()
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            refreshQuickTimeState()
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .active:
+                print("App active, reconnecting...")
+                connectToSSH()
+                refreshQuickTimeState()
+            case .background:
+                print("App backgrounded, disconnecting...")
+                sshClient.disconnect()
+                connectionState = .disconnected
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -118,6 +141,9 @@ struct VolumeControlView: View {
     }
 
     private func connectToSSH() {
+        isReady = false
+        connectionState = .connecting
+        
         sshClient.connect(host: host, username: username, password: password) { result in
             DispatchQueue.main.async {
                 switch result {
@@ -131,7 +157,6 @@ struct VolumeControlView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         self.isReady = true
                     }
-
                 }
             }
         }

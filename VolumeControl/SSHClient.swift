@@ -171,6 +171,13 @@ class SSHClient {
             completion(result)
         }
     }
+
+    func disconnect() {
+        session?.close(promise: nil)
+        session = nil
+        connection?.close(promise: nil)
+        connection = nil
+    }
 }
 
 class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
