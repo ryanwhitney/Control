@@ -2,13 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>VolumeControl needs access to your local network to discover and connect to computers.</string>
-	<key>NSBonjourServices</key>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.bonjour</key>
 	<array>
 		<string>_ssh._tcp.</string>
 		<string>_sftp-ssh._tcp.</string>
 		<string>_remote-login._tcp.</string>
 	</array>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.network.server</key>
+	<true/>
 </dict>
 </plist>

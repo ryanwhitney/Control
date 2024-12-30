@@ -13,45 +13,41 @@ import Network
 struct VolumeControlApp: App {
     @StateObject private var networkPermissions = NetworkPermissions()
     
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
     var body: some Scene {
         WindowGroup {
             ComputerListView()
                 .onAppear {
                     networkPermissions.requestPermissions()
                 }
-                .tint(Color.green)
         }
-        .modelContainer(sharedModelContainer)
     }
 }
 
 // Class to handle network permissions
 class NetworkPermissions: ObservableObject {
+    @Published var isAuthorized = false
     private let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: .tcp)
     
     func requestPermissions() {
-        // Start and immediately stop the browser to trigger the permission request
         browser.stateUpdateHandler = { state in
             switch state {
-            case .ready, .failed:
-                self.browser.cancel()
+            case .ready:
+                DispatchQueue.main.async {
+                    self.isAuthorized = true
+                }
+            case .failed:
+                DispatchQueue.main.async {
+                    self.isAuthorized = false
+                }
             default:
                 break
             }
         }
         browser.start(queue: .main)
+        
+        // Add timeout to stop the permissions check
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak browser] in
+            browser?.cancel()
+        }
     }
 }

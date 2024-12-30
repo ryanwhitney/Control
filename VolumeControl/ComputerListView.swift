@@ -15,7 +15,8 @@ struct ComputerListView: View {
     @State private var saveCredentials = false
     @State private var errorMessage: String?
     @State private var navigateToControl = false
-    private let browser = NetServiceBrowser()
+    @State private var isSearching = false
+    @State private var browser: NWBrowser?
 
     struct Computer: Identifiable, Hashable {
         let id: String
@@ -42,13 +43,16 @@ struct ComputerListView: View {
         NavigationStack {
             List {
                 Section(header: Text("On Your Network").textCase(.none)) {
-                    if computers.isEmpty {
+                    if isSearching {
                         HStack {
-                            Text("No computers found")
+                            Text("Searching for computers...")
                                 .foregroundColor(.secondary)
                             Spacer()
                             ProgressView()
                         }
+                    } else if computers.isEmpty {
+                        Text("No computers found")
+                            .foregroundColor(.secondary)
                     } else {
                         ForEach(networkComputers) { computer in
                             ComputerRow(computer: computer) {
@@ -87,7 +91,7 @@ struct ComputerListView: View {
             }            .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
-                        Button(action: refreshComputers) {
+                        Button(action: startBrowsing) {
                             Image(systemName: "arrow.clockwise")
                         }
                         
@@ -131,10 +135,10 @@ struct ComputerListView: View {
             }
         }
         .onAppear {
-            refreshComputers()
+            startBrowsing()
         }
         .onDisappear {
-            browser.stop()
+            browser?.cancel()
         }
         // Handle app lifecycle
         .onChange(of: scenePhase) { phase in
@@ -244,23 +248,72 @@ struct ComputerListView: View {
         savedConnections.add(hostname: host, username: username, password: password)
     }
 
-    func refreshComputers() {
-        print("Starting computer refresh...")
+    private func startBrowsing() {
+        print("\n=== Starting Network Discovery ===")
         computers.removeAll()
         errorMessage = nil
+        isSearching = true
         
-        // Stop any existing search
-        browser.stop()
-        print("Stopped existing browser")
+        // Stop existing browser
+        browser?.cancel()
         
-        // Create new delegate and start search
-        let delegate = BonjourDelegate(computers: $computers, errorMessage: $errorMessage)
-        browser.delegate = delegate
+        // Create new browser
+        let parameters = NWParameters()
+        parameters.includePeerToPeer = false
         
-        // Search for SSH service
-        print("Starting SSH service search...")
-        browser.includesPeerToPeer = false
-        browser.searchForServices(ofType: "_ssh._tcp.", inDomain: "local.")
+        let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: parameters)
+        self.browser = browser
+        
+        browser.stateUpdateHandler = { state in
+            print("Browser state: \(state)")
+            DispatchQueue.main.async {
+                switch state {
+                case .failed(let error):
+                    print("Browser failed: \(error)")
+                    self.errorMessage = error.localizedDescription
+                    self.isSearching = false
+                case .ready:
+                    print("Browser ready")
+                case .cancelled:
+                    print("Browser cancelled")
+                    self.isSearching = false
+                default:
+                    break
+                }
+            }
+        }
+        
+        browser.browseResultsChangedHandler = { results, changes in
+            print("Found \(results.count) services")
+            DispatchQueue.main.async {
+                self.computers = results.compactMap { result in
+                    guard case .service(let name, let type, let domain, let endpoint) = result.endpoint else {
+                        print("Invalid endpoint format")
+                        return nil
+                    }
+                    print("Found service: \(name)")
+                    print("Endpoint details: \(endpoint)")
+                    
+                    // Create NetService and start resolution
+                    let service = NetService(domain: domain, type: type, name: name)
+                    service.resolve(withTimeout: 5.0)
+                    return service
+                }
+            }
+        }
+        
+        print("Starting browser...")
+        browser.start(queue: .main)
+        
+        // Add timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+            print("\n=== Search Complete ===")
+            print("Final computer count: \(self.computers.count)")
+            browser.cancel()
+            DispatchQueue.main.async {
+                self.isSearching = false
+            }
+        }
     }
 }
 
@@ -320,29 +373,13 @@ class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
         _computers = computers
         _errorMessage = errorMessage
         super.init()
-        print("BonjourDelegate initialized")
-    }
-    
-    func netServiceBrowserWillSearch(_ browser: NetServiceBrowser) {
-        print("Bonjour browser will start searching")
-        DispatchQueue.main.async {
-            self.errorMessage = nil
-            self.computers.removeAll()
-            self.resolving.removeAll()
-        }
     }
     
     func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        // Only resolve if we haven't seen this name before
         let serviceName = service.name.replacingOccurrences(of: "\\032", with: " ")
-        if !resolving.contains(serviceName) {
-            print("Found service: \(serviceName) type: \(service.type) domain: \(service.domain)")
-            resolving.insert(serviceName)
-            service.delegate = self
-            service.resolve(withTimeout: 10.0)
-        } else {
-            print("Already resolving service: \(serviceName)")
-        }
+        print("Found service: \(serviceName)")
+        service.delegate = self
+        service.resolve(withTimeout: 5.0)
     }
     
     func netServiceDidResolveAddress(_ sender: NetService) {
@@ -350,42 +387,15 @@ class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
         print("Resolved service: \(serviceName) host: \(sender.hostName ?? "unknown")")
         
         DispatchQueue.main.async {
-            // Only add if we don't already have this computer
-            if !self.computers.contains(where: { $0.name == serviceName }) {
-                print("Adding computer: \(serviceName) (\(sender.hostName ?? "unknown"))")
+            if !self.computers.contains(where: { $0.name == serviceName }),
+               sender.hostName != nil {
                 self.computers.append(sender)
             }
         }
     }
     
     func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        let error = "Failed to search: \(errorDict)"
-        print(error)
-        DispatchQueue.main.async {
-            self.errorMessage = error
-        }
-    }
-    
-    func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
-        let serviceName = sender.name.replacingOccurrences(of: "\\032", with: " ")
-        let error = "Failed to resolve \(serviceName): \(errorDict)"
-        print(error)
-        // Remove from resolving set so we can try again
-        resolving.remove(serviceName)
-    }
-    
-    func netServiceBrowser(_ browser: NetServiceBrowser, didRemove service: NetService, moreComing: Bool) {
-        let serviceName = service.name.replacingOccurrences(of: "\\032", with: " ")
-        print("Service removed: \(serviceName)")
-        DispatchQueue.main.async {
-            self.computers.removeAll { $0.name == serviceName }
-        }
-        resolving.remove(serviceName)
-    }
-    
-    func netServiceBrowserDidStopSearch(_ browser: NetServiceBrowser) {
-        print("Bonjour browser did stop searching")
-        resolving.removeAll()
+        print("Search error: \(errorDict)")
     }
 }
 

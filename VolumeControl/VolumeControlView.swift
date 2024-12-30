@@ -94,6 +94,8 @@ struct VolumeControlView: View {
             }
         }
         .padding()
+        .navigationTitle(host)
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             connectToSSH()
             refreshQuickTimeState()
