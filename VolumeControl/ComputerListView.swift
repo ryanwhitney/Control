@@ -84,9 +84,12 @@ struct ComputerListView: View {
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("CONTROL")
-                        .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
-                        .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
+                    HStack(spacing: 4){
+                        Text("CONTROL")
+                            .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
+                    }
+                    .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
+
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {

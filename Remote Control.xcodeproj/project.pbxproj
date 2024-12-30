@@ -20,7 +20,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		944328822D21F4E500496EFA /* VolumeControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VolumeControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		944328822D21F4E500496EFA /* Remote Control.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Remote Control.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -29,7 +29,7 @@
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 944328812D21F4E500496EFA /* VolumeControl */;
+			target = 944328812D21F4E500496EFA /* Remote Control */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -69,7 +69,7 @@
 		944328832D21F4E500496EFA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				944328822D21F4E500496EFA /* VolumeControl.app */,
+				944328822D21F4E500496EFA /* Remote Control.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -77,9 +77,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		944328812D21F4E500496EFA /* VolumeControl */ = {
+		944328812D21F4E500496EFA /* Remote Control */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "VolumeControl" */;
+			buildConfigurationList = 944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Remote Control" */;
 			buildPhases = (
 				9443287E2D21F4E500496EFA /* Sources */,
 				9443287F2D21F4E500496EFA /* Frameworks */,
@@ -92,7 +92,7 @@
 			fileSystemSynchronizedGroups = (
 				944328842D21F4E500496EFA /* VolumeControl */,
 			);
-			name = VolumeControl;
+			name = "Remote Control";
 			packageProductDependencies = (
 				94D5B4CF2D21F685001C0272 /* NIO */,
 				94D5B4D12D21F685001C0272 /* NIOConcurrencyHelpers */,
@@ -106,7 +106,7 @@
 				94D5B4E52D21F829001C0272 /* NIOSSH */,
 			);
 			productName = VolumeControl;
-			productReference = 944328822D21F4E500496EFA /* VolumeControl.app */;
+			productReference = 944328822D21F4E500496EFA /* Remote Control.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -124,7 +124,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "VolumeControl" */;
+			buildConfigurationList = 9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Remote Control" */;
 			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -141,7 +141,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				944328812D21F4E500496EFA /* VolumeControl */,
+				944328812D21F4E500496EFA /* Remote Control */,
 			);
 		};
 /* End PBXProject section */
@@ -301,6 +301,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -332,6 +334,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -353,7 +357,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "VolumeControl" */ = {
+		9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Remote Control" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				944328902D21F4E500496EFA /* Debug */,
@@ -362,7 +366,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "VolumeControl" */ = {
+		944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Remote Control" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				944328932D21F4E500496EFA /* Debug */,

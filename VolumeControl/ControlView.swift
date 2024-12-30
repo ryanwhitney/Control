@@ -33,55 +33,59 @@ struct ControlView: View {
             case .connected:
                 VStack{
                     Spacer()
-                    //VLC
-                    VStack(spacing: 20) {
-                        Text("VLC")
-                            .fontWeight(.bold)
-                            .fontWidth(.expanded)
-                        HStack(spacing: 20) {
-                            Button("Back 10 seconds", systemImage: "10.arrow.trianglehead.counterclockwise") {
-                                vlcAction("backward")
-                            }
-                            .styledButton()
+                    TabView {
+                        // VLC
+                        VStack(spacing: 20) {
+                            Text("VLC")
+                                .fontWeight(.bold)
+                                .fontWidth(.expanded)
+                            HStack(spacing: 20) {
+                                Button("Back 10 seconds", systemImage: "10.arrow.trianglehead.counterclockwise") {
+                                    vlcAction("backward")
+                                }
+                                .styledButton()
 
-                            Button(action: {
-                                vlcAction("togglePlayPause")
-                            }) {
-                                Image(systemName: "playpause.fill")
-                            }
-                            .styledButton()
+                                Button(action: {
+                                    vlcAction("togglePlayPause")
+                                }) {
+                                    Image(systemName: "playpause.fill")
+                                }
+                                .styledButton()
 
-                            Button("Forward 10 seconds", systemImage: "10.arrow.trianglehead.clockwise") {
-                                vlcAction("forward")
+                                Button("Forward 10 seconds", systemImage: "10.arrow.trianglehead.clockwise") {
+                                    vlcAction("forward")
+                                }
+                                .styledButton()
                             }
-                            .styledButton()
+                        }
+                        // QUICKTIME
+                        VStack(spacing: 20) {
+                            Text("QuickTime")
+                                .fontWeight(.bold)
+                                .fontWidth(.expanded)
+                            HStack(spacing: 20) {
+                                Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
+                                    quickTimeAction("backward")
+                                }
+                                .styledButton()
+
+                                Button(action: {
+                                    toggleQuickTimePlayPause()
+                                }) {
+                                    Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
+                                }
+                                .styledButton()
+
+                                Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
+                                    quickTimeAction("forward")
+                                }
+                                .styledButton()
+                            }
                         }
                     }
-                    Spacer()
-                    // QUICKTIME
-                    VStack(spacing: 20) {
-                        Text("QuickTime")
-                            .fontWeight(.bold)
-                            .fontWidth(.expanded)
-                        HStack(spacing: 20) {
-                            Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
-                                quickTimeAction("backward")
-                            }
-                            .styledButton()
+                    .frame(height: 300)
+                    .tabViewStyle(.page)
 
-                            Button(action: {
-                                toggleQuickTimePlayPause()
-                            }) {
-                                Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
-                            }
-                            .styledButton()
-
-                            Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
-                                quickTimeAction("forward")
-                            }
-                            .styledButton()
-                        }
-                    }
                     Spacer()
                     // VOLUME
                     VStack(spacing: 20) {
@@ -112,10 +116,12 @@ struct ControlView: View {
                 VStack {
                     Text("Disconnected").font(.headline)
                     Button("Reconnect") {
-                        connectToSSH()
-                        refreshQuickTimeState()
+                        connectAndRefresh()
                     }
                     .padding()
+                    .onAppear{
+                        connectAndRefresh()
+                    }
                 }
 
             case .failed(let error):
@@ -125,10 +131,10 @@ struct ControlView: View {
                     Button("Go Back") { dismiss() }.padding()
                 }
             }
-
-            if let error = errorMessage {
-                Text(error).foregroundColor(.red).padding()
-            }
+//
+//            if let error = errorMessage {
+//                Text(error).foregroundColor(.red).padding()
+//            }
         }
         .padding()
         .navigationTitle(host)
@@ -142,8 +148,7 @@ struct ControlView: View {
             }
         }
         .onAppear {
-            connectToSSH()
-            refreshQuickTimeState()
+            connectAndRefresh()
         }
         .onChange(of: scenePhase) { newPhase, oldPhase in
             print("Old phase: \(String(describing: oldPhase))")
@@ -152,8 +157,7 @@ struct ControlView: View {
             switch newPhase {
             case .active:
                 print("App active, reconnecting...")
-                connectToSSH()
-                refreshQuickTimeState()
+                connectAndRefresh()
             case .background:
                 print("App backgrounded, disconnecting...")
                 sshClient.disconnect()
@@ -176,6 +180,11 @@ struct ControlView: View {
                 }
             }
         }
+    }
+
+    private func connectAndRefresh() {
+        connectToSSH()
+        refreshQuickTimeState()
     }
 
     private func connectToSSH() {
