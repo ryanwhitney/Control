@@ -10,6 +10,7 @@ struct MediaControl: View {
         switch platform {
         case is MusicPlatform: return 1
         case is QuickTimePlatform: return 5
+        case is TVPlatform: return 10
         default: return 10
         }
     }

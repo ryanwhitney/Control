@@ -9,7 +9,8 @@ class PlatformRegistry: ObservableObject {
             QuickTimePlatform(),
             VLCPlatform(),
             MusicPlatform(),
-            SafariPlatform()
+            TVPlatform()
+            SafariPlatform(),
         ]
         self.platforms = allPlatforms
         
