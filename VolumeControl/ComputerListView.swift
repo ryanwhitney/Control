@@ -85,7 +85,7 @@ struct ComputerListView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 4){
-                        Text("CONTROL")
+                        Text("Control".uppercased())
                             .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
                     }
                     .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header

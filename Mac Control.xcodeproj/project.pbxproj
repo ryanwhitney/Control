@@ -20,16 +20,16 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		944328822D21F4E500496EFA /* Remote Control.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Remote Control.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		944328822D21F4E500496EFA /* Mac Control.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Mac Control.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Remote Control" target */ = {
+		9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Mac Control" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 944328812D21F4E500496EFA /* Remote Control */;
+			target = 944328812D21F4E500496EFA /* Mac Control */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -37,7 +37,7 @@
 		944328842D21F4E500496EFA /* VolumeControl */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Remote Control" target */,
+				9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Mac Control" target */,
 			);
 			path = VolumeControl;
 			sourceTree = "<group>";
@@ -76,7 +76,7 @@
 		944328832D21F4E500496EFA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				944328822D21F4E500496EFA /* Remote Control.app */,
+				944328822D21F4E500496EFA /* Mac Control.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,9 +84,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		944328812D21F4E500496EFA /* Remote Control */ = {
+		944328812D21F4E500496EFA /* Mac Control */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Remote Control" */;
+			buildConfigurationList = 944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Mac Control" */;
 			buildPhases = (
 				9443287E2D21F4E500496EFA /* Sources */,
 				9443287F2D21F4E500496EFA /* Frameworks */,
@@ -99,7 +99,7 @@
 			fileSystemSynchronizedGroups = (
 				944328842D21F4E500496EFA /* VolumeControl */,
 			);
-			name = "Remote Control";
+			name = "Mac Control";
 			packageProductDependencies = (
 				94D5B4CF2D21F685001C0272 /* NIO */,
 				94D5B4D12D21F685001C0272 /* NIOConcurrencyHelpers */,
@@ -113,7 +113,7 @@
 				94D5B4E52D21F829001C0272 /* NIOSSH */,
 			);
 			productName = VolumeControl;
-			productReference = 944328822D21F4E500496EFA /* Remote Control.app */;
+			productReference = 944328822D21F4E500496EFA /* Mac Control.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -131,7 +131,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Remote Control" */;
+			buildConfigurationList = 9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Mac Control" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -148,7 +148,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				944328812D21F4E500496EFA /* Remote Control */,
+				944328812D21F4E500496EFA /* Mac Control */,
 			);
 		};
 /* End PBXProject section */
@@ -308,7 +308,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Mac Remote";
+				INFOPLIST_KEY_CFBundleDisplayName = "Mac Control";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VolumeControl needs access to your local network to discover and connect to computers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -341,7 +341,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Mac Remote";
+				INFOPLIST_KEY_CFBundleDisplayName = "Mac Control";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VolumeControl needs access to your local network to discover and connect to computers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -364,7 +364,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Remote Control" */ = {
+		9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Mac Control" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				944328902D21F4E500496EFA /* Debug */,
@@ -373,7 +373,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Remote Control" */ = {
+		944328922D21F4E500496EFA /* Build configuration list for PBXNativeTarget "Mac Control" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				944328932D21F4E500496EFA /* Debug */,

@@ -46,11 +46,16 @@ struct ControlView: View {
 
     private let vlcScript = """
     tell application "VLC"
-        if not playing then
-            return "No media playing"
+        if not running then
+            return "VLC not running"
         end if
-        set mediaName to name of current item
-        return mediaName
+        
+        try
+            set currentTitle to name of current item
+            return currentTitle
+        on error
+            return "No media loaded"
+        end try
     end tell
     """
 
@@ -102,125 +107,55 @@ struct ControlView: View {
                     Spacer()
                     TabView {
                         // MUSIC
-                        VStack(spacing: 20) {
-                            VStack(spacing: 4) {
-                                Text("Music")
-                                    .fontWeight(.bold)
-                                    .fontWidth(.expanded)
-                                Text(musicInfo)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            HStack(spacing: 20) {
-                                Button("Previous track", systemImage: "arrowtriangle.backward.fill") {
-                                    musicAction("backward")
-                                }
-                                .styledButton()
-
-                                Button(action: {
-                                    toggleMusicPlayPause()
-                                }) {
-                                    Image(systemName: isMusicPlaying ? "pause.fill" : "play.fill")
-                                }
-                                .styledButton()
-
-                                Button("Next track", systemImage: "arrowtriangle.forward.fill") {
-                                    musicAction("forward")
-                                }
-                                .styledButton()
-                            }
-                        }
+                        MediaControlPanel(
+                            title: "Music",
+                            mediaInfo: musicInfo,
+                            isPlaying: isMusicPlaying,
+                            skipInterval: 1,  // For track skipping
+                            onBackward: { musicAction("backward") },
+                            onPlayPause: toggleMusicPlayPause,
+                            onForward: { musicAction("forward") },
+                            usePlayPauseIcon: false
+                        )
+                        
                         // TV
-                        VStack(spacing: 20) {
-                            VStack(spacing: 4) {
-                                Text("TV")
-                                    .fontWeight(.bold)
-                                    .fontWidth(.expanded)
-                                Text(tvInfo)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            HStack(spacing: 20) {
-                                Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
-                                    tvAction("backward")
-                                }
-                                .styledButton()
-
-                                Button(action: {
-                                    toggleTVPlayPause()
-                                }) {
-                                    Image(systemName: isTVPlaying ? "pause.fill" : "play.fill")
-                                }
-                                .styledButton()
-
-                                Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
-                                    tvAction("forward")
-                                }
-                                .styledButton()
-                            }
-                        }
+                        MediaControlPanel(
+                            title: "TV",
+                            mediaInfo: tvInfo,
+                            isPlaying: isTVPlaying,
+                            skipInterval: 5,
+                            onBackward: { tvAction("backward") },
+                            onPlayPause: toggleTVPlayPause,
+                            onForward: { tvAction("forward") },
+                            usePlayPauseIcon: false
+                        )
+                        
                         // VLC
-                        VStack(spacing: 20) {
-                            VStack(spacing: 4) {
-                                Text("VLC")
-                                    .fontWeight(.bold)
-                                    .fontWidth(.expanded)
-                                Text(vlcInfo)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            HStack(spacing: 20) {
-                                Button("Back 10 seconds", systemImage: "10.arrow.trianglehead.counterclockwise") {
-                                    vlcAction("backward")
-                                }
-                                .styledButton()
-
-                                Button(action: {
-                                    vlcAction("togglePlayPause")
-                                }) {
-                                    Image(systemName: "playpause.fill")
-                                }
-                                .styledButton()
-
-                                Button("Forward 10 seconds", systemImage: "10.arrow.trianglehead.clockwise") {
-                                    vlcAction("forward")
-                                }
-                                .styledButton()
-                            }
-                        }
+                        MediaControlPanel(
+                            title: "VLC",
+                            mediaInfo: vlcInfo,
+                            isPlaying: nil,  // VLC doesn't expose state
+                            skipInterval: 10,
+                            onBackward: { vlcAction("backward") },
+                            onPlayPause: { vlcAction("togglePlayPause") },
+                            onForward: { vlcAction("forward") },
+                            usePlayPauseIcon: true
+                        )
+                        
                         // QUICKTIME
-                        VStack(spacing: 20) {
-                            VStack(spacing: 4) {
-                                Text("QuickTime")
-                                    .fontWeight(.bold)
-                                    .fontWidth(.expanded)
-                                Text(quickTimeInfo)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            HStack(spacing: 20) {
-                                Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
-                                    quickTimeAction("backward")
-                                }
-                                .styledButton()
-
-                                Button(action: {
-                                    toggleQuickTimePlayPause()
-                                }) {
-                                    Image(systemName: isQuickTimePlaying ? "pause.fill" : "play.fill")
-                                }
-                                .styledButton()
-
-                                Button("Forward 5 seconds", systemImage: "5.arrow.trianglehead.clockwise") {
-                                    quickTimeAction("forward")
-                                }
-                                .styledButton()
-                            }
-                        }
+                        MediaControlPanel(
+                            title: "QuickTime",
+                            mediaInfo: quickTimeInfo,
+                            isPlaying: isQuickTimePlaying,
+                            skipInterval: 5,
+                            onBackward: { quickTimeAction("backward") },
+                            onPlayPause: {
+                                toggleQuickTimePlayPause()
+                                refreshMediaInfo()
+                            },
+                            onForward: { quickTimeAction("forward") },
+                            usePlayPauseIcon: false
+                        )
                     }
                     .frame(height: 240)
                     .tabViewStyle(.page)
@@ -360,8 +295,7 @@ struct ControlView: View {
         }
     }
 
-    // MARK: - Volume
-
+    //  Volume
     private func getVolume() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
         executeCommand(command) { output in
@@ -483,7 +417,6 @@ struct ControlView: View {
         executeCommand(command)
     }
 
-    // MARK: - Music
 
     /// Fetch whether Music is playing/paused/stopped
     private func fetchMusicState() {
@@ -697,19 +630,23 @@ struct ControlView: View {
     // Add function to refresh media info
     private func refreshMediaInfo() {
         executeCommand("osascript -e '\(quickTimeScript)'") { output in
-            self.quickTimeInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                self.quickTimeInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
         
         executeCommand("osascript -e '\(musicScript)'") { output in
-            self.musicInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                self.musicInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
         
-        executeCommand("osascript -e '\(vlcScript)'") { output in
-            self.vlcInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        refreshVLCInfo()
         
         executeCommand("osascript -e '\(tvScript)'") { output in
-            self.tvInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async {
+                self.tvInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
     }
 
@@ -721,15 +658,13 @@ struct ControlView: View {
             }
         }
     }
-}
 
-private extension Button {
-    func styledButton() -> some View {
-        self.padding(12)
-            .frame(width: 60, height: 60)
-            .background(.ultraThinMaterial)
-            .clipShape(Circle())
-            .labelStyle(.iconOnly)
+    private func refreshVLCInfo() {
+        executeCommand("osascript -e '\(vlcScript)'") { output in
+            DispatchQueue.main.async {
+                self.vlcInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
     }
 }
 
