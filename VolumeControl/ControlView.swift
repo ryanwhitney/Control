@@ -69,7 +69,7 @@ struct ControlView: View {
                         
                         Slider(value: $volume, in: 0...1, step: 0.01)
                             .padding(.horizontal)
-                            .onChange(of: volume) { _ in
+                            .onChange(of: volume) { oldValue, newValue in
                                 debounceVolumeChange()
                             }
                         
@@ -112,8 +112,8 @@ struct ControlView: View {
         .onAppear {
             connectToSSH()
         }
-        .onChange(of: scenePhase) { phase in
-            if phase == .active {
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase == .active {
                 connectToSSH()
             }
         }
