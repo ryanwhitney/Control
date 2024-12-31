@@ -23,11 +23,72 @@ struct ControlView: View {
 
     @State private var volumeChangeWorkItem: DispatchWorkItem?
 
-    enum ConnectionState {
+    private let quickTimeScript = """
+    tell application "QuickTime Player"
+        if not (exists document 1) then
+            return "No media loaded"
+        end if
+        set mediaName to name of document 1
+        return mediaName
+    end tell
+    """
+
+    private let musicScript = """
+    tell application "Music"
+        if player state is stopped then
+            return "No track playing"
+        end if
+        set trackName to name of current track
+        set artistName to artist of current track
+        return trackName & " - " & artistName
+    end tell
+    """
+
+    private let vlcScript = """
+    tell application "VLC"
+        if not playing then
+            return "No media playing"
+        end if
+        set mediaName to name of current item
+        return mediaName
+    end tell
+    """
+
+    private let tvScript = """
+    tell application "TV"
+        if player state is stopped then
+            return "No media playing"
+        end if
+        set mediaName to name of current track
+        return mediaName
+    end tell
+    """
+
+    // Add state variables for media info
+    @State private var quickTimeInfo: String = "Checking..."
+    @State private var musicInfo: String = "Checking..."
+    @State private var vlcInfo: String = "Checking..."
+    @State private var tvInfo: String = "Checking..."
+
+    enum ConnectionState: Equatable {
         case connecting
         case connected
         case disconnected
         case failed(String)
+        
+        // Implement Equatable manually because of associated value
+        static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
+            switch (lhs, rhs) {
+            case (.connecting, .connecting),
+                 (.connected, .connected),
+                 (.disconnected, .disconnected):
+                return true
+            case (.failed(let lhsError), .failed(let rhsError)):
+                return lhsError == rhsError
+            default:
+                return false
+            }
+        }
     }
 
     var body: some View {
@@ -42,16 +103,21 @@ struct ControlView: View {
                     TabView {
                         // MUSIC
                         VStack(spacing: 20) {
-                            Text("Music")
-                                .fontWeight(.bold)
-                                .fontWidth(.expanded)
+                            VStack(spacing: 4) {
+                                Text("Music")
+                                    .fontWeight(.bold)
+                                    .fontWidth(.expanded)
+                                Text(musicInfo)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
                             HStack(spacing: 20) {
                                 Button("Previous track", systemImage: "arrowtriangle.backward.fill") {
                                     musicAction("backward")
                                 }
                                 .styledButton()
 
-                                // Updated: Reflect actual Music state
                                 Button(action: {
                                     toggleMusicPlayPause()
                                 }) {
@@ -67,16 +133,21 @@ struct ControlView: View {
                         }
                         // TV
                         VStack(spacing: 20) {
-                            Text("TV")
-                                .fontWeight(.bold)
-                                .fontWidth(.expanded)
+                            VStack(spacing: 4) {
+                                Text("TV")
+                                    .fontWeight(.bold)
+                                    .fontWidth(.expanded)
+                                Text(tvInfo)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
                             HStack(spacing: 20) {
                                 Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
                                     tvAction("backward")
                                 }
                                 .styledButton()
 
-                                // Updated: Reflect actual TV state
                                 Button(action: {
                                     toggleTVPlayPause()
                                 }) {
@@ -92,9 +163,15 @@ struct ControlView: View {
                         }
                         // VLC
                         VStack(spacing: 20) {
-                            Text("VLC")
-                                .fontWeight(.bold)
-                                .fontWidth(.expanded)
+                            VStack(spacing: 4) {
+                                Text("VLC")
+                                    .fontWeight(.bold)
+                                    .fontWidth(.expanded)
+                                Text(vlcInfo)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
                             HStack(spacing: 20) {
                                 Button("Back 10 seconds", systemImage: "10.arrow.trianglehead.counterclockwise") {
                                     vlcAction("backward")
@@ -116,16 +193,21 @@ struct ControlView: View {
                         }
                         // QUICKTIME
                         VStack(spacing: 20) {
-                            Text("QuickTime")
-                                .fontWeight(.bold)
-                                .fontWidth(.expanded)
+                            VStack(spacing: 4) {
+                                Text("QuickTime")
+                                    .fontWeight(.bold)
+                                    .fontWidth(.expanded)
+                                Text(quickTimeInfo)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
                             HStack(spacing: 20) {
                                 Button("Back 5 seconds", systemImage: "5.arrow.trianglehead.counterclockwise") {
                                     quickTimeAction("backward")
                                 }
                                 .styledButton()
 
-                                // Already reflecting QuickTime's state
                                 Button(action: {
                                     toggleQuickTimePlayPause()
                                 }) {
@@ -140,7 +222,7 @@ struct ControlView: View {
                             }
                         }
                     }
-                    .frame(height: 300)
+                    .frame(height: 240)
                     .tabViewStyle(.page)
 
                     Spacer()
@@ -171,6 +253,8 @@ struct ControlView: View {
                 .animation(.easeInOut(duration: 0.5), value: isReady)
 
             case .disconnected:
+
+                Spacer()
                 VStack {
                     Text("Disconnected").font(.headline)
                     Button("Reconnect") {
@@ -183,12 +267,16 @@ struct ControlView: View {
                 }
 
             case .failed(let error):
+
+                Spacer()
                 VStack {
                     Text("Connection Failed").font(.headline)
                     Text(error).foregroundColor(.red)
                     Button("Go Back") { dismiss() }.padding()
                 }
             }
+
+            Spacer()
         }
         .padding()
         .navigationTitle(displayName)
@@ -203,12 +291,14 @@ struct ControlView: View {
         }
         .onAppear {
             connectAndRefresh()
+            refreshMediaInfo()
         }
-        .onChange(of: scenePhase) { newPhase in
-            switch newPhase {
+        .onChange(of: scenePhase) {
+            switch scenePhase {
             case .active:
-                print("App active, reconnecting & refreshing states...")
-                connectAndRefresh()
+                print("App active, reconnecting...")
+                connectToSSH()
+                refreshMediaInfo()
             case .background:
                 print("App backgrounded, disconnecting...")
                 sshClient.disconnect()
@@ -602,6 +692,34 @@ struct ControlView: View {
 
     private func appendOutput(_ text: String) {
         sshOutput = "\(text)\n" + sshOutput
+    }
+
+    // Add function to refresh media info
+    private func refreshMediaInfo() {
+        executeCommand("osascript -e '\(quickTimeScript)'") { output in
+            self.quickTimeInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        executeCommand("osascript -e '\(musicScript)'") { output in
+            self.musicInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        executeCommand("osascript -e '\(vlcScript)'") { output in
+            self.vlcInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        executeCommand("osascript -e '\(tvScript)'") { output in
+            self.tvInfo = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    // Add periodic refresh of media info
+    private func startMediaInfoRefresh() {
+        Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+            if self.connectionState == .connected {
+                self.refreshMediaInfo()
+            }
+        }
     }
 }
 
