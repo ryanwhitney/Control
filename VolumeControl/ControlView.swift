@@ -11,7 +11,12 @@ struct ControlView: View {
     @State private var errorMessage: String?
     @State private var connectionState: ConnectionState = .connecting
     @State private var isReady: Bool = false
+
+    // Tracking playback states for each app
     @State private var isQuickTimePlaying: Bool = false
+    @State private var isMusicPlaying: Bool = false
+    @State private var isTVPlaying: Bool = false
+
     @State private var sshOutput: String = ""
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -32,10 +37,10 @@ struct ControlView: View {
                 ProgressView("Connecting to \(host)...")
 
             case .connected:
-                VStack{
+                VStack {
                     Spacer()
                     TabView {
-                        // TV
+                        // MUSIC
                         VStack(spacing: 20) {
                             Text("Music")
                                 .fontWeight(.bold)
@@ -46,10 +51,11 @@ struct ControlView: View {
                                 }
                                 .styledButton()
 
+                                // Updated: Reflect actual Music state
                                 Button(action: {
-                                    musicAction("togglePlayPause")
+                                    toggleMusicPlayPause()
                                 }) {
-                                    Image(systemName: "playpause.fill")
+                                    Image(systemName: isMusicPlaying ? "pause.fill" : "play.fill")
                                 }
                                 .styledButton()
 
@@ -70,10 +76,11 @@ struct ControlView: View {
                                 }
                                 .styledButton()
 
+                                // Updated: Reflect actual TV state
                                 Button(action: {
-                                    tvAction("togglePlayPause")
+                                    toggleTVPlayPause()
                                 }) {
-                                    Image(systemName: "playpause.fill")
+                                    Image(systemName: isTVPlaying ? "pause.fill" : "play.fill")
                                 }
                                 .styledButton()
 
@@ -118,6 +125,7 @@ struct ControlView: View {
                                 }
                                 .styledButton()
 
+                                // Already reflecting QuickTime's state
                                 Button(action: {
                                     toggleQuickTimePlayPause()
                                 }) {
@@ -136,6 +144,7 @@ struct ControlView: View {
                     .tabViewStyle(.page)
 
                     Spacer()
+
                     // VOLUME
                     VStack(spacing: 20) {
                         Text("Volume: \(Int(volume * 100))%")
@@ -168,7 +177,7 @@ struct ControlView: View {
                         connectAndRefresh()
                     }
                     .padding()
-                    .onAppear{
+                    .onAppear {
                         connectAndRefresh()
                     }
                 }
@@ -180,10 +189,6 @@ struct ControlView: View {
                     Button("Go Back") { dismiss() }.padding()
                 }
             }
-//
-//            if let error = errorMessage {
-//                Text(error).foregroundColor(.red).padding()
-//            }
         }
         .padding()
         .navigationTitle(displayName)
@@ -199,13 +204,10 @@ struct ControlView: View {
         .onAppear {
             connectAndRefresh()
         }
-        .onChange(of: scenePhase) { newPhase, oldPhase in
-            print("Old phase: \(String(describing: oldPhase))")
-            print("New phase: \(newPhase)")
-
+        .onChange(of: scenePhase) { newPhase in
             switch newPhase {
             case .active:
-                print("App active, reconnecting...")
+                print("App active, reconnecting & refreshing states...")
                 connectAndRefresh()
             case .background:
                 print("App backgrounded, disconnecting...")
@@ -220,7 +222,7 @@ struct ControlView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {
-                    refreshQuickTimeState()
+                    refreshMediaStates()
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -231,15 +233,24 @@ struct ControlView: View {
         }
     }
 
+    // MARK: - Connection & Refresh
     private func connectAndRefresh() {
         connectToSSH()
-        refreshQuickTimeState()
+        refreshMediaStates()
+    }
+
+    /// Refresh all relevant media states at once
+    private func refreshMediaStates() {
+        getVolume()
+        fetchQuickTimeState()
+        fetchMusicState()
+        fetchTVState()
     }
 
     private func connectToSSH() {
         isReady = false
         connectionState = .connecting
-        
+
         sshClient.connect(host: host, username: username, password: password) { result in
             DispatchQueue.main.async {
                 switch result {
@@ -249,7 +260,8 @@ struct ControlView: View {
                 case .success:
                     self.connectionState = .connected
                     self.appendOutput("Connected successfully")
-                    refreshQuickTimeState()
+                    // Once connected, fetch initial states
+                    self.refreshMediaStates()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         self.isReady = true
                     }
@@ -257,6 +269,8 @@ struct ControlView: View {
             }
         }
     }
+
+    // MARK: - Volume
 
     private func getVolume() {
         let command = "/usr/bin/osascript -e 'get volume settings'"
@@ -292,6 +306,8 @@ struct ControlView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
     }
 
+    // MARK: - QuickTime
+
     private func fetchQuickTimeState(completion: (() -> Void)? = nil) {
         let script = """
             tell application "QuickTime Player"
@@ -314,8 +330,11 @@ struct ControlView: View {
     }
 
     private func toggleQuickTimePlayPause() {
+        // Immediately toggle local state
         isQuickTimePlaying.toggle()
         quickTimeAction("togglePlayPause")
+
+        // Re-fetch state after a delay (to stay in sync)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             fetchQuickTimeState()
         }
@@ -327,108 +346,6 @@ struct ControlView: View {
     private func refreshQuickTimeState() {
         getVolume()
         fetchQuickTimeState()
-    }
-
-    private func musicAction(_ action: String) {
-        let script: String
-        switch action {
-        case "backward":
-            script = """
-            tell application "Music"
-                previous track
-            end tell
-            """
-        case "forward":
-            script = """
-            tell application "Music"
-                next track
-            end tell
-            """
-        case "togglePlayPause":
-            script = """
-            tell application "Music"
-                if player state is stopped then return
-                if player state is playing then
-                    pause
-                else
-                    play
-                end if
-            end tell
-            
-            """
-        default:
-            return
-        }
-        let command = "osascript -e '\(script)'"
-        executeCommand(command)
-    }
-    private func tvAction(_ action: String) {
-        let script: String
-        switch action {
-        case "backward":
-            script = """
-            tell application "TV"
-                if player state is stopped then return
-                set currentPos to the player position
-                set newPos to currentPos - 5
-                if newPos < 0 then set newPos to 0
-                set the player position to newPos
-            end tell
-            """
-        case "forward":
-            script = """
-            tell application "TV"
-                if player state is stopped then return
-                set currentPos to player position
-                set newPos to currentPos + 5
-                set player position to newPos
-                end tell
-            """
-        case "togglePlayPause":
-            script = """
-            tell application "TV"
-                if player state is stopped then return
-                if player state is playing then
-                    pause
-                else
-                    play
-                end if
-            end tell
-            
-            """
-        default:
-            return
-        }
-        let command = "osascript -e '\(script)'"
-        executeCommand(command)
-    }
-
-    private func vlcAction(_ action: String) {
-        let script: String
-        switch action {
-        case "backward":
-            script = """
-            tell application "VLC"
-                step backward
-            end tell
-            """
-        case "forward":
-            script = """
-            tell application "VLC"
-                step forward
-            end tell
-            """
-        case "togglePlayPause":
-            script = """
-            tell application "VLC"
-                play 
-            end tell
-            """
-        default:
-            return
-        }
-        let command = "osascript -e '\(script)'"
-        executeCommand(command)
     }
 
     private func quickTimeAction(_ action: String) {
@@ -476,6 +393,192 @@ struct ControlView: View {
         executeCommand(command)
     }
 
+    // MARK: - Music
+
+    /// Fetch whether Music is playing/paused/stopped
+    private func fetchMusicState() {
+        let script = """
+            tell application "Music"
+                if player state is stopped then return "stopped"
+                if player state is playing then
+                    return "playing"
+                else
+                    return "paused"
+                end if
+            end tell
+        """
+        let command = "/usr/bin/osascript -e '\(script)'"
+        executeCommand(command) { output in
+            DispatchQueue.main.async {
+                let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.isMusicPlaying = (trimmed == "playing")
+            }
+        }
+    }
+
+    /// Toggle Music playback while keeping local `isMusicPlaying` in sync
+    private func toggleMusicPlayPause() {
+        // Optimistically toggle local state
+        isMusicPlaying.toggle()
+        musicAction("togglePlayPause")
+
+        // Re-check the actual state a moment later
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            fetchMusicState()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            fetchMusicState()
+        }
+    }
+
+    private func musicAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            // "Previous track" in Music
+            script = """
+            tell application "Music"
+                previous track
+            end tell
+            """
+        case "forward":
+            // "Next track" in Music
+            script = """
+            tell application "Music"
+                next track
+            end tell
+            """
+        case "togglePlayPause":
+            // Toggle play/pause based on current state
+            script = """
+            tell application "Music"
+                if player state is stopped then return
+                if player state is playing then
+                    pause
+                else
+                    play
+                end if
+            end tell
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
+
+    // MARK: - TV
+
+    /// Fetch whether TV is playing/paused/stopped
+    private func fetchTVState() {
+        let script = """
+            tell application "TV"
+                if player state is stopped then return "stopped"
+                if player state is playing then
+                    return "playing"
+                else
+                    return "paused"
+                end if
+            end tell
+        """
+        let command = "/usr/bin/osascript -e '\(script)'"
+        executeCommand(command) { output in
+            DispatchQueue.main.async {
+                let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.isTVPlaying = (trimmed == "playing")
+            }
+        }
+    }
+
+    /// Toggle TV playback while keeping local `isTVPlaying` in sync
+    private func toggleTVPlayPause() {
+        // Optimistically toggle local state
+        isTVPlaying.toggle()
+        tvAction("togglePlayPause")
+
+        // Re-check the actual state a moment later
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            fetchTVState()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            fetchTVState()
+        }
+    }
+
+    private func tvAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "TV"
+                if player state is stopped then return
+                set currentPos to player position
+                set newPos to currentPos - 5
+                if newPos < 0 then set newPos to 0
+                set player position to newPos
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "TV"
+                if player state is stopped then return
+                set currentPos to player position
+                set newPos to currentPos + 5
+                set player position to newPos
+            end tell
+            """
+        case "togglePlayPause":
+            script = """
+            tell application "TV"
+                if player state is stopped then
+                    play
+                else if player state is playing then
+                    pause
+                else
+                    play
+                end if
+            end tell
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
+
+    // MARK: - VLC
+
+    private func vlcAction(_ action: String) {
+        let script: String
+        switch action {
+        case "backward":
+            script = """
+            tell application "VLC"
+                step backward
+            end tell
+            """
+        case "forward":
+            script = """
+            tell application "VLC"
+                step forward
+            end tell
+            """
+        case "togglePlayPause":
+            // VLC doesn’t expose “playing” or “paused” easily via AppleScript
+            script = """
+            tell application "VLC"
+                play
+            end tell
+            """
+        default:
+            return
+        }
+        let command = "osascript -e '\(script)'"
+        executeCommand(command)
+    }
+
+    // MARK: - Misc
+
     private func testCommand() {
         let command = "say 'hello ryan'"
         executeCommand(command)
@@ -489,7 +592,7 @@ struct ControlView: View {
                 case .failure(let error):
                     self.errorMessage = "Error: \(error.localizedDescription)"
                 case .success(let output):
-                    self.errorMessage = nil  // Clear error message on success
+                    self.errorMessage = nil  // Clear error on success
                     self.appendOutput(output)
                     completion?(output)
                 }
