@@ -117,6 +117,9 @@ struct ControlView: View {
                 connectToSSH()
             }
         }
+        .onReceive(mediaController.$currentVolume) { newVolume in
+            self.volume = newVolume
+        }
     }
     
     private func connectToSSH() {

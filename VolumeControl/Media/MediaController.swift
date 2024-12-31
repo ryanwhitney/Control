@@ -3,6 +3,7 @@ import SwiftUI
 class MediaController: ObservableObject {
     @Published var states: [String: MediaState] = [:]
     @Published var optimisticStates: [String: Bool] = [:]
+    @Published var currentVolume: Float = 0.5
     private let platformRegistry: PlatformRegistry
     private let sshClient: SSHClient
     
@@ -30,6 +31,7 @@ class MediaController: ObservableObject {
     
     func updateAllStates() {
         Task { @MainActor in
+            await updateVolume()
             for platform in platforms {
                 await updateState(for: platform)
             }
@@ -84,5 +86,20 @@ class MediaController: ObservableObject {
         APPLESCRIPT
         """
         sshClient.executeCommandWithNewChannel(wrappedCommand, completion: completion)
+    }
+    
+    private func updateVolume() async {
+        let script = """
+        get volume settings
+        return output volume of result
+        """
+        executeCommand(script) { [weak self] result in
+            if case .success(let output) = result,
+               let volumeLevel = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                DispatchQueue.main.async {
+                    self?.currentVolume = volumeLevel / 100.0
+                }
+            }
+        }
     }
 } 
