@@ -12,20 +12,23 @@ struct VLCPlatform: MediaPlatform {
     
     private let statusScript = """
     tell application "VLC"
-        if not playing then
-            return "No media|||stopped|||false"
-        end if
-        set currentItem to current item
-        if currentItem is missing value then
-            return "No media|||stopped|||false"
-        end if
-        set mediaName to name of currentItem
-        if playing then
-            return mediaName & "|||playing|||true"
-        else
-            return mediaName & "|||paused|||false"
-        end if
+    if not playing then
+        return "No media|||stopped|||false"
+    end if
+    
+    try
+        set mediaName to name of current item
+    on error
+        return "No media|||stopped|||false"
+    end try
+    
+    if playing then
+        return mediaName & "|||playing|||true"
+    else
+        return mediaName & "|||paused|||false"
+    end if
     end tell
+
     """
     
     func fetchState() -> String {

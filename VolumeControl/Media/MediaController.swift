@@ -39,7 +39,7 @@ class MediaController: ObservableObject {
     private func updateState(for platform: any MediaPlatform) async {
         let script = platform.fetchState()
         executeCommand(script) { [weak self] result in
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 switch result {
                 case .success(let output):
                     self?.states[platform.id] = platform.parseState(output)
@@ -59,26 +59,30 @@ class MediaController: ObservableObject {
         if case .playPauseToggle = action {
             let currentState = states[platform.id]?.isPlaying ?? false
             optimisticStates[platform.id] = !currentState
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.optimisticStates.removeValue(forKey: platform.id)
-            }
         }
         
         let script = platform.executeAction(action)
         executeCommand(script) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            Task { @MainActor in
+                // Wait a moment before updating state to avoid race conditions
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                 await self?.updateState(for: platform)
+                self?.optimisticStates.removeValue(forKey: platform.id)
             }
         }
     }
     
     func setVolume(_ volume: Float) {
         let script = "set volume output volume \(Int(volume * 100))"
-        executeCommand("osascript -e '\(script)'") { _ in }
+        executeCommand(script) { _ in }
     }
     
     private func executeCommand(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
-        sshClient.executeCommandWithNewChannel("osascript -e '\(command)'", completion: completion)
+        let wrappedCommand = """
+        osascript << 'APPLESCRIPT'
+        \(command)
+        APPLESCRIPT
+        """
+        sshClient.executeCommandWithNewChannel(wrappedCommand, completion: completion)
     }
 } 
