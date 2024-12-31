@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -24,7 +24,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		9446C35C2D222B20006D280F /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Remote Control" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -34,7 +34,14 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		944328842D21F4E500496EFA /* VolumeControl */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (9446C35C2D222B20006D280F /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = VolumeControl; sourceTree = "<group>"; };
+		944328842D21F4E500496EFA /* VolumeControl */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9446C35C2D222B20006D280F /* Exceptions for "VolumeControl" folder in "Remote Control" target */,
+			);
+			path = VolumeControl;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,7 +132,6 @@
 				};
 			};
 			buildConfigurationList = 9443287D2D21F4E500496EFA /* Build configuration list for PBXProject "Remote Control" */;
-			compatibilityVersion = "Xcode 15.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -137,6 +143,7 @@
 				94D5B4CE2D21F685001C0272 /* XCRemoteSwiftPackageReference "swift-nio" */,
 				94D5B4E42D21F829001C0272 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 944328832D21F4E500496EFA /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -301,9 +308,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_CFBundleDisplayName = "Mac Remote";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VolumeControl needs access to your local network to discover and connect to computers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -313,7 +320,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ryanwhitney.VolumeControl;
+				PRODUCT_BUNDLE_IDENTIFIER = ryanwhitney.MacControl;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -334,9 +341,9 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = VolumeControl/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Remote Control";
+				INFOPLIST_KEY_CFBundleDisplayName = "Mac Remote";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "VolumeControl needs access to your local network to discover and connect to computers.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -346,7 +353,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = ryanwhitney.VolumeControl;
+				PRODUCT_BUNDLE_IDENTIFIER = ryanwhitney.MacControl;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
