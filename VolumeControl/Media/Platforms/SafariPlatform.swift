@@ -2,7 +2,7 @@ import Foundation
 
 struct SafariPlatform: MediaPlatform {
     let id = "safari"
-    let name = "Safari"
+    let name = "Safari (experimental)"
     
     let supportedActions: [MediaAction] = [
         .skipBackward(10),

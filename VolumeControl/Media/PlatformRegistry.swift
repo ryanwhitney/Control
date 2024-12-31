@@ -6,10 +6,10 @@ class PlatformRegistry: ObservableObject {
     
     init() {
         let allPlatforms: [any MediaPlatform] = [
-            SafariPlatform(),
             QuickTimePlatform(),
             VLCPlatform(),
-            MusicPlatform()
+            MusicPlatform(),
+            SafariPlatform()
         ]
         self.platforms = allPlatforms
         
