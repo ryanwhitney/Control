@@ -1,16 +1,16 @@
 import Foundation
 
 class PlatformRegistry: ObservableObject {
-    @Published private(set) var platforms: [any MediaPlatform]
+    @Published private(set) var platforms: [any AppPlatform]
     @Published var enabledPlatforms: Set<String>
     
     init() {
-        let allPlatforms: [any MediaPlatform] = [
-            QuickTimePlatform(),
-            VLCPlatform(),
-            MusicPlatform(),
-            TVPlatform(),
-            SafariPlatform()
+        let allPlatforms: [any AppPlatform] = [
+            QuickTimeApp(),
+            VLCApp(),
+            MusicApp(),
+            TVApp(),
+            SafariApp()
         ]
         self.platforms = allPlatforms
         
@@ -27,7 +27,7 @@ class PlatformRegistry: ObservableObject {
         UserDefaults.standard.set(Array(enabledPlatforms), forKey: "EnabledPlatforms")
     }
     
-    var activePlatforms: [any MediaPlatform] {
+    var activePlatforms: [any AppPlatform] {
         platforms.filter { enabledPlatforms.contains($0.id) }
     }
 } 

@@ -9,7 +9,8 @@ struct MediaControlPanel: View {
     let onPlayPause: () -> Void
     let onForward: () -> Void
     let usePlayPauseIcon: Bool
-    
+
+
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 4) {

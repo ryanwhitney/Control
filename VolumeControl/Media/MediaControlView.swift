@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct MediaControlView: View {
-    let platform: any MediaPlatform
-    @Binding var state: MediaState
-    let onAction: (MediaAction) -> Void
+    let platform: any AppPlatform
+    @Binding var state: AppState
+    let onAction: (AppAction) -> Void
     
     var body: some View {
         VStack {

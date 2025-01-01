@@ -1,10 +1,10 @@
 import Foundation
 
-struct QuickTimePlatform: MediaPlatform {
+struct QuickTimeApp: AppPlatform {
     let id = "quicktime"
     let name = "QuickTime"
     
-    let supportedActions: [MediaAction] = [
+    let supportedActions: [AppAction] = [
         .skipBackward(5),
         .playPauseToggle,
         .skipForward(5)
@@ -29,17 +29,17 @@ struct QuickTimePlatform: MediaPlatform {
         return statusScript
     }
     
-    func parseState(_ output: String) -> MediaState {
+    func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         if components.count >= 3 {
-            return MediaState(
+            return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
                 isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }
-        return MediaState(
+        return AppState(
             title: "Error",
             subtitle: nil,
             isPlaying: nil,
@@ -47,7 +47,7 @@ struct QuickTimePlatform: MediaPlatform {
         )
     }
     
-    func executeAction(_ action: MediaAction) -> String {
+    func executeAction(_ action: AppAction) -> String {
         switch action {
         case .skipBackward:
             return """

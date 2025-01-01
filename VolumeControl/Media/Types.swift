@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-enum MediaAction: Identifiable {
+enum AppAction: Identifiable {
     case skipForward(Int)
     case skipBackward(Int)
     case previousTrack
@@ -61,19 +61,19 @@ enum MediaAction: Identifiable {
     }
 }
 
-struct MediaState: Equatable {
+struct AppState: Equatable {
     var title: String
     var subtitle: String?
     var isPlaying: Bool?
     var error: String?
 }
 
-protocol MediaPlatform: Identifiable {
+protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
-    var supportedActions: [MediaAction] { get }
+    var supportedActions: [AppAction] { get }
     
     func fetchState() -> String
-    func executeAction(_ action: MediaAction) -> String
-    func parseState(_ output: String) -> MediaState
+    func executeAction(_ action: AppAction) -> String
+    func parseState(_ output: String) -> AppState
 } 

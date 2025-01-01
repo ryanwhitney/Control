@@ -1,23 +1,23 @@
 import SwiftUI
 
-struct MediaControl: View {
-    let platform: any MediaPlatform
-    @Binding var state: MediaState
-    @EnvironmentObject var controller: MediaController
-    let onAction: (MediaAction) -> Void
+struct AppControl: View {
+    let platform: any AppPlatform
+    @Binding var state: AppState
+    @EnvironmentObject var controller: AppController
+    let onAction: (AppAction) -> Void
     
     var skipInterval: Int {
         switch platform {
-        case is MusicPlatform: return 1
-        case is QuickTimePlatform: return 5
-        case is TVPlatform: return 10
+        case is MusicApp: return 1
+        case is QuickTimeApp: return 5
+        case is TVApp: return 10
         default: return 10
         }
     }
     
     var usePlayPauseIcon: Bool {
         switch platform {
-        case is VLCPlatform: return true
+        case is VLCApp: return true
         default: return false
         }
     }

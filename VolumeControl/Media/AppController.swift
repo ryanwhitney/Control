@@ -1,13 +1,14 @@
 import SwiftUI
 
-class MediaController: ObservableObject {
-    @Published var states: [String: MediaState] = [:]
+@MainActor
+class AppController: ObservableObject {
+    @Published var states: [String: AppState] = [:]
     @Published var optimisticStates: [String: Bool] = [:]
     @Published var currentVolume: Float = 0.5
     private let platformRegistry: PlatformRegistry
     private let sshClient: SSHClient
     
-    var platforms: [any MediaPlatform] {
+    var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
     
@@ -17,7 +18,7 @@ class MediaController: ObservableObject {
         
         // Initialize states for all platforms
         for platform in platformRegistry.platforms {
-            states[platform.id] = MediaState(
+            states[platform.id] = AppState(
                 title: "Loading...",
                 subtitle: nil,
                 isPlaying: nil,
@@ -38,15 +39,18 @@ class MediaController: ObservableObject {
         }
     }
     
-    private func updateState(for platform: any MediaPlatform) async {
+    private func updateState(for platform: any AppPlatform) async {
         let script = platform.fetchState()
         executeCommand(script) { [weak self] result in
             Task { @MainActor in
                 switch result {
                 case .success(let output):
-                    self?.states[platform.id] = platform.parseState(output)
+                    let newState = platform.parseState(output)
+                    self?.optimisticStates.removeValue(forKey: platform.id)
+                    self?.states[platform.id] = newState
                 case .failure(let error):
-                    self?.states[platform.id] = MediaState(
+                    self?.optimisticStates.removeValue(forKey: platform.id)
+                    self?.states[platform.id] = AppState(
                         title: "Error",
                         subtitle: nil,
                         isPlaying: nil,
@@ -57,7 +61,7 @@ class MediaController: ObservableObject {
         }
     }
     
-    func executeAction(platform: any MediaPlatform, action: MediaAction) {
+    func executeAction(platform: any AppPlatform, action: AppAction) {
         if case .playPauseToggle = action {
             let currentState = states[platform.id]?.isPlaying ?? false
             optimisticStates[platform.id] = !currentState
@@ -66,10 +70,9 @@ class MediaController: ObservableObject {
         let script = platform.executeAction(action)
         executeCommand(script) { [weak self] _ in
             Task { @MainActor in
-                // Wait a moment before updating state to avoid race conditions
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                // Wait briefly for the application to update its state
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 await self?.updateState(for: platform)
-                self?.optimisticStates.removeValue(forKey: platform.id)
             }
         }
     }

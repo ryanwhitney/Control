@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ControlView: View {
-    @StateObject private var mediaController: MediaController
+    @StateObject private var appController: AppController
     @Environment(\.scenePhase) private var scenePhase
     let host: String
     let displayName: String
@@ -28,7 +28,7 @@ struct ControlView: View {
         self.username = username
         self.password = password
         self.sshClient = sshClient
-        _mediaController = StateObject(wrappedValue: MediaController(sshClient: sshClient))
+        _appController = StateObject(wrappedValue: AppController(sshClient: sshClient))
     }
     
     var body: some View {
@@ -39,25 +39,26 @@ struct ControlView: View {
                 
             case .connected:
                 VStack {
+                    Spacer()
                         TabView{
-                            ForEach(mediaController.platforms, id: \.id) { platform in
-                                MediaControl(
+                            ForEach(appController.platforms, id: \.id) { platform in
+                                AppControl(
                                     platform: platform,
                                     state: Binding(
-                                        get: { mediaController.states[platform.id] ?? MediaState(title: "Error") },
-                                        set: { mediaController.states[platform.id] = $0 }
+                                        get: { appController.states[platform.id] ?? AppState(title: "Error") },
+                                        set: { appController.states[platform.id] = $0 }
                                     ),
                                     onAction: { action in
-                                        mediaController.executeAction(platform: platform, action: action)
+                                        appController.executeAction(platform: platform, action: action)
                                     }
                                 )
-                                .environmentObject(mediaController)
-                                .frame(width: 300)
+                                .environmentObject(appController)
+
 
                         }
 
                         .padding()
-                    }
+                    }.frame(height: 200)
                     .tabViewStyle(.page)
                     Spacer()
                     
@@ -81,10 +82,12 @@ struct ControlView: View {
                         }
                     }
                     .padding()
+                    Spacer()
                 }
                 .opacity(isReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.5), value: isReady)
-                
+
+
             case .disconnected:
                 VStack {
                     Text("Disconnected").font(.headline)
@@ -105,7 +108,7 @@ struct ControlView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {
-                    mediaController.updateAllStates()
+                    appController.updateAllStates()
                 }
             }
         }
@@ -117,7 +120,7 @@ struct ControlView: View {
                 connectToSSH()
             }
         }
-        .onReceive(mediaController.$currentVolume) { newVolume in
+        .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
     }
@@ -131,7 +134,7 @@ struct ControlView: View {
                 switch result {
                 case .success:
                     self.connectionState = .connected
-                    self.mediaController.updateAllStates()
+                    self.appController.updateAllStates()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         self.isReady = true
                     }
@@ -145,13 +148,13 @@ struct ControlView: View {
     private func adjustVolume(by amount: Int) {
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
         volume = Float(newVolume) / 100.0
-        mediaController.setVolume(volume)
+        appController.setVolume(volume)
     }
     
     private func debounceVolumeChange() {
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
-            mediaController.setVolume(volume)
+            appController.setVolume(volume)
         }
         volumeChangeWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
