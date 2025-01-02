@@ -12,23 +12,17 @@ struct VLCApp: AppPlatform {
     
     private let statusScript = """
     tell application "VLC"
-    if not playing then
-        return "No media|||stopped|||false"
-    end if
-    
-    try
-        set mediaName to name of current item
-    on error
-        return "No media|||stopped|||false"
-    end try
-    
-    if playing then
-        return mediaName & "|||playing|||true"
-    else
-        return mediaName & "|||paused|||false"
-    end if
+        try
+            set mediaName to name of current item
+            if playing then
+                return mediaName & "|||playing|||true"
+            else
+                return mediaName & "|||paused|||false"
+            end if
+        on error
+            return "No media|||stopped|||false"
+        end try
     end tell
-
     """
     
     func fetchState() -> String {
