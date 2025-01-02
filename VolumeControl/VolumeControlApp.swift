@@ -15,7 +15,7 @@ struct VolumeControlApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ComputerListView()
+            ConnectionsView()
                 .onAppear {
                     networkPermissions.requestPermissions()
                 }

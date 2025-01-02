@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 import Network
 
-struct ComputerListView: View {
+struct ConnectionsView: View {
     @StateObject private var savedConnections = SavedConnections()
     @StateObject private var sshManager = SSHManager()
     @Environment(\.scenePhase) private var scenePhase
@@ -470,7 +470,7 @@ class SSHManager: ObservableObject {
 
 struct ComputerListView_Previews: PreviewProvider {
     static var previews: some View {
-        ComputerListView()
+        ConnectionsView()
     }
 }
 
