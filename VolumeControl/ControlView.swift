@@ -40,26 +40,20 @@ struct ControlView: View {
             case .connected:
                 VStack {
                     Spacer()
-                        TabView{
-                            ForEach(appController.platforms, id: \.id) { platform in
-                                AppControl(
-                                    platform: platform,
-                                    state: Binding(
-                                        get: { appController.states[platform.id] ?? AppState(title: "Error") },
-                                        set: { appController.states[platform.id] = $0 }
-                                    ),
-                                    onAction: { action in
-                                        appController.executeAction(platform: platform, action: action)
-
-                                    }
+                    TabView {
+                        ForEach(appController.platforms, id: \.id) { platform in
+                            AppControl(
+                                platform: platform,
+                                state: Binding(
+                                    get: { appController.states[platform.id] ?? AppState(title: "Error") },
+                                    set: { appController.states[platform.id] = $0 }
                                 )
-                                .environmentObject(appController)
-
-
+                            )
+                            .environmentObject(appController)
                         }
-
                         .padding()
-                    }.frame(height: 200)
+                    }
+                    .frame(height: 200)
                     .tabViewStyle(.page)
                     Spacer()
                     
@@ -87,8 +81,7 @@ struct ControlView: View {
                 }
                 .opacity(isReady ? 1 : 0)
                 .animation(.easeInOut(duration: 0.5), value: isReady)
-
-
+                
             case .disconnected:
                 VStack {
                     Text("Disconnected").font(.headline)
@@ -121,6 +114,9 @@ struct ControlView: View {
                 connectToSSH()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            connectToSSH()
+        }
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
@@ -136,7 +132,7 @@ struct ControlView: View {
                 case .success:
                     self.connectionState = .connected
                     self.appController.updateAllStates()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         self.isReady = true
                     }
                 case .failure(let error):

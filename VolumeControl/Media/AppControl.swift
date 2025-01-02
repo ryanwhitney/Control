@@ -4,7 +4,6 @@ struct AppControl: View {
     let platform: any AppPlatform
     @Binding var state: AppState
     @EnvironmentObject var controller: AppController
-    let onAction: (AppAction) -> Void
     
     var skipInterval: Int {
         switch platform {
@@ -22,28 +21,21 @@ struct AppControl: View {
         }
     }
     
-    var isPlaying: Bool? {
-        return state.isPlaying
-    }
-    
     var body: some View {
         VStack {
             MediaControlPanel(
                 title: platform.name,
                 mediaInfo: state.title,
-                isPlaying: isPlaying,
+                isPlaying: state.isPlaying,
                 skipInterval: skipInterval,
-                onBackward: { onAction(.skipBackward(skipInterval)) },
-                onPlayPause: { onAction(.playPauseToggle) },
-                onForward: { onAction(.skipForward(skipInterval)) },
+                onBackward: { controller.executeAction(platform: platform, action: .skipBackward(skipInterval)) },
+                onPlayPause: { controller.executeAction(platform: platform, action: .playPauseToggle) },
+                onForward: { controller.executeAction(platform: platform, action: .skipForward(skipInterval)) },
                 usePlayPauseIcon: usePlayPauseIcon
             )
         }
         .onAppear {
-            controller.updateAllStates()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            controller.updateAllStates()
+            controller.updateState(for: platform)
         }
     }
 } 

@@ -29,6 +29,7 @@ class AppController: ObservableObject {
         updateAllStates()
     }
     
+    // Updates all states - used by refresh button
     func updateAllStates() {
         Task { @MainActor in
             await updateVolume()
@@ -38,7 +39,8 @@ class AppController: ObservableObject {
         }
     }
     
-    private func updateState(for platform: any AppPlatform) {
+    // Updates state for a single platform - used when tab becomes visible
+    func updateState(for platform: any AppPlatform) {
         print("updating state for \(platform.id)")
         let script = platform.fetchState()
         executeCommand(script) { [weak self] result in
@@ -66,7 +68,7 @@ class AppController: ObservableObject {
         }
         
         // Update state after a brief delay to let the app state settle
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             self?.updateState(for: platform)
         }
     }
