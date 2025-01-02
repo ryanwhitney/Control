@@ -6,9 +6,9 @@ struct ConnectionsView: View {
     @StateObject private var savedConnections = SavedConnections()
     @StateObject private var sshManager = SSHManager()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var computers: [NetService] = []
+    @State private var connections: [NetService] = []
     @State private var isAuthenticating = false
-    @State private var selectedComputer: Computer?
+    @State private var selectedConnection: Connection?
     @State private var showingAddDialog = false
     @State private var username: String = ""
     @State private var password: String = ""
@@ -17,21 +17,21 @@ struct ConnectionsView: View {
     @State private var navigateToControl = false
     @State private var isSearching = false
     @State private var networkScanner: NWBrowser?
-    @State private var connectingComputer: Computer?
+    @State private var connectingComputer: Connection?
 
-    struct Computer: Identifiable, Hashable {
+    struct Connection: Identifiable, Hashable {
         let id: String
         let name: String
         let host: String
-        let type: ComputerType
+        let type: ConnectionType
         var lastUsername: String?
         
-        enum ComputerType {
+        enum ConnectionType {
             case bonjour(NetService)
             case manual
         }
         
-        static func == (lhs: Computer, rhs: Computer) -> Bool {
+        static func == (lhs: Connection, rhs: Connection) -> Bool {
             return lhs.host == rhs.host
         }
         
@@ -51,7 +51,7 @@ struct ConnectionsView: View {
                             Spacer()
                             ProgressView()
                         }
-                    } else if computers.isEmpty {
+                    } else if connections.isEmpty {
                         Text("No connections found")
                             .foregroundColor(.secondary)
                     } else {
@@ -84,11 +84,12 @@ struct ConnectionsView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
-                                
+                                .tint(.red)
+
                                 Button {
-                                    selectedComputer = computer
+                                    selectedConnection = computer
                                     username = computer.lastUsername ?? ""
-                                    password = ""  // Don't show saved password
+                                    password = "•••••"  // keep pass empty
                                     saveCredentials = false
                                     showingAddDialog = true
                                 } label: {
@@ -131,7 +132,7 @@ struct ConnectionsView: View {
                         }
                         
                         Button(action: {
-                            selectedComputer = nil
+                            selectedConnection = nil
                             username = ""
                             password = ""
                             saveCredentials = true
@@ -143,7 +144,7 @@ struct ConnectionsView: View {
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
-                if let computer = selectedComputer {
+                if let computer = selectedConnection {
                     // Edit mode
                     AuthenticationView(
                         mode: .edit,
@@ -160,11 +161,11 @@ struct ConnectionsView: View {
                                 password: saveCredentials ? password : nil
                             )
                             showingAddDialog = false
-                            selectedComputer = nil
+                            selectedConnection = nil
                         },
                         onCancel: {
                             showingAddDialog = false
-                            selectedComputer = nil
+                            selectedConnection = nil
                         }
                     )
                 } else {
@@ -183,7 +184,7 @@ struct ConnectionsView: View {
                 }
             }
             .sheet(isPresented: $isAuthenticating) {
-                if let computer = selectedComputer {
+                if let computer = selectedConnection {
                     AuthenticationView(
                         mode: .authenticate,
                         existingHost: computer.host,
@@ -194,7 +195,7 @@ struct ConnectionsView: View {
                         onSuccess: { _, nickname in
                             if let nickname = nickname {
                                 // Create new computer with updated name
-                                let updatedComputer = Computer(
+                                let updatedComputer = Connection(
                                     id: computer.id,
                                     name: nickname,
                                     host: computer.host,
@@ -213,7 +214,7 @@ struct ConnectionsView: View {
                 }
             }
             .navigationDestination(isPresented: $navigateToControl) {
-                if let computer = selectedComputer {
+                if let computer = selectedConnection {
                     ControlView(
                         host: computer.host,
                         displayName: computer.name,
@@ -241,7 +242,7 @@ struct ConnectionsView: View {
 
     // Separate computer row view for reuse
     struct ComputerRow: View {
-        let computer: Computer
+        let computer: Connection
         let isConnecting: Bool
         let action: () -> Void
         
@@ -271,14 +272,14 @@ struct ConnectionsView: View {
         }
     }
 
-    private var networkComputers: [Computer] {
-        computers.compactMap { service in
+    private var networkComputers: [Connection] {
+        connections.compactMap { service in
             guard let hostname = service.hostName else { return nil }
             
             // Clean up the hostname by removing the extra period
             let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
             
-            return Computer(
+            return Connection(
                 id: service.name,
                 name: service.name.replacingOccurrences(of: "\\032", with: " "),
                 host: cleanHostname,
@@ -288,9 +289,9 @@ struct ConnectionsView: View {
         }
     }
     
-    private var savedComputers: [Computer] {
+    private var savedComputers: [Connection] {
         savedConnections.items.map { saved in
-            Computer(
+            Connection(
                 id: saved.hostname,
                 name: saved.name ?? saved.hostname,
                 host: saved.hostname,
@@ -300,8 +301,8 @@ struct ConnectionsView: View {
         }.sorted { $0.name < $1.name }
     }
 
-    private func selectComputer(_ computer: Computer) {
-        selectedComputer = computer
+    private func selectComputer(_ computer: Connection) {
+        selectedConnection = computer
         connectingComputer = computer
         username = computer.lastUsername ?? ""
         password = ""  // Reset password
@@ -320,7 +321,7 @@ struct ConnectionsView: View {
         }
     }
     
-    private func tryConnect(computer: Computer, showAuthOnFail: Bool = false) {
+    private func tryConnect(computer: Connection, showAuthOnFail: Bool = false) {
         sshManager.connect(host: computer.host, username: username, password: password) { result in
             DispatchQueue.main.async {
                 self.connectingComputer = nil
@@ -340,7 +341,7 @@ struct ConnectionsView: View {
                             username: self.username
                         )
                     }
-                    self.selectedComputer = computer
+                    self.selectedConnection = computer
                     self.navigateToControl = true
                     self.isAuthenticating = false
                 case .failure(let error):
@@ -358,10 +359,9 @@ struct ConnectionsView: View {
         savedConnections.add(hostname: host, username: username, password: password)
     }
 
-        print("\n=== Starting Network Discovery ===")
     private func startNetworkScan() {
         print("\n=== Starting Network Scan ===")
-        computers.removeAll()
+        connections.removeAll()
         errorMessage = nil
         isSearching = true
         
@@ -383,7 +383,6 @@ struct ConnectionsView: View {
                     self.errorMessage = error.localizedDescription
                     self.isSearching = false
                 case .ready:
-                    print("Browser ready")
                     print("Scanner ready")
                 case .cancelled:
                     print("Scanner cancelled")
@@ -397,16 +396,30 @@ struct ConnectionsView: View {
         scanner.browseResultsChangedHandler = { results, changes in
             print("Found \(results.count) services")
             DispatchQueue.main.async {
-                self.computers = results.compactMap { result in
-                    guard case .service(let name, let type, let domain, let endpoint) = result.endpoint else {
+                self.connections = results.compactMap { result in
+                    guard case .service(let name, let type, let domain, _) = result.endpoint else {
                         print("Invalid endpoint format")
                         return nil
                     }
                     print("Found service: \(name)")
-                    print("Endpoint details: \(String(describing: endpoint))")
                     
                     let service = NetService(domain: domain, type: type, name: name)
                     service.resolve(withTimeout: 5.0)
+                    
+                    // Print detailed service information
+                    print("Service details:")
+                    print("  - Name: \(service.name)")
+                    print("  - Type: \(service.type)")
+                    print("  - Domain: \(service.domain)")
+                    print("  - HostName: \(service.hostName ?? "unknown")")
+                    if let addresses = service.addresses {
+                        print("  - Addresses: \(addresses.count) found")
+                        for (index, address) in addresses.enumerated() {
+                            print("    [\(index)] \(address.description)")
+                        }
+                    }
+                    print("  - Port: \(service.port)")
+                    
                     return service
                 }
             }
@@ -418,7 +431,7 @@ struct ConnectionsView: View {
         // Add timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
             print("\n=== Scan Complete ===")
-            print("Final computer count: \(self.computers.count)")
+            print("Final computer count: \(self.connections.count)")
             scanner.cancel()
             DispatchQueue.main.async {
                 self.isSearching = false
