@@ -3,7 +3,6 @@ import SwiftUI
 @MainActor
 class AppController: ObservableObject {
     @Published var states: [String: AppState] = [:]
-    @Published var optimisticStates: [String: Bool] = [:]
     @Published var currentVolume: Float = 0.5
     private let platformRegistry: PlatformRegistry
     private let sshClient: SSHClient
@@ -34,7 +33,7 @@ class AppController: ObservableObject {
         Task { @MainActor in
             await updateVolume()
             for platform in platforms {
-                await updateState(for: platform)
+                updateState(for: platform)
             }
         }
     }
@@ -43,15 +42,12 @@ class AppController: ObservableObject {
         print("updating state for \(platform.id)")
         let script = platform.fetchState()
         executeCommand(script) { [weak self] result in
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 switch result {
                 case .success(let output):
                     let newState = platform.parseState(output)
-//                    self?.optimisticStates.removeValue(forKey: platform.id)
                     self?.states[platform.id] = newState
-                    
                 case .failure(let error):
-//                    self?.optimisticStates.removeValue(forKey: platform.id)
                     self?.states[platform.id] = AppState(
                         title: "Error",
                         subtitle: nil,
@@ -64,17 +60,14 @@ class AppController: ObservableObject {
     }
     
     func executeAction(platform: any AppPlatform, action: AppAction) {
-        if case .playPauseToggle = action {
-            let currentState = states[platform.id]?.isPlaying ?? false
-//            optimisticStates[platform.id] = !currentState
-        }
         let script = platform.executeAction(action)
-        executeCommand(script) { [weak self] _ in
-                print("DEBUG TASK RAN")
-            
+        executeCommand(script) { _ in
+            print("Action executed for \(platform.id)")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            self.updateState(for: platform)
+        
+        // Update state after a brief delay to let the app state settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.updateState(for: platform)
         }
     }
     

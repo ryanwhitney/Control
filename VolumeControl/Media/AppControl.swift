@@ -23,9 +23,6 @@ struct AppControl: View {
     }
     
     var isPlaying: Bool? {
-        if let optimisticState = controller.optimisticStates[platform.id] {
-            return optimisticState
-        }
         return state.isPlaying
     }
     
