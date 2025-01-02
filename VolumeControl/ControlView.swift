@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ControlView: View {
     @StateObject private var appController: AppController
@@ -14,6 +15,7 @@ struct ControlView: View {
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
     @State private var connectionState: ConnectionState = .connecting
+    @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     
     enum ConnectionState {
         case connecting
@@ -143,6 +145,10 @@ struct ControlView: View {
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIScreen.brightnessDidChangeNotification)) { _ in
+            screenBrightness = UIScreen.main.brightness
+        }
+        .environment(\.screenBrightness, screenBrightness)
     }
     
     private func connectToSSH() {
