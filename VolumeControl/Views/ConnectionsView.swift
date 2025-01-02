@@ -406,7 +406,6 @@ struct ConnectionsView: View {
                     print("Found service: \(name)")
                     print("Endpoint details: \(String(describing: endpoint))")
                     
-                    // Create NetService and start resolution
                     let service = NetService(domain: domain, type: type, name: name)
                     service.resolve(withTimeout: 5.0)
                     return service
@@ -429,42 +428,7 @@ struct ConnectionsView: View {
     }
 }
 
-class BonjourDelegate: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
-    @Binding var computers: [NetService]
-    @Binding var errorMessage: String?
-    private var resolving: Set<String> = []
-    
-    init(computers: Binding<[NetService]>, errorMessage: Binding<String?>) {
-        _computers = computers
-        _errorMessage = errorMessage
-        super.init()
-    }
-    
-    func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
-        let serviceName = service.name.replacingOccurrences(of: "\\032", with: " ")
-        print("Found service: \(serviceName)")
-        service.delegate = self
-        service.resolve(withTimeout: 5.0)
-    }
-    
-    func netServiceDidResolveAddress(_ sender: NetService) {
-        let serviceName = sender.name.replacingOccurrences(of: "\\032", with: " ")
-        print("Resolved service: \(serviceName) host: \(sender.hostName ?? "unknown")")
-        
-        DispatchQueue.main.async {
-            if !self.computers.contains(where: { $0.name == serviceName }),
-               sender.hostName != nil {
-                self.computers.append(sender)
-            }
-        }
-    }
-    
-    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
-        print("Search error: \(errorDict)")
-    }
-}
-
-// Update SSH Manager to handle its own client state
+// SSH Manager to handle client state
 class SSHManager: ObservableObject {
     private var client = SSHClient()
     private var isConnected = false
@@ -491,6 +455,7 @@ class SSHManager: ObservableObject {
     
     func disconnect() {
         client = SSHClient()  // Create fresh client, old one will be deallocated
+        client = SSHClient()
         isConnected = false
     }
     

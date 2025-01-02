@@ -137,25 +137,13 @@ struct AuthenticationView: View {
 
 struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {
-        Group {
-            AuthenticationView(
-                mode: .authenticate,
-                existingName: "Test Computer",
-                username: .constant("testuser"),
-                password: .constant(""),
-                saveCredentials: .constant(false),
-                onSuccess: { _, _ in },
-                onCancel: {}
-            )
-            
-            AuthenticationView(
-                mode: .add,
-                username: .constant(""),
-                password: .constant(""),
-                saveCredentials: .constant(false),
-                onSuccess: { _, _ in },
-                onCancel: {}
-            )
-        }
+        AuthenticationView(
+            mode: .add,
+            username: .constant(""),
+            password: .constant(""),
+            saveCredentials: .constant(true),
+            onSuccess: { _, _ in },
+            onCancel: {}
+        )
     }
 }
