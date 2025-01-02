@@ -1,29 +1,81 @@
 import SwiftUI
 
 struct AuthenticationView: View {
-    let name: String
+    let mode: Mode
+    let existingHost: String?
+    let existingName: String?
+    
+    @State private var hostname: String
+    @State private var nickname: String
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
-    @State private var customName: String = ""
-    let onSuccess: (String?) -> Void
+    
+    let onSuccess: (String, String?) -> Void // (hostname, nickname?)
     let onCancel: () -> Void
-
+    
+    enum Mode {
+        case add
+        case authenticate
+        
+        var title: String {
+            switch self {
+            case .add: return "Add Computer"
+            case .authenticate: return "Connect"
+            }
+        }
+    }
+    
+    init(mode: Mode,
+         existingHost: String? = nil,
+         existingName: String? = nil,
+         username: Binding<String>,
+         password: Binding<String>,
+         saveCredentials: Binding<Bool>,
+         onSuccess: @escaping (String, String?) -> Void,
+         onCancel: @escaping () -> Void) {
+        self.mode = mode
+        self.existingHost = existingHost
+        self.existingName = existingName
+        self._hostname = State(initialValue: existingHost ?? "")
+        self._nickname = State(initialValue: existingName ?? "")
+        self._username = username
+        self._password = password
+        self._saveCredentials = saveCredentials
+        self.onSuccess = onSuccess
+        self.onCancel = onCancel
+    }
+    
     var body: some View {
         NavigationView {
             Form {
-                Section(header: Text("Computer")) {
-                    Text(name)
-                        .font(.headline)
-                    
-                    if saveCredentials {
-                        TextField("Custom name (optional)", text: $customName)
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
+                if mode == .add {
+                    Section {
+                        HStack {
+                            Image(systemName: "network")
+                            Text("Must be on the same Wi-Fi network with Remote Login enabled.")
+                                .font(.subheadline)
+                        }
+                        .foregroundStyle(.secondary)
                     }
                 }
                 
-                Section(header: Text("Credentials")) {
+                Section("Computer") {
+                    if mode == .add {
+                        TextField("Hostname or IP", text: $hostname)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                    } else {
+                        Text(existingHost ?? "")
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    TextField("Nickname (optional)", text: $nickname)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                }
+                
+                Section(mode == .add ? "Credentials (Optional)" : "Credentials") {
                     TextField("Username", text: $username)
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
@@ -32,31 +84,51 @@ struct AuthenticationView: View {
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                     
-                    Toggle("Save credentials for quick connect", isOn: $saveCredentials)
+                    Toggle("Save for quick connect", isOn: $saveCredentials)
                 }
                 
                 Section {
-                    Button("Connect") {
-                        onSuccess(saveCredentials && !customName.isEmpty ? customName : nil)
+                    Button(mode == .add ? "Add" : "Connect") {
+                        onSuccess(
+                            mode == .add ? hostname : (existingHost ?? ""),
+                            !nickname.isEmpty ? nickname : nil
+                        )
                     }
-                    .disabled(username.isEmpty || password.isEmpty)
+                    .disabled(mode == .add ? hostname.isEmpty : (username.isEmpty || password.isEmpty))
                 }
             }
-            .navigationTitle("Connect")
-            .navigationBarItems(trailing: Button("Cancel", action: onCancel))
+            .navigationTitle(mode.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+            }
         }
     }
 }
 
 struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {
-        AuthenticationView(
-            name: "Test Computer",
-            username: .constant("testuser"),
-            password: .constant(""),
-            saveCredentials: .constant(false),
-            onSuccess: { _ in },
-            onCancel: {}
-        )
+        Group {
+            AuthenticationView(
+                mode: .authenticate,
+                existingName: "Test Computer",
+                username: .constant("testuser"),
+                password: .constant(""),
+                saveCredentials: .constant(false),
+                onSuccess: { _, _ in },
+                onCancel: {}
+            )
+            
+            AuthenticationView(
+                mode: .add,
+                username: .constant(""),
+                password: .constant(""),
+                saveCredentials: .constant(false),
+                onSuccess: { _, _ in },
+                onCancel: {}
+            )
+        }
     }
 }

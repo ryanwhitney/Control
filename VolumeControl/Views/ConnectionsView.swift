@@ -104,24 +104,33 @@ struct ConnectionsView: View {
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
-                AddComputerView { host, customName, username, password in
-                    addManualComputer(host, username: username, password: password)
-                    showingAddDialog = false
-                }
+                AuthenticationView(
+                    mode: .add,
+                    username: $username,
+                    password: $password,
+                    saveCredentials: $saveCredentials,
+                    onSuccess: { hostname, nickname in
+                        addManualComputer(hostname, name: nickname ?? "", username: username, password: password)
+                        showingAddDialog = false
+                    },
+                    onCancel: { showingAddDialog = false }
+                )
             }
             .sheet(isPresented: $isAuthenticating) {
                 if let computer = selectedComputer {
                     AuthenticationView(
-                        name: computer.name,
+                        mode: .authenticate,
+                        existingHost: computer.host,
+                        existingName: computer.name,
                         username: $username,
                         password: $password,
                         saveCredentials: $saveCredentials,
-                        onSuccess: { customName in
-                            if let customName = customName {
+                        onSuccess: { _, nickname in
+                            if let nickname = nickname {
                                 // Create new computer with updated name
                                 let updatedComputer = Computer(
                                     id: computer.id,
-                                    name: customName,
+                                    name: nickname,
                                     host: computer.host,
                                     type: computer.type,
                                     lastUsername: computer.lastUsername
@@ -263,7 +272,7 @@ struct ConnectionsView: View {
         }
     }
 
-    private func addManualComputer(_ host: String, username: String? = nil, password: String? = nil) {
+    private func addManualComputer(_ host: String, name: String, username: String? = nil, password: String? = nil) {
         savedConnections.add(hostname: host, username: username, password: password)
     }
 
@@ -332,60 +341,6 @@ struct ConnectionsView: View {
             DispatchQueue.main.async {
                 self.isSearching = false
             }
-        }
-    }
-}
-
-// Add Computer view with credential options
-struct AddComputerView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var hostname = ""
-    @State private var customName = ""
-    @State private var username = ""
-    @State private var password = ""
-    @State private var saveCredentials = false
-    let onAdd: (String, String?, String?, String?) -> Void
-    
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Computer")) {
-                    TextField("Hostname or IP", text: $hostname)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                    
-                    TextField("Name (optional)", text: $customName)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                }
-                
-                Section(header: Text("Credentials (Optional)")) {
-                    TextField("Username", text: $username)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .textContentType(.username)
-                    
-                    SecureField("Password", text: $password)
-                        .textContentType(.password)
-                    
-                    Toggle("Save credentials for quick connect", isOn: $saveCredentials)
-                }
-                
-                Section {
-                    Button("Add") {
-                        onAdd(hostname, 
-                             !customName.isEmpty ? customName : nil,
-                             !username.isEmpty ? username : nil,
-                             saveCredentials ? password : nil)
-                        dismiss()
-                    }
-                    .disabled(hostname.isEmpty)
-                }
-            }
-            .navigationTitle("Add Computer")
-            .navigationBarItems(trailing: Button("Cancel") {
-                dismiss()
-            })
         }
     }
 }
@@ -471,14 +426,5 @@ class SSHManager: ObservableObject {
 struct ComputerListView_Previews: PreviewProvider {
     static var previews: some View {
         ConnectionsView()
-    }
-}
-
-// Add preview for AddComputerView
-struct AddComputerView_Previews: PreviewProvider {
-    static var previews: some View {
-        AddComputerView { host, customName, username, password in
-            print("Would add computer: \(host)")
-        }
     }
 }

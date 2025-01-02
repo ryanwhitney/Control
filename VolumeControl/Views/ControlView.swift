@@ -17,11 +17,29 @@ struct ControlView: View {
     @State private var connectionState: ConnectionState = .connecting
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     
-    enum ConnectionState {
+    enum ConnectionState: Equatable {
         case connecting
         case connected
         case disconnected
         case failed(String)
+        
+        var isOverlay: Bool {
+            switch self {
+            case .connecting: return true
+            case .disconnected, .failed: return false
+            case .connected: return false
+            }
+        }
+        
+        static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
+            switch (lhs, rhs) {
+            case (.connecting, .connecting): return true
+            case (.connected, .connected): return true
+            case (.disconnected, .disconnected): return true
+            case (.failed(let lhsError), .failed(let rhsError)): return lhsError == rhsError
+            default: return false
+            }
+        }
     }
     
     init(host: String, displayName: String, username: String, password: String, sshClient: SSHClient) {
@@ -34,80 +52,94 @@ struct ControlView: View {
     }
     
     var body: some View {
-        VStack {
-            switch connectionState {
-            case .connecting:
-                ProgressView("Connecting to \(host)...")
-                
-            case .connected:
-                VStack {
-                    Spacer()
-                    TabView {
-                        ForEach(appController.platforms, id: \.id) { platform in
-                            AppControl(
-                                platform: platform,
-                                state: Binding(
-                                    get: { appController.states[platform.id] ?? AppState(title: "Error") },
-                                    set: { appController.states[platform.id] = $0 }
-                                )
+        ZStack {
+            // Main content
+            VStack {
+                Spacer()
+                TabView {
+                    ForEach(appController.platforms, id: \.id) { platform in
+                        AppControl(
+                            platform: platform,
+                            state: Binding(
+                                get: { appController.states[platform.id] ?? AppState(title: "Error") },
+                                set: { appController.states[platform.id] = $0 }
                             )
-                            .environmentObject(appController)
-                        }
-                        .padding(.horizontal)
+                        )
+                        .environmentObject(appController)
                     }
-                    .frame(height: 230)
-                    .tabViewStyle(.page)
-                    Spacer()
+                    .padding(.horizontal)
+                }
+                .frame(height: 230)
+                .tabViewStyle(.page)
+                Spacer()
+                
+                // Volume Controls
+                VStack(spacing: 20) {
+                    Text("Volume: \(Int(volume * 100))%")
+                        .fontWeight(.bold)
+                        .fontWidth(.expanded)
                     
-                    // Volume Controls
-                    VStack(spacing: 20) {
-                        Text("Volume: \(Int(volume * 100))%")
-                            .fontWeight(.bold)
-                            .fontWidth(.expanded)
-                        
-                        Slider(value: $volume, in: 0...1, step: 0.01)
-                            .padding(.horizontal)
-                            .onChange(of: volume) { oldValue, newValue in
-                                debounceVolumeChange()
-                            }
-                        
-                        HStack(spacing: 20) {
-                            Button {
-                                adjustVolume(by: -5)
-                            } label: {
-                                Text("-5")
-                            }
-                            .buttonStyle(CircularButtonStyle())
-                            
-                            Button {
-                                adjustVolume(by: -1)
-                            } label: {
-                                Text("-1")
-                            }
-                            .buttonStyle(CircularButtonStyle())
-                            
-                            Button {
-                                adjustVolume(by: 1)
-                            } label: {
-                                Text("+1")
-                            }
-                            .buttonStyle(CircularButtonStyle())
-                            
-                            Button {
-                                adjustVolume(by: 5)
-                            } label: {
-                                Text("+5")
-                            }
-                            .buttonStyle(CircularButtonStyle())
+                    Slider(value: $volume, in: 0...1, step: 0.01)
+                        .padding(.horizontal)
+                        .onChange(of: volume) { oldValue, newValue in
+                            debounceVolumeChange()
                         }
+                    
+                    HStack(spacing: 20) {
+                        Button {
+                            adjustVolume(by: -5)
+                        } label: {
+                            Text("-5")
+                        }
+                        .buttonStyle(CircularButtonStyle())
+                        
+                        Button {
+                            adjustVolume(by: -1)
+                        } label: {
+                            Text("-1")
+                        }
+                        .buttonStyle(CircularButtonStyle())
+                        
+                        Button {
+                            adjustVolume(by: 1)
+                        } label: {
+                            Text("+1")
+                        }
+                        .buttonStyle(CircularButtonStyle())
+                        
+                        Button {
+                            adjustVolume(by: 5)
+                        } label: {
+                            Text("+5")
+                        }
+                        .buttonStyle(CircularButtonStyle())
+                    }
+                }
+                .padding()
+                Spacer()
+            }
+            .opacity(isReady && connectionState == .connected ? 1 : 0.3)
+            .allowsHitTesting(connectionState == .connected)
+            
+            // Overlay states
+            if connectionState.isOverlay {
+                ProgressView("Connecting to \(host)...")
+                    .padding()
+                    .background(.ultraThinMaterial)
+                    .cornerRadius(10)
+            } else if case .failed(let error) = connectionState {
+                VStack {
+                    Text("Connection Failed").font(.headline)
+                    Text(error).foregroundColor(.red)
+                    Button("Retry") {
+                        connectToSSH()
                     }
                     .padding()
-                    Spacer()
                 }
-                .opacity(isReady ? 1 : 0)
-                .animation(.easeInOut(duration: 0.5), value: isReady)
-                
-            case .disconnected:
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(10)
+            } else if case .disconnected = connectionState {
                 VStack {
                     Text("Disconnected").font(.headline)
                     Button("Reconnect") {
@@ -115,12 +147,9 @@ struct ControlView: View {
                     }
                     .padding()
                 }
-                
-            case .failed(let error):
-                VStack {
-                    Text("Connection Failed").font(.headline)
-                    Text(error).foregroundColor(.red)
-                }
+                .padding()
+                .background(.ultraThinMaterial)
+                .cornerRadius(10)
             }
         }
         .navigationTitle(displayName)
@@ -152,7 +181,6 @@ struct ControlView: View {
     }
     
     private func connectToSSH() {
-        isReady = false
         connectionState = .connecting
         
         sshClient.connect(host: host, username: username, password: password) { result in
