@@ -5,6 +5,7 @@ import Network
 struct ConnectionsView: View {
     @StateObject private var savedConnections = SavedConnections()
     @StateObject private var sshManager = SSHManager()
+    @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var connections: [NetService] = []
     @State private var isAuthenticating = false
@@ -18,6 +19,7 @@ struct ConnectionsView: View {
     @State private var isSearching = false
     @State private var networkScanner: NWBrowser?
     @State private var connectingComputer: Connection?
+    @State private var showingPreferences = false
 
     struct Connection: Identifiable, Hashable {
         let id: String
@@ -142,6 +144,13 @@ struct ConnectionsView: View {
                         }
                     }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showingPreferences = true
+                    } label: {
+                        Image(systemName: "gear")
+                    }
+                }
             }
             .sheet(isPresented: $showingAddDialog) {
                 if let computer = selectedConnection {
@@ -224,6 +233,10 @@ struct ConnectionsView: View {
                     )
                 }
             }
+            .sheet(isPresented: $showingPreferences) {
+                PreferencesView()
+            }
+            .tint(preferences.tintColorValue)
         }
         .onAppear {
             startNetworkScan()
@@ -483,6 +496,14 @@ class SSHManager: ObservableObject {
 }
 
 struct ComputerListView_Previews: PreviewProvider {
+    static var previews: some View {
+        ConnectionsView()
+    }
+}
+
+struct ComputerListView_Previews_settings: PreviewProvider {
+    @State private var showingPreferences = true
+
     static var previews: some View {
         ConnectionsView()
     }

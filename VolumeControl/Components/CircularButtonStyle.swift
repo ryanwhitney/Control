@@ -22,7 +22,7 @@ struct CircularButtonStyle: ButtonStyle {
             .padding(12)
             .frame(width: 60, height: 60)
             .foregroundStyle(isLowBrightness ? .black : .accentColor)
-            .background(isLowBrightness ? .green : .primary.opacity(0.15))
+            .background(isLowBrightness ? Color.accentColor : .primary.opacity(0.15))
             .clipShape(Circle())
             .labelStyle(.iconOnly)
     }
