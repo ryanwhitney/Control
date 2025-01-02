@@ -39,17 +39,19 @@ class AppController: ObservableObject {
         }
     }
     
-    private func updateState(for platform: any AppPlatform) async {
+    private func updateState(for platform: any AppPlatform) {
+        print("updating state for \(platform.id)")
         let script = platform.fetchState()
         executeCommand(script) { [weak self] result in
             Task { @MainActor in
                 switch result {
                 case .success(let output):
                     let newState = platform.parseState(output)
-                    self?.optimisticStates.removeValue(forKey: platform.id)
+//                    self?.optimisticStates.removeValue(forKey: platform.id)
                     self?.states[platform.id] = newState
+                    
                 case .failure(let error):
-                    self?.optimisticStates.removeValue(forKey: platform.id)
+//                    self?.optimisticStates.removeValue(forKey: platform.id)
                     self?.states[platform.id] = AppState(
                         title: "Error",
                         subtitle: nil,
@@ -64,16 +66,15 @@ class AppController: ObservableObject {
     func executeAction(platform: any AppPlatform, action: AppAction) {
         if case .playPauseToggle = action {
             let currentState = states[platform.id]?.isPlaying ?? false
-            optimisticStates[platform.id] = !currentState
+//            optimisticStates[platform.id] = !currentState
         }
-        
         let script = platform.executeAction(action)
         executeCommand(script) { [weak self] _ in
-            Task { @MainActor in
-                // Wait briefly for the application to update its state
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                await self?.updateState(for: platform)
-            }
+                print("DEBUG TASK RAN")
+            
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.updateState(for: platform)
         }
     }
     

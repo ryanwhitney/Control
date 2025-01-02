@@ -50,6 +50,7 @@ struct ControlView: View {
                                     ),
                                     onAction: { action in
                                         appController.executeAction(platform: platform, action: action)
+
                                     }
                                 )
                                 .environmentObject(appController)
