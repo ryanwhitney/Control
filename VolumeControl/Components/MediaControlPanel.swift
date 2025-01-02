@@ -17,6 +17,8 @@ struct MediaControlPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .contentTransition(.opacity)
+                    .id(mediaInfo)
             }
             
             HStack(spacing: 20) {

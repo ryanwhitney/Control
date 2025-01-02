@@ -16,7 +16,8 @@ struct ControlView: View {
     @State private var isReady: Bool = false
     @State private var connectionState: ConnectionState = .connecting
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
-    
+    @State private var shouldShowLoadingOverlay: Bool = false
+
     enum ConnectionState: Equatable {
         case connecting
         case connected
@@ -118,15 +119,26 @@ struct ControlView: View {
                 .padding()
                 Spacer()
             }
-            .opacity(isReady && connectionState == .connected ? 1 : 0.3)
+            .opacity(isReady && connectionState == .connected ? 1 : 0)
             .allowsHitTesting(connectionState == .connected)
-            
+            .animation(.easeInOut(duration: 0.3), value: isReady && connectionState == .connected)
+
             // Overlay states
             if connectionState.isOverlay {
                 ProgressView("Connecting to \(host)...")
                     .padding()
                     .background(.ultraThinMaterial)
                     .cornerRadius(10)
+                    .opacity(shouldShowLoadingOverlay ? (isReady && connectionState == .connected ? 0 : 1) : 0)
+                    .animation(.easeInOut(duration: 0.3), value: isReady && connectionState == .connected)
+                    .onAppear {
+                        shouldShowLoadingOverlay = false
+                        // delay before showing in case not needed
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            shouldShowLoadingOverlay = true
+                        }
+                    }
+
             } else if case .failed(let error) = connectionState {
                 VStack {
                     Text("Connection Failed").font(.headline)
@@ -189,7 +201,7 @@ struct ControlView: View {
                 case .success:
                     self.connectionState = .connected
                     self.appController.updateAllStates()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
                         self.isReady = true
                     }
                 case .failure(let error):

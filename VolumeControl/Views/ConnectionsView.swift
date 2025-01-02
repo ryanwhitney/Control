@@ -17,6 +17,7 @@ struct ConnectionsView: View {
     @State private var navigateToControl = false
     @State private var isSearching = false
     @State private var browser: NWBrowser?
+    @State private var connectingComputer: Computer?
 
     struct Computer: Identifiable, Hashable {
         let id: String
@@ -55,7 +56,10 @@ struct ConnectionsView: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(networkComputers) { computer in
-                            ComputerRow(computer: computer) {
+                            ComputerRow(
+                                computer: computer,
+                                isConnecting: connectingComputer?.id == computer.id
+                            ) {
                                 selectComputer(computer)
                             }
                         }
@@ -68,7 +72,10 @@ struct ConnectionsView: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(savedComputers) { computer in
-                            ComputerRow(computer: computer) {
+                            ComputerRow(
+                                computer: computer,
+                                isConnecting: connectingComputer?.id == computer.id
+                            ) {
                                 selectComputer(computer)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -237,23 +244,32 @@ struct ConnectionsView: View {
     // Separate computer row view for reuse
     struct ComputerRow: View {
         let computer: Computer
+        let isConnecting: Bool
         let action: () -> Void
         
         var body: some View {
             Button(action: action) {
-                VStack(alignment: .leading) {
-                    Text(computer.name)
-                        .font(.headline)
-                    Text(computer.host)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    if let username = computer.lastUsername {
-                        Text(username)
-                            .font(.caption)
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(computer.name)
+                            .font(.headline)
+                        Text(computer.host)
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
+                        if let username = computer.lastUsername {
+                            Text(username)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    
+                    if isConnecting {
+                        Spacer()
+                        ProgressView()
                     }
                 }
             }
+            .disabled(isConnecting)
         }
     }
 
@@ -288,6 +304,7 @@ struct ConnectionsView: View {
 
     private func selectComputer(_ computer: Computer) {
         selectedComputer = computer
+        connectingComputer = computer
         username = computer.lastUsername ?? ""
         password = ""  // Reset password
         saveCredentials = true  // Default to true
@@ -300,6 +317,7 @@ struct ConnectionsView: View {
             tryConnect(computer: computer, showAuthOnFail: true)
         } else {
             // Missing some credentials, show auth view
+            connectingComputer = nil
             isAuthenticating = true
         }
     }
@@ -307,19 +325,20 @@ struct ConnectionsView: View {
     private func tryConnect(computer: Computer, showAuthOnFail: Bool = false) {
         sshManager.connect(host: computer.host, username: username, password: password) { result in
             DispatchQueue.main.async {
+                self.connectingComputer = nil
                 switch result {
                 case .success:
                     if self.saveCredentials {
                         self.savedConnections.updateLastUsername(
                             for: computer.host,
-                            name: computer.name,  // Use the current name from the computer object
+                            name: computer.name,
                             username: self.username,
                             password: self.password
                         )
                     } else {
                         self.savedConnections.updateLastUsername(
                             for: computer.host,
-                            name: computer.name,  // Add name here too
+                            name: computer.name,
                             username: self.username
                         )
                     }
