@@ -7,6 +7,8 @@ struct AuthenticationView: View {
     
     @State private var hostname: String
     @State private var nickname: String
+    @State private var isPopoverPresented = false
+
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
@@ -77,10 +79,26 @@ struct AuthenticationView: View {
                     Section {
                         HStack {
                             Image(systemName: "network")
-                            Text("Must be on the same Wi-Fi network with Remote Login enabled.")
-                                .font(.subheadline)
+                                .padding(.trailing, 4)
+
+                            Text("Must be on the same Wi-Fi network with Remote Login enabled. ")
+                            + Text("Learn more…")
+                                .foregroundStyle(.tint)
                         }
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .onTapGesture {
+                            isPopoverPresented = true
+                        }
+                        .popover(isPresented: $isPopoverPresented) {
+                            NavigationView {
+                                URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
+                                    .navigationBarItems(trailing: Button("Done") {
+                                        isPopoverPresented = false
+                                    })
+                                    .navigationBarTitleDisplayMode(.inline)
+                            }
+                        }
                     }
                 }
                 
@@ -134,6 +152,7 @@ struct AuthenticationView: View {
         }
     }
 }
+
 
 struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {
