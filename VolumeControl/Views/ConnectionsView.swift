@@ -428,16 +428,15 @@ struct ConnectionsView: View {
     }
 }
 
-// SSH Manager to handle client state
 class SSHManager: ObservableObject {
     private var client = SSHClient()
     private var isConnected = false
     
     func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        // Ensure clean state before new connection
+        // cleanup  before new connection
         disconnect()
         
-        // Create new client if needed
+        // new client if needed
         if !isConnected {
             client = SSHClient()
         }
@@ -454,8 +453,7 @@ class SSHManager: ObservableObject {
     }
     
     func disconnect() {
-        client = SSHClient()  // Create fresh client, old one will be deallocated
-        client = SSHClient()
+        client = SSHClient()  // create fresh client, old one gets deallocated
         isConnected = false
     }
     
