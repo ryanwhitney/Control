@@ -45,13 +45,13 @@ struct ConnectionsView: View {
                 Section(header: Text("On Your Network".capitalized)) {
                     if isSearching {
                         HStack {
-                            Text("Searching for computers...")
+                            Text("Searching for connections...")
                                 .foregroundColor(.secondary)
                             Spacer()
                             ProgressView()
                         }
                     } else if computers.isEmpty {
-                        Text("No computers found")
+                        Text("No connections found")
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(networkComputers) { computer in
@@ -64,12 +64,30 @@ struct ConnectionsView: View {
                 
                 Section(header: Text("Recent".capitalized)) {
                     if savedComputers.isEmpty {
-                        Text("No recent computers")
+                        Text("No recent connections")
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(savedComputers) { computer in
                             ComputerRow(computer: computer) {
                                 selectComputer(computer)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    savedConnections.remove(hostname: computer.host)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                
+                                Button {
+                                    selectedComputer = computer
+                                    username = computer.lastUsername ?? ""
+                                    password = ""  // Don't show saved password
+                                    saveCredentials = false
+                                    showingAddDialog = true
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
                             }
                         }
                         .onDelete { indexSet in
@@ -78,6 +96,15 @@ struct ConnectionsView: View {
                                 savedConnections.remove(hostname: computer.host)
                             }
                         }
+                    }
+                }
+            }
+            .refreshable {
+                await withCheckedContinuation { continuation in
+                    startBrowsing()
+                    // Wait for the browser timeout (8 seconds) before completing the refresh
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                        continuation.resume()
                     }
                 }
             }
@@ -97,24 +124,58 @@ struct ConnectionsView: View {
                             Image(systemName: "arrow.clockwise")
                         }
                         
-                        Button(action: { showingAddDialog = true }) {
+                        Button(action: {
+                            // Clear all state before showing add dialog
+                            selectedComputer = nil
+                            username = ""
+                            password = ""
+                            saveCredentials = true  // Keep this true as it's our default
+                            showingAddDialog = true
+                        }) {
                             Image(systemName: "plus")
                         }
                     }
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
-                AuthenticationView(
-                    mode: .add,
-                    username: $username,
-                    password: $password,
-                    saveCredentials: $saveCredentials,
-                    onSuccess: { hostname, nickname in
-                        addManualComputer(hostname, name: nickname ?? "", username: username, password: password)
-                        showingAddDialog = false
-                    },
-                    onCancel: { showingAddDialog = false }
-                )
+                if let computer = selectedComputer {
+                    // Edit mode
+                    AuthenticationView(
+                        mode: .edit,
+                        existingHost: computer.host,
+                        existingName: computer.name,
+                        username: $username,
+                        password: $password,
+                        saveCredentials: $saveCredentials,
+                        onSuccess: { _, nickname in
+                            savedConnections.updateLastUsername(
+                                for: computer.host,
+                                name: nickname ?? computer.name,
+                                username: username,
+                                password: saveCredentials ? password : nil
+                            )
+                            showingAddDialog = false
+                            selectedComputer = nil
+                        },
+                        onCancel: {
+                            showingAddDialog = false
+                            selectedComputer = nil
+                        }
+                    )
+                } else {
+                    // Add mode
+                    AuthenticationView(
+                        mode: .add,
+                        username: $username,
+                        password: $password,
+                        saveCredentials: .init(get: { true }, set: { self.saveCredentials = $0 }),
+                        onSuccess: { hostname, nickname in
+                            addManualComputer(hostname, name: nickname ?? hostname, username: username, password: password)
+                            showingAddDialog = false
+                        },
+                        onCancel: { showingAddDialog = false }
+                    )
+                }
             }
             .sheet(isPresented: $isAuthenticating) {
                 if let computer = selectedComputer {
@@ -198,16 +259,19 @@ struct ConnectionsView: View {
 
     private var networkComputers: [Computer] {
         computers.compactMap { service in
-            guard let hostName = service.hostName else { return nil }
-            let name = service.name.replacingOccurrences(of: "\\032", with: " ")
+            guard let hostname = service.hostName else { return nil }
+            
+            // Clean up the hostname by removing the extra period
+            let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
+            
             return Computer(
-                id: hostName,
-                name: name,
-                host: hostName,
+                id: service.name,
+                name: service.name.replacingOccurrences(of: "\\032", with: " "),
+                host: cleanHostname,
                 type: .bonjour(service),
-                lastUsername: savedConnections.lastUsername(for: hostName)
+                lastUsername: savedConnections.lastUsername(for: cleanHostname)
             )
-        }.sorted { $0.name < $1.name }
+        }
     }
     
     private var savedComputers: [Computer] {
@@ -226,7 +290,7 @@ struct ConnectionsView: View {
         selectedComputer = computer
         username = computer.lastUsername ?? ""
         password = ""  // Reset password
-        saveCredentials = false  // Reset save credentials toggle
+        saveCredentials = true  // Default to true
         
         if let savedUsername = computer.lastUsername,
            let savedPassword = savedConnections.password(for: computer.host) {
@@ -248,17 +312,18 @@ struct ConnectionsView: View {
                     if self.saveCredentials {
                         self.savedConnections.updateLastUsername(
                             for: computer.host,
-                            name: computer.name,  // Use the potentially customized name
+                            name: computer.name,  // Use the current name from the computer object
                             username: self.username,
                             password: self.password
                         )
                     } else {
                         self.savedConnections.updateLastUsername(
                             for: computer.host,
+                            name: computer.name,  // Add name here too
                             username: self.username
                         )
                     }
-                    self.selectedComputer = computer  // Update selected computer with new name
+                    self.selectedComputer = computer
                     self.navigateToControl = true
                     self.isAuthenticating = false
                 case .failure(let error):
