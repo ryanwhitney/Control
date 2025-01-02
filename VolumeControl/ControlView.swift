@@ -51,9 +51,9 @@ struct ControlView: View {
                             )
                             .environmentObject(appController)
                         }
-                        .padding()
+                        .padding(.horizontal)
                     }
-                    .frame(height: 200)
+                    .frame(height: 230)
                     .tabViewStyle(.page)
                     Spacer()
                     
@@ -70,10 +70,33 @@ struct ControlView: View {
                             }
                         
                         HStack(spacing: 20) {
-                            Button("-5") { adjustVolume(by: -5) }.styledButton()
-                            Button("-1") { adjustVolume(by: -1) }.styledButton()
-                            Button("+1") { adjustVolume(by: 1) }.styledButton()
-                            Button("+5") { adjustVolume(by: 5) }.styledButton()
+                            Button {
+                                adjustVolume(by: -5)
+                            } label: {
+                                Text("-5")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+                            
+                            Button {
+                                adjustVolume(by: -1)
+                            } label: {
+                                Text("-1")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+                            
+                            Button {
+                                adjustVolume(by: 1)
+                            } label: {
+                                Text("+1")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+                            
+                            Button {
+                                adjustVolume(by: 5)
+                            } label: {
+                                Text("+5")
+                            }
+                            .buttonStyle(CircularButtonStyle())
                         }
                     }
                     .padding()

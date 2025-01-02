@@ -1,11 +1,14 @@
 import SwiftUI
 
-extension Button {
-    func styledButton() -> some View {
-        self.padding(12)
+struct CircularButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(12)
             .frame(width: 60, height: 60)
+            .foregroundStyle(.tint)
             .background(.ultraThinMaterial)
             .clipShape(Circle())
             .labelStyle(.iconOnly)
-    }
-} 
+        }
+}
+

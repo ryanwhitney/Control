@@ -9,8 +9,7 @@ struct MediaControlPanel: View {
     let onPlayPause: () -> Void
     let onForward: () -> Void
     let usePlayPauseIcon: Bool
-
-
+    
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 4) {
@@ -24,13 +23,19 @@ struct MediaControlPanel: View {
             }
             
             HStack(spacing: 20) {
-                Button("\(skipInterval == 1 ? "Previous track" : "Back \(skipInterval) seconds")", 
-                       systemImage: skipInterval == 1 ? "arrowtriangle.backward.fill" : "\(skipInterval).arrow.trianglehead.counterclockwise") {
+                Button {
                     onBackward()
+                } label: {
+                    Label(
+                        skipInterval == 1 ? "Previous track" : "Back \(skipInterval) seconds",
+                        systemImage: skipInterval == 1 ? "arrowtriangle.backward.fill" : "\(skipInterval).arrow.trianglehead.counterclockwise"
+                    )
                 }
-                .styledButton()
+                .buttonStyle(CircularButtonStyle())
                 
-                Button(action: onPlayPause) {
+                Button {
+                    onPlayPause()
+                } label: {
                     if usePlayPauseIcon {
                         Image(systemName: "playpause.fill")
                     } else if let isPlaying = isPlaying {
@@ -39,13 +44,17 @@ struct MediaControlPanel: View {
                         Image(systemName: "play.fill")
                     }
                 }
-                .styledButton()
+                .buttonStyle(CircularButtonStyle())
                 
-                Button("\(skipInterval == 1 ? "Next track" : "Forward \(skipInterval) seconds")", 
-                       systemImage: skipInterval == 1 ? "arrowtriangle.forward.fill" : "\(skipInterval).arrow.trianglehead.clockwise") {
+                Button {
                     onForward()
+                } label: {
+                    Label(
+                        skipInterval == 1 ? "Next track" : "Forward \(skipInterval) seconds",
+                        systemImage: skipInterval == 1 ? "arrowtriangle.forward.fill" : "\(skipInterval).arrow.trianglehead.clockwise"
+                    )
                 }
-                .styledButton()
+                .buttonStyle(CircularButtonStyle())
             }
         }
     }
