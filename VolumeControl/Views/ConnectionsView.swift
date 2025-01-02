@@ -16,7 +16,7 @@ struct ConnectionsView: View {
     @State private var errorMessage: String?
     @State private var navigateToControl = false
     @State private var isSearching = false
-    @State private var browser: NWBrowser?
+    @State private var networkScanner: NWBrowser?
     @State private var connectingComputer: Computer?
 
     struct Computer: Identifiable, Hashable {
@@ -108,8 +108,8 @@ struct ConnectionsView: View {
             }
             .refreshable {
                 await withCheckedContinuation { continuation in
-                    startBrowsing()
-                    // Wait for the browser timeout (8 seconds) before completing the refresh
+                    startNetworkScan()
+                    // Wait for scan timeout (8 seconds)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
                         continuation.resume()
                     }
@@ -122,21 +122,19 @@ struct ConnectionsView: View {
                         Text("Control".uppercased())
                             .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
                     }
-                    .accessibilityAddTraits(.isHeader) // Ensure it's recognized as a header
-
+                    .accessibilityAddTraits(.isHeader)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
-                        Button(action: startBrowsing) {
+                        Button(action: startNetworkScan) {
                             Image(systemName: "arrow.clockwise")
                         }
                         
                         Button(action: {
-                            // Clear all state before showing add dialog
                             selectedComputer = nil
                             username = ""
                             password = ""
-                            saveCredentials = true  // Keep this true as it's our default
+                            saveCredentials = true
                             showingAddDialog = true
                         }) {
                             Image(systemName: "plus")
@@ -227,10 +225,10 @@ struct ConnectionsView: View {
             }
         }
         .onAppear {
-            startBrowsing()
+            startNetworkScan()
         }
         .onDisappear {
-            browser?.cancel()
+            networkScanner?.cancel()
         }
         .onChange(of: scenePhase) {
             if scenePhase == .background {
@@ -360,34 +358,35 @@ struct ConnectionsView: View {
         savedConnections.add(hostname: host, username: username, password: password)
     }
 
-    private func startBrowsing() {
         print("\n=== Starting Network Discovery ===")
+    private func startNetworkScan() {
+        print("\n=== Starting Network Scan ===")
         computers.removeAll()
         errorMessage = nil
         isSearching = true
         
-        // Stop existing browser
-        browser?.cancel()
+        // Stop existing scan
+        networkScanner?.cancel()
         
-        // Create new browser
         let parameters = NWParameters()
         parameters.includePeerToPeer = false
         
-        let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: parameters)
-        self.browser = browser
+        let scanner = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: parameters)
+        self.networkScanner = scanner
         
-        browser.stateUpdateHandler = { state in
-            print("Browser state: \(state)")
+        scanner.stateUpdateHandler = { state in
+            print("Scanner state: \(state)")
             DispatchQueue.main.async {
                 switch state {
                 case .failed(let error):
-                    print("Browser failed: \(error)")
+                    print("Scanner failed: \(error)")
                     self.errorMessage = error.localizedDescription
                     self.isSearching = false
                 case .ready:
                     print("Browser ready")
+                    print("Scanner ready")
                 case .cancelled:
-                    print("Browser cancelled")
+                    print("Scanner cancelled")
                     self.isSearching = false
                 default:
                     break
@@ -395,7 +394,7 @@ struct ConnectionsView: View {
             }
         }
         
-        browser.browseResultsChangedHandler = { results, changes in
+        scanner.browseResultsChangedHandler = { results, changes in
             print("Found \(results.count) services")
             DispatchQueue.main.async {
                 self.computers = results.compactMap { result in
@@ -413,14 +412,14 @@ struct ConnectionsView: View {
             }
         }
         
-        print("Starting browser...")
-        browser.start(queue: .main)
+        print("Starting network scan...")
+        scanner.start(queue: .main)
         
         // Add timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            print("\n=== Search Complete ===")
+            print("\n=== Scan Complete ===")
             print("Final computer count: \(self.computers.count)")
-            browser.cancel()
+            scanner.cancel()
             DispatchQueue.main.async {
                 self.isSearching = false
             }
