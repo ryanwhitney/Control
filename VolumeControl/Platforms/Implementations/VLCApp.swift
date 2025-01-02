@@ -8,7 +8,9 @@ struct VLCApp: AppPlatform {
         [
             ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
             ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.clockwise"),
-            ActionConfig(action: .playPauseToggle, icon: "playpause.fill"),
+            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
+                isPlaying ? "pause.fill" : "play.fill"
+            }),
             ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise"),
             ActionConfig(action: .nextTrack, icon: "forward.end.fill")
         ]
@@ -16,12 +18,16 @@ struct VLCApp: AppPlatform {
     
     private let statusScript = """
     tell application "VLC"
-        if not playing then
-            return "No media|||Not playing|||false"
-        end if
-        set mediaName to name of current item
-        set playerState to playing
-        return mediaName & "|||" & "Playing" & "|||" & playerState
+        try
+            set mediaName to name of current item
+            if playing then
+                return mediaName & "|||playing|||true"
+            else
+                return mediaName & "|||paused|||false"
+            end if
+        on error
+            return "No media|||stopped|||false"
+        end try
     end tell
     """
     
