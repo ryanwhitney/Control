@@ -87,7 +87,7 @@ struct ThemeSettingsView: View {
             }
         }
         .navigationTitle("Theme")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .tint(preferences.tintColorValue)
 
     }

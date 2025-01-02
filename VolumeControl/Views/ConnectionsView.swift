@@ -231,6 +231,7 @@ struct ConnectionsView: View {
                         password: password,
                         sshClient: sshManager.currentClient
                     )
+                    .tint(preferences.tintColorValue)
                 }
             }
             .sheet(isPresented: $showingPreferences) {

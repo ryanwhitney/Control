@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MediaControlPanel: View {
+    @StateObject private var preferences = UserPreferences.shared
     let title: String
     let mediaInfo: String
     let isPlaying: Bool?

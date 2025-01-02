@@ -3,6 +3,7 @@ import Combine
 
 struct ControlView: View {
     @StateObject private var appController: AppController
+    @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
     let host: String
     let displayName: String
@@ -165,6 +166,7 @@ struct ControlView: View {
             }
         }
         .navigationTitle(displayName)
+        .toolbarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {
@@ -190,6 +192,8 @@ struct ControlView: View {
             screenBrightness = UIScreen.main.brightness
         }
         .environment(\.screenBrightness, screenBrightness)
+        .tint(preferences.tintColorValue)
+        .accentColor(preferences.tintColorValue)
     }
     
     private func connectToSSH() {

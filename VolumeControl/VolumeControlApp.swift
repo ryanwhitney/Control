@@ -12,14 +12,16 @@ import Network
 @main
 struct VolumeControlApp: App {
     @StateObject private var networkPermissions = NetworkPermissions()
-    
+    @StateObject private var preferences = UserPreferences.shared
+
     var body: some Scene {
         WindowGroup {
             ConnectionsView()
                 .onAppear {
                     networkPermissions.requestPermissions()
                 }
-                .tint(.green)
+                .tint(preferences.tintColorValue)
+                .accentColor(preferences.tintColorValue)
         }
     }
 }

@@ -14,7 +14,7 @@ class UserPreferences: ObservableObject {
     static let shared = UserPreferences()
     
     private init() {
-        self.tintColor = UserDefaults.standard.string(forKey: "appTintColor") ?? "blue"
+        self.tintColor = UserDefaults.standard.string(forKey: "appTintColor") ?? "green"
     }
 
     var tintColorValue: Color {
@@ -29,7 +29,7 @@ class UserPreferences: ObservableObject {
         case "mint": return .mint
         case "teal": return .teal
         case "cyan": return .cyan
-        default: return .blue
+        default: return .green
         }
     }
 } 

@@ -21,8 +21,8 @@ struct CircularButtonStyle: ButtonStyle {
         configuration.label
             .padding(12)
             .frame(width: 60, height: 60)
-            .foregroundStyle(isLowBrightness ? .black : .accentColor)
-            .background(isLowBrightness ? Color.accentColor : .primary.opacity(0.15))
+            .foregroundStyle(isLowBrightness ? Color.black : .accentColor)
+            .background(isLowBrightness ? .accentColor : Color.primary.opacity(0.15))
             .clipShape(Circle())
             .labelStyle(.iconOnly)
     }
