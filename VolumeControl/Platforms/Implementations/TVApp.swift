@@ -4,11 +4,15 @@ struct TVApp: AppPlatform {
     let id = "tv"
     let name = "TV"
     
-    let supportedActions: [AppAction] = [
-        .skipBackward(10),
-        .playPauseToggle,
-        .skipForward(10)
-    ]
+    var supportedActions: [ActionConfig] {
+        [
+            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),
+            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
+                isPlaying ? "pause.fill" : "play.fill"
+            }),
+            ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise")
+        ]
+    }
     
     private let statusScript = """
     tell application "TV"

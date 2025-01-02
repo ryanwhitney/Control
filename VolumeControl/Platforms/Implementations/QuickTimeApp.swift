@@ -2,13 +2,17 @@ import Foundation
 
 struct QuickTimeApp: AppPlatform {
     let id = "quicktime"
-    let name = "QuickTime"
+    let name = "QuickTime Player"
     
-    let supportedActions: [AppAction] = [
-        .skipBackward(5),
-        .playPauseToggle,
-        .skipForward(5)
-    ]
+    var supportedActions: [ActionConfig] {
+        [
+            ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
+            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
+                isPlaying ? "pause.fill" : "play.fill"
+            }),
+            ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise")
+        ]
+    }
     
     private let statusScript = """
     tell application "QuickTime Player"

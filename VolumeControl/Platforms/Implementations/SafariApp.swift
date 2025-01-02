@@ -2,41 +2,36 @@ import Foundation
 
 struct SafariApp: AppPlatform {
     let id = "safari"
-    let name = "Safari (experimental)"
+    let name = "Safari"
     
-    let supportedActions: [AppAction] = [
-        .skipBackward(10),
-        .playPauseToggle,
-        .skipForward(10)
-    ]
+    var supportedActions: [ActionConfig] {
+        [
+            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in 
+                isPlaying ? "pause.fill" : "play.fill"
+            })
+        ]
+    }
     
     private let statusScript = """
     tell application "Safari"
-    if not (exists window 1) then
-        return "No Safari windows open|||no-url|||No media found|||false"
-    end if
-    
-    set currentTab to current tab of front window
-    set tabTitle to name of currentTab
-    set theURL to URL of currentTab
-    
-    set jsCheck to "
-        (function() {
-            const media = document.querySelector('video, audio');
-            if (!media) return 'No media found|||false';
-            const isPlaying = !media.paused && !media.ended && media.currentTime > 0;
-            return (isPlaying ? 'Media playing' : 'Media paused') + '|||' + isPlaying;
-        })();
-    "
-    
-    try
-        set mediaStatus to do JavaScript jsCheck in currentTab
-        return tabTitle & "|||" & theURL & "|||" & mediaStatus
-    on error
-        return tabTitle & "|||" & theURL & "|||No media found|||false"
-    end try
+        set windowCount to count of windows
+        if windowCount is 0 then
+            return "No windows open|||No media playing|||false"
+        end if
+        
+        repeat with w in windows
+            set tabCount to count of tabs of w
+            repeat with t in tabs of w
+                if t's URL starts with "https://www.youtube.com/watch" then
+                    set videoTitle to t's name
+                    set isPlaying to do JavaScript "document.querySelector('video').paused ? 'false' : 'true'" in t
+                    return videoTitle & "|||YouTube|||" & isPlaying
+                end if
+            end repeat
+        end repeat
+        
+        return "No media playing|||No media found|||false"
     end tell
-
     """
     
     func fetchState() -> String {
@@ -45,11 +40,11 @@ struct SafariApp: AppPlatform {
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
+        if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }
@@ -66,49 +61,18 @@ struct SafariApp: AppPlatform {
         case .playPauseToggle:
             return """
             tell application "Safari"
-                if (count of windows) > 0 then
-                    tell current tab of front window
-                        do JavaScript "
-                            (function() {
-                                const media = document.querySelector('video, audio');
-                                if (media) {
-                                    if (media.paused) media.play();
-                                    else media.pause();
-                                }
-                            })();
-                        "
-                    end tell
-                end if
-            end tell
-            """
-        case .skipForward(let seconds):
-            return """
-            tell application "Safari"
-                if (count of windows) > 0 then
-                    tell current tab of front window
-                        do JavaScript "
-                            (function() {
-                                const media = document.querySelector('video, audio');
-                                if (media) media.currentTime += \(seconds);
-                            })();
-                        "
-                    end tell
-                end if
-            end tell
-            """
-        case .skipBackward(let seconds):
-            return """
-            tell application "Safari"
-                if (count of windows) > 0 then
-                    tell current tab of front window
-                        do JavaScript "
-                            (function() {
-                                const media = document.querySelector('video, audio');
-                                if (media) media.currentTime -= \(seconds);
-                            })();
-                        "
-                    end tell
-                end if
+                set windowCount to count of windows
+                if windowCount is 0 then return
+                
+                repeat with w in windows
+                    set tabCount to count of tabs of w
+                    repeat with t in tabs of w
+                        if t's URL starts with "https://www.youtube.com/watch" then
+                            do JavaScript "document.querySelector('video').click()" in t
+                            return
+                        end if
+                    end repeat
+                end repeat
             end tell
             """
         default:

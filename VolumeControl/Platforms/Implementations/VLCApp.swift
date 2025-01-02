@@ -4,24 +4,24 @@ struct VLCApp: AppPlatform {
     let id = "vlc"
     let name = "VLC"
     
-    let supportedActions: [AppAction] = [
-        .skipBackward(10),
-        .playPauseToggle,
-        .skipForward(10)
-    ]
+    var supportedActions: [ActionConfig] {
+        [
+            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
+            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.clockwise"),
+            ActionConfig(action: .playPauseToggle, icon: "playpause.fill"),
+            ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise"),
+            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
+        ]
+    }
     
     private let statusScript = """
     tell application "VLC"
-        try
-            set mediaName to name of current item
-            if playing then
-                return mediaName & "|||playing|||true"
-            else
-                return mediaName & "|||paused|||false"
-            end if
-        on error
-            return "No media|||stopped|||false"
-        end try
+        if not playing then
+            return "No media|||Not playing|||false"
+        end if
+        set mediaName to name of current item
+        set playerState to playing
+        return mediaName & "|||" & "Playing" & "|||" & playerState
     end tell
     """
     
@@ -41,6 +41,7 @@ struct VLCApp: AppPlatform {
         }
         return AppState(
             title: "Error",
+            subtitle: nil,
             isPlaying: nil,
             error: "Failed to parse VLC state"
         )
@@ -54,22 +55,30 @@ struct VLCApp: AppPlatform {
                 play
             end tell
             """
-        case .skipForward(let seconds):
+        case .skipBackward:
             return """
             tell application "VLC"
-                set currentTime to current time
-                set current time to (currentTime + \(seconds))
+                step backward
             end tell
             """
-        case .skipBackward(let seconds):
+        case .skipForward:
             return """
             tell application "VLC"
-                set currentTime to current time
-                set current time to (currentTime - \(seconds))
+                step forward
             end tell
             """
-        default:
-            return ""
+        case .previousTrack:
+            return """
+            tell application "VLC"
+                previous
+            end tell
+            """
+        case .nextTrack:
+            return """
+            tell application "VLC"
+                next
+            end tell
+            """
         }
     }
 } 

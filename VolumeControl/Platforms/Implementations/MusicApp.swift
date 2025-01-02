@@ -4,11 +4,15 @@ struct MusicApp: AppPlatform {
     let id = "music"
     let name = "Music"
     
-    let supportedActions: [AppAction] = [
-        .skipBackward(1),
-        .playPauseToggle,
-        .skipForward(1)
-    ]
+    var supportedActions: [ActionConfig] {
+        [
+            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
+            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in 
+                isPlaying ? "pause.fill" : "play.fill"
+            }),
+            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
+        ]
+    }
     
     private let statusScript = """
     tell application "Music"
@@ -53,13 +57,13 @@ struct MusicApp: AppPlatform {
                 playpause
             end tell
             """
-        case .skipBackward:
+        case .previousTrack:
             return """
             tell application "Music"
                 previous track
             end tell
             """
-        case .skipForward:
+        case .nextTrack:
             return """
             tell application "Music"
                 next track

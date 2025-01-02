@@ -3,12 +3,9 @@ import SwiftUI
 struct MediaControlPanel: View {
     let title: String
     let mediaInfo: String
-    let isPlaying: Bool?  // Optional since VLC doesn't expose state
-    let skipInterval: Int
-    let onBackward: () -> Void
-    let onPlayPause: () -> Void
-    let onForward: () -> Void
-    let usePlayPauseIcon: Bool
+    let isPlaying: Bool?
+    let actions: [ActionConfig]
+    let onAction: (AppAction) -> Void
     
     var body: some View {
         VStack(spacing: 20) {
@@ -23,38 +20,16 @@ struct MediaControlPanel: View {
             }
             
             HStack(spacing: 20) {
-                Button {
-                    onBackward()
-                } label: {
-                    Label(
-                        skipInterval == 1 ? "Previous track" : "Back \(skipInterval) seconds",
-                        systemImage: skipInterval == 1 ? "arrowtriangle.backward.fill" : "\(skipInterval).arrow.trianglehead.counterclockwise"
-                    )
-                }
-                .buttonStyle(CircularButtonStyle())
-                
-                Button {
-                    onPlayPause()
-                } label: {
-                    if usePlayPauseIcon {
-                        Image(systemName: "playpause.fill")
-                    } else if let isPlaying = isPlaying {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    } else {
-                        Image(systemName: "play.fill")
+                ForEach(actions) { config in
+                    Button(action: { onAction(config.action) }) {
+                        if let dynamicIcon = config.dynamicIcon, let isPlaying = isPlaying {
+                            Image(systemName: dynamicIcon(isPlaying))
+                        } else {
+                            Label(config.action.label, systemImage: config.staticIcon)
+                        }
                     }
+                    .buttonStyle(CircularButtonStyle())
                 }
-                .buttonStyle(CircularButtonStyle())
-                
-                Button {
-                    onForward()
-                } label: {
-                    Label(
-                        skipInterval == 1 ? "Next track" : "Forward \(skipInterval) seconds",
-                        systemImage: skipInterval == 1 ? "arrowtriangle.forward.fill" : "\(skipInterval).arrow.trianglehead.clockwise"
-                    )
-                }
-                .buttonStyle(CircularButtonStyle())
             }
         }
     }
