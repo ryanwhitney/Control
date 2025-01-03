@@ -107,7 +107,7 @@ class SSHClient {
                 print("Error details: \(error)")
                 
                 // Handle DNS and connection errors specifically
-                if let dnsError = error as? NIOConnectionError {
+                if error is NIOConnectionError {
                     wrappedCompletion(.failure(SSHError.connectionFailed("Could not find the computer on the network")))
                 } else {
                     let errorMessage = self.interpretConnectionError(error)
