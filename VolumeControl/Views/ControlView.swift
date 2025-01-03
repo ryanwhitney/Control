@@ -61,7 +61,6 @@ struct ControlView: View {
                 let volumeHeight = totalHeight * 4 / 10
 
                 VStack(spacing: 0) {
-                    // Media Control Section (2/3 height)
                     VStack {
                         TabView {
                             ForEach(appController.platforms, id: \.id) { platform in
@@ -79,7 +78,6 @@ struct ControlView: View {
                     }
                     .frame(height: mediaHeight)
 
-                    // Volume Control Section (1/3 height)
                     VStack(spacing: 20) {
                         Text("Volume: \(Int(volume * 100))%")
                             .fontWeight(.bold)
@@ -170,6 +168,10 @@ struct ControlView: View {
     }
     
     private func connectToSSH() {
+        // First cleanup existing connections
+        appController.cleanup()
+        sshClient.disconnect()
+        
         connectionState = .connecting
         
         sshClient.connect(host: host, username: username, password: password) { result in
@@ -177,6 +179,8 @@ struct ControlView: View {
                 switch result {
                 case .success:
                     self.connectionState = .connected
+                    // Reset AppController's active state
+                    self.appController.reset()
                     Task {
                         await self.appController.updateAllStates()
                     }

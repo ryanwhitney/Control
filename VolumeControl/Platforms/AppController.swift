@@ -135,6 +135,10 @@ class AppController: ObservableObject {
         isActive = false
     }
     
+    func reset() {
+        isActive = true
+    }
+    
     nonisolated func cleanupSync() {
         Task { @MainActor in
             cleanup()
