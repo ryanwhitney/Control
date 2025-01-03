@@ -59,6 +59,12 @@ class SSHClient {
         print("Password length: \(password.count)")
         
         let authDelegate = PasswordAuthDelegate(username: username, password: password)
+        // Set up immediate auth failure callback
+        authDelegate.onAuthFailure = { [weak self] in
+            print("❌ Authentication failed immediately")
+            self?.disconnect()
+            wrappedCompletion(.failure(SSHError.authenticationFailed))
+        }
         self.authDelegate = authDelegate
         
         // Add auth timeout (2 seconds after successful TCP connection)
@@ -346,6 +352,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     private var _didAuthenticate = false
     private var _authFailed = false
     private var authAttempts = 0
+    var onAuthFailure: (() -> Void)?
     
     var didAuthenticate: Bool { _didAuthenticate }
     var authFailed: Bool { _authFailed }
@@ -365,6 +372,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         if authAttempts > 1 {
             print("❌ Authentication attempt #\(authAttempts) - previous attempt failed")
             _authFailed = true
+            onAuthFailure?()
             nextChallengePromise.succeed(nil)
             return
         }
@@ -372,6 +380,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         guard availableMethods.contains(.password) else {
             print("❌ Password authentication not available")
             _authFailed = true
+            onAuthFailure?()
             nextChallengePromise.succeed(nil)
             return
         }
