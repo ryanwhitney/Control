@@ -67,9 +67,6 @@ class SSHClient {
         }
         self.authDelegate = authDelegate
         
-        // Add auth timeout (2 seconds after successful TCP connection)
-        var authTimeoutTask: DispatchWorkItem?
-        
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
@@ -118,20 +115,7 @@ class SSHClient {
                 print("✓ TCP connection established")
                 self.connection = channel
                 
-                // Start auth timeout only after TCP connection
-                authTimeoutTask = DispatchWorkItem {
-                    if let authDelegate = self.authDelegate {
-                        if !authDelegate.didAuthenticate || authDelegate.authFailed {
-                            print("❌ Authentication timed out")
-                            self.disconnect()
-                            wrappedCompletion(.failure(SSHError.authenticationFailed))
-                        }
-                    }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: authTimeoutTask!)
-                
                 self.createSession { result in
-                    authTimeoutTask?.cancel()
                     switch result {
                     case .success:
                         if let authDelegate = self.authDelegate, authDelegate.authFailed {
@@ -208,7 +192,7 @@ class SSHClient {
                 // If we get EOF during session creation and auth failed, it's an auth error
                 if error.localizedDescription.lowercased().contains("eof"),
                    let authDelegate = self.authDelegate,
-                   !authDelegate.didAuthenticate || authDelegate.authFailed {
+                   authDelegate.authFailed {
                     return connection.eventLoop.makeFailedFuture(SSHError.authenticationFailed)
                 }
                 return connection.eventLoop.makeFailedFuture(error)
@@ -224,7 +208,7 @@ class SSHClient {
                 // If we get EOF during session creation and auth failed, it's an auth error
                 if error.localizedDescription.lowercased().contains("eof"),
                    let authDelegate = self.authDelegate,
-                   !authDelegate.didAuthenticate || authDelegate.authFailed {
+                   authDelegate.authFailed {
                     completion(.failure(SSHError.authenticationFailed))
                 } else if error.localizedDescription.lowercased().contains("channel setup rejected") || 
                           error.localizedDescription.lowercased().contains("open failed") {
@@ -349,12 +333,10 @@ class SSHClient {
 class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     private let username: String
     private let password: String
-    private var _didAuthenticate = false
     private var _authFailed = false
     private var authAttempts = 0
     var onAuthFailure: (() -> Void)?
     
-    var didAuthenticate: Bool { _didAuthenticate }
     var authFailed: Bool { _authFailed }
 
     init(username: String, password: String) {
@@ -386,7 +368,6 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         }
         
         print("Attempting password authentication...")
-        _didAuthenticate = true
         let offer = NIOSSHUserAuthenticationOffer(
             username: username,
             serviceName: "ssh-connection",
