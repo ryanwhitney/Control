@@ -9,7 +9,7 @@ struct MediaControlPanel: View {
     let onAction: (AppAction) -> Void
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             VStack(spacing: 4) {
                 Text(title)
                     .fontWeight(.bold)
@@ -22,7 +22,7 @@ struct MediaControlPanel: View {
                     .id(mediaInfo)
             }
             
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 ForEach(actions) { config in
                     Button(action: { onAction(config.action) }) {
                         if let dynamicIcon = config.dynamicIcon, let isPlaying = isPlaying {
@@ -31,7 +31,7 @@ struct MediaControlPanel: View {
                             Label(config.action.label, systemImage: config.staticIcon)
                         }
                     }
-                    .buttonStyle(CircularButtonStyle())
+                    .buttonStyle(IconButtonStyle())
                 }
             }
         }
