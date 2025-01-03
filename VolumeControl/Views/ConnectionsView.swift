@@ -20,6 +20,8 @@ struct ConnectionsView: View {
     @State private var networkScanner: NWBrowser?
     @State private var connectingComputer: Connection?
     @State private var showingPreferences = false
+    @State private var connectionError: (title: String, message: String)?
+    @State private var showingError = false
 
     struct Connection: Identifiable, Hashable {
         let id: String
@@ -252,6 +254,13 @@ struct ConnectionsView: View {
                 // Optionally reconnect if needed
             }
         }
+        .alert(connectionError?.title ?? "", isPresented: $showingError, presenting: connectionError) { _ in
+            Button("OK") {
+                showingError = false
+            }
+        } message: { error in
+            Text(error.message)
+        }
     }
 
     // Separate computer row view for reuse
@@ -336,11 +345,25 @@ struct ConnectionsView: View {
     }
     
     private func tryConnect(computer: Connection, showAuthOnFail: Bool = false) {
+        print("\n=== Connection Attempt ===")
+        print("Computer: \(computer.name) (\(computer.host))")
+        print("Username: \(username)")
+        print("Has Password: \(!password.isEmpty)")
+        print("Save Credentials: \(saveCredentials)")
+        
+        // Add state to track if we've already handled a response
+        var hasHandledResponse = false
+        
         sshManager.connect(host: computer.host, username: username, password: password) { result in
             DispatchQueue.main.async {
+                // Guard against multiple callbacks
+                guard !hasHandledResponse else { return }
+                hasHandledResponse = true
+                
                 self.connectingComputer = nil
                 switch result {
                 case .success:
+                    print("✅ Connection successful")
                     if self.saveCredentials {
                         self.savedConnections.updateLastUsername(
                             for: computer.host,
@@ -358,11 +381,110 @@ struct ConnectionsView: View {
                     self.selectedConnection = computer
                     self.navigateToControl = true
                     self.isAuthenticating = false
+                    
                 case .failure(let error):
-                    print("Connection failed: \(error)")
-                    if showAuthOnFail {
-                        self.password = ""
-                        self.isAuthenticating = true
+                    print("❌ Connection failed")
+                    print("Error: \(error)")
+                    
+                    // Always close the auth view if it's open
+                    self.isAuthenticating = false
+                    
+                    if let sshError = error as? SSHError {
+                        switch sshError {
+                        case .authenticationFailed:
+                            print("Authentication failed - showing error")
+                            self.connectionError = (
+                                "Authentication Failed",
+                                """
+                                The username or password provided was incorrect.
+                                Please check your credentials and try again.
+                                
+                                Technical details: Authentication failed
+                                """
+                            )
+                            self.showingError = true
+                            
+                        case .connectionFailed(let reason):
+                            print("Connection failed: \(reason)")
+                            self.connectionError = (
+                                "Connection Failed",
+                                """
+                                \(reason)
+                                
+                                Please check that:
+                                • The computer is turned on
+                                • You're on the same network
+                                • Remote Login is enabled in System Settings
+                                
+                                Technical details: Connection failed
+                                """
+                            )
+                            self.showingError = true
+                            
+                        case .timeout:
+                            print("Connection timed out")
+                            self.connectionError = (
+                                "Connection Timeout",
+                                """
+                                The connection to \(computer.name) timed out.
+                                Please check your network connection and ensure the computer is reachable.
+                                
+                                Technical details: Connection attempt timed out after 5 seconds
+                                """
+                            )
+                            self.showingError = true
+                            
+                        case .channelError(let details):
+                            print("Channel error: \(details)")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Failed to establish a secure connection with \(computer.name).
+                                Please try again in a few moments.
+                                
+                                Technical details: \(details)
+                                """
+                            )
+                            self.showingError = true
+                            
+                        case .channelNotConnected:
+                            print("Channel not connected")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Could not establish a connection with \(computer.name).
+                                Please ensure Remote Login is enabled and try again.
+                                
+                                Technical details: SSH channel not connected
+                                """
+                            )
+                            self.showingError = true
+                            
+                        case .invalidChannelType:
+                            print("Invalid channel type")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                An internal error occurred while connecting to \(computer.name).
+                                Please try again.
+                                
+                                Technical details: Invalid SSH channel type
+                                """
+                            )
+                            self.showingError = true
+                        }
+                    } else {
+                        print("Unknown error: \(error)")
+                        self.connectionError = (
+                            "Connection Error",
+                            """
+                            An unexpected error occurred while connecting to \(computer.name).
+                            Please try again.
+                            
+                            Technical details: \(error.localizedDescription)
+                            """
+                        )
+                        self.showingError = true
                     }
                 }
             }

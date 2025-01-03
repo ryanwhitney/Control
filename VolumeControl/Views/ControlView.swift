@@ -55,115 +55,78 @@ struct ControlView: View {
     
     var body: some View {
         ZStack {
-            // Main content
-            VStack {
-                Spacer()
-                TabView {
-                    ForEach(appController.platforms, id: \.id) { platform in
-                        AppControl(
-                            platform: platform,
-                            state: Binding(
-                                get: { appController.states[platform.id] ?? AppState(title: "Error") },
-                                set: { appController.states[platform.id] = $0 }
-                            )
-                        )
-                        .environmentObject(appController)
-                    }
-                    .padding(.horizontal)
-                }
-                .frame(height: 230)
-                .tabViewStyle(.page)
-                Spacer()
-                
-                // Volume Controls
-                VStack(spacing: 20) {
-                    Text("Volume: \(Int(volume * 100))%")
-                        .fontWeight(.bold)
-                        .fontWidth(.expanded)
-                    
-                    Slider(value: $volume, in: 0...1, step: 0.01)
-                        .padding(.horizontal)
-                        .onChange(of: volume) { oldValue, newValue in
-                            debounceVolumeChange()
-                        }
-                    
-                    HStack(spacing: 20) {
-                        Button {
-                            adjustVolume(by: -5)
-                        } label: {
-                            Text("-5")
-                        }
-                        .buttonStyle(CircularButtonStyle())
-                        
-                        Button {
-                            adjustVolume(by: -1)
-                        } label: {
-                            Text("-1")
-                        }
-                        .buttonStyle(CircularButtonStyle())
-                        
-                        Button {
-                            adjustVolume(by: 1)
-                        } label: {
-                            Text("+1")
-                        }
-                        .buttonStyle(CircularButtonStyle())
-                        
-                        Button {
-                            adjustVolume(by: 5)
-                        } label: {
-                            Text("+5")
-                        }
-                        .buttonStyle(CircularButtonStyle())
-                    }
-                }
-                .padding()
-                Spacer()
-            }
-            .opacity(isReady && connectionState == .connected ? 1 : 0)
-            .allowsHitTesting(connectionState == .connected)
-            .animation(.easeInOut(duration: 0.3), value: isReady && connectionState == .connected)
+            GeometryReader { geometry in
+                let totalHeight = geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom
+                let mediaHeight = totalHeight * 2 / 3
+                let volumeHeight = totalHeight * 1 / 3
 
-            // Overlay states
-            if connectionState.isOverlay {
-                ProgressView("Connecting to \(host)...")
-                    .padding()
-                    .background(.ultraThinMaterial)
-                    .cornerRadius(10)
-                    .opacity(shouldShowLoadingOverlay ? (isReady && connectionState == .connected ? 0 : 1) : 0)
-                    .animation(.easeInOut(duration: 0.3), value: isReady && connectionState == .connected)
-                    .onAppear {
-                        shouldShowLoadingOverlay = false
-                        // delay before showing in case not needed
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            shouldShowLoadingOverlay = true
+                VStack(spacing: 0) {
+                    // Media Control Section (2/3 height)
+                    VStack {
+                        TabView {
+                            ForEach(appController.platforms, id: \.id) { platform in
+                                AppControl(
+                                    platform: platform,
+                                    state: Binding(
+                                        get: { appController.states[platform.id] ?? AppState(title: "Error") },
+                                        set: { appController.states[platform.id] = $0 }
+                                    )
+                                )
+                                .environmentObject(appController)
+                            }
+                        }
+                        .tabViewStyle(.page)
+                    }
+                    .frame(height: mediaHeight)
+
+                    // Volume Control Section (1/3 height)
+                    VStack(spacing: 20) {
+                        Text("Volume: \(Int(volume * 100))%")
+                            .fontWeight(.bold)
+                            .fontWidth(.expanded)
+
+                        Slider(value: $volume, in: 0...1, step: 0.01)
+                            .padding(.horizontal)
+                            .onChange(of: volume) { oldValue, newValue in
+                                debounceVolumeChange()
+                            }
+
+                        HStack(spacing: 20) {
+                            Button {
+                                adjustVolume(by: -5)
+                            } label: {
+                                Text("-5")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+
+                            Button {
+                                adjustVolume(by: -1)
+                            } label: {
+                                Text("-1")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+
+                            Button {
+                                adjustVolume(by: 1)
+                            } label: {
+                                Text("+1")
+                            }
+                            .buttonStyle(CircularButtonStyle())
+
+                            Button {
+                                adjustVolume(by: 5)
+                            } label: {
+                                Text("+5")
+                            }
+                            .buttonStyle(CircularButtonStyle())
                         }
                     }
-
-            } else if case .failed(let error) = connectionState {
-                VStack {
-                    Text("Connection Failed").font(.headline)
-                    Text(error).foregroundColor(.red)
-                    Button("Retry") {
-                        connectToSSH()
-                    }
+                    .frame(height: volumeHeight, alignment: .center)
+                    .background(.red)
                     .padding()
                 }
-                .padding()
-                .background(.ultraThinMaterial)
-                .cornerRadius(10)
-            } else if case .disconnected = connectionState {
-                VStack {
-                    Text("Disconnected").font(.headline)
-                    Button("Reconnect") {
-                        connectToSSH()
-                    }
-                    .padding()
-                }
-                .padding()
-                .background(.ultraThinMaterial)
-                .cornerRadius(10)
-            }
+                .frame(width: geometry.size.width, height: totalHeight)
+            }.background(.blue)
         }
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
