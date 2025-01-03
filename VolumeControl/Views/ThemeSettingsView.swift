@@ -1,9 +1,12 @@
 import SwiftUI
+import Network
 
 
 struct ThemeSettingsView: View {
     @StateObject private var preferences = UserPreferences.shared
-
+    @StateObject private var savedConnections = SavedConnections()
+    @State private var previewComputer: (name: String, host: String)?
+    
     private let colors = [
         ("Blue", "blue", Color.blue),
         ("Indigo", "indigo", Color.indigo),
@@ -16,6 +19,16 @@ struct ThemeSettingsView: View {
         ("Teal", "teal", Color.teal),
         ("Cyan", "cyan", Color.cyan)
     ]
+    
+    private var computerInfo: (name: String, host: String) {
+        // try saved connections for preview
+        if let firstSaved = savedConnections.items.first {
+            return (firstSaved.name ?? firstSaved.hostname, firstSaved.hostname)
+        }
+
+        // fallback to preview text
+        return ("JH's MacBook Pro", "johnny-highway-mbp.local")
+    }
 
     var body: some View {
         List {
@@ -47,10 +60,10 @@ struct ThemeSettingsView: View {
                     // Preview Computer Row
                     HStack {
                         VStack(alignment: .leading) {
-                            Text("Bokonon's MacBook Pro")
+                            Text(computerInfo.name)
                                 .font(.headline)
                                 .foregroundStyle(.tint)
-                            Text("bokonon-mbp.local")
+                            Text(computerInfo.host)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -89,7 +102,6 @@ struct ThemeSettingsView: View {
         .navigationTitle("Theme")
         .navigationBarTitleDisplayMode(.inline)
         .tint(preferences.tintColorValue)
-
     }
 }
 

@@ -23,6 +23,7 @@ struct PreferencesView: View {
                     }
                 }
             }
+            .padding(.top, 30)
             .navigationTitle("Preferences")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
@@ -32,7 +33,7 @@ struct PreferencesView: View {
                     }
                 }
             }
-        }
+        }.background(.ultraThinMaterial)
     }
 }
 

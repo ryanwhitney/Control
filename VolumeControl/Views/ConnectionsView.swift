@@ -69,7 +69,8 @@ struct ConnectionsView: View {
                         }
                     }
                 }
-                
+
+
                 Section(header: Text("Recent".capitalized)) {
                     if savedComputers.isEmpty {
                         Text("No recent connections")
