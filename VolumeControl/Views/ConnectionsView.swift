@@ -472,6 +472,19 @@ struct ConnectionsView: View {
                                 """
                             )
                             self.showingError = true
+                            
+                        case .noSession:
+                            print("No active session")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Could not establish a connection with \(computer.name).
+                                Please try again.
+                                
+                                Technical details: No active SSH session
+                                """
+                            )
+                            self.showingError = true
                         }
                     } else {
                         print("Unknown error: \(error)")
@@ -523,8 +536,12 @@ struct ConnectionsView: View {
                 case .cancelled:
                     print("Scanner cancelled")
                     self.isSearching = false
-                default:
-                    break
+                case .setup:
+                    print("Scanner setting up")
+                case .waiting:
+                    print("Scanner waiting")
+                @unknown default:
+                    print("Scanner in unknown state: \(state)")
                 }
             }
         }

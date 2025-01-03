@@ -6,6 +6,15 @@ class AppController: ObservableObject {
     @Published var currentVolume: Float = 0.5
     private let platformRegistry: PlatformRegistry
     private let sshClient: SSHClient
+    private var commandQueue: AsyncStream<CommandOperation>
+    private var commandContinuation: AsyncStream<CommandOperation>.Continuation?
+    private var isShuttingDown = false
+    
+    private struct CommandOperation {
+        let command: String
+        let description: String?
+        let continuation: CheckedContinuation<Result<String, Error>, Never>
+    }
     
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
@@ -14,6 +23,16 @@ class AppController: ObservableObject {
     init(sshClient: SSHClient) {
         self.sshClient = sshClient
         self.platformRegistry = PlatformRegistry()
+        
+        // Initialize command queue
+        var continuation: AsyncStream<CommandOperation>.Continuation!
+        self.commandQueue = AsyncStream { cont in
+            continuation = cont
+            cont.onTermination = { @Sendable _ in
+                print("Command queue terminated")
+            }
+        }
+        self.commandContinuation = continuation
         
         // Initialize states for all platforms
         for platform in platformRegistry.platforms {
@@ -25,80 +44,148 @@ class AppController: ObservableObject {
             )
         }
         
+        // Start command processor
+        Task {
+            await processCommands()
+        }
+        
         // Initial state fetch
-        updateAllStates()
+        Task {
+            await updateAllStates()
+        }
+    }
+    
+    private func processCommands() async {
+        for await operation in commandQueue {
+            guard !isShuttingDown else {
+                operation.continuation.resume(returning: .failure(SSHError.channelNotConnected))
+                continue
+            }
+            
+            let wrappedCommand = """
+            osascript << 'APPLESCRIPT'
+            try
+                \(operation.command)
+            on error errMsg
+                return errMsg
+            end try
+            APPLESCRIPT
+            """
+            
+            let result = await withCheckedContinuation { continuation in
+                sshClient.executeCommandWithNewChannel(wrappedCommand, description: operation.description) { result in
+                    continuation.resume(returning: result)
+                }
+            }
+            
+            operation.continuation.resume(returning: result)
+        }
+    }
+    
+    private func enqueueCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+        guard !isShuttingDown else {
+            return .failure(SSHError.channelNotConnected)
+        }
+        
+        return await withCheckedContinuation { continuation in
+            commandContinuation?.yield(CommandOperation(
+                command: command,
+                description: description,
+                continuation: continuation
+            ))
+        }
     }
     
     // Updates all states - used by refresh button
-    func updateAllStates() {
-        Task { @MainActor in
-            await updateVolume()
-            for platform in platforms {
-                updateState(for: platform)
-            }
+    func updateAllStates() async {
+        guard !isShuttingDown else { return }
+        await updateVolume()
+        for platform in platforms {
+            await updateState(for: platform)
         }
     }
     
     // Updates state for a single platform - used when tab becomes visible
-    func updateState(for platform: any AppPlatform) {
-        print("$ Updating state: \(platform.id)")
+    func updateState(for platform: any AppPlatform) async {
+        guard !isShuttingDown else { return }
         let script = platform.fetchState()
-        executeCommand(script, description: "\(platform.name): fetch status") { [weak self] result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success(let output):
-                    let newState = platform.parseState(output)
-                    self?.states[platform.id] = newState
-                case .failure(let error):
-                    self?.states[platform.id] = AppState(
-                        title: "Error",
-                        subtitle: nil,
-                        isPlaying: nil,
-                        error: error.localizedDescription
-                    )
-                }
+        let result = await enqueueCommand(script, description: "\(platform.name): fetch status")
+        
+        switch result {
+        case .success(let output):
+            let newState = platform.parseState(output)
+            states[platform.id] = newState
+        case .failure(let error):
+            states[platform.id] = AppState(
+                title: "Error",
+                subtitle: nil,
+                isPlaying: nil,
+                error: error.localizedDescription
+            )
+        }
+    }
+    
+    func executeAction(platform: any AppPlatform, action: AppAction) async {
+        guard !isShuttingDown else { return }
+        let actionScript = platform.executeAction(action)
+        let statusScript = platform.fetchState()
+        
+        let combinedScript = """
+        try
+            \(actionScript)
+            delay 0.1
+            \(statusScript)
+        on error errMsg
+            delay 0.1
+            \(statusScript)
+        end try
+        """
+        
+        let result = await enqueueCommand(combinedScript, description: "\(platform.name): executeAction(.\(action))")
+        
+        if case .success(let output) = result {
+            let lines = output.components(separatedBy: .newlines)
+            if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !lastLine.isEmpty {
+                let newState = platform.parseState(lastLine)
+                states[platform.id] = newState
             }
         }
     }
     
-    func executeAction(platform: any AppPlatform, action: AppAction) {
-        let script = platform.executeAction(action)
-        executeCommand(script, description: "\(platform.name): executeAction(.\(action))") { _ in
-            print("Action executed for \(platform.id)")
-        }
-        
-        // Update state after a brief delay to let the app state settle
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.updateState(for: platform)
-        }
-    }
-    
-    func setVolume(_ volume: Float) {
+    func setVolume(_ volume: Float) async {
+        guard !isShuttingDown else { return }
         let script = "set volume output volume \(Int(volume * 100))"
-        executeCommand(script, description: "System: set volume(\(Int(volume * 100)))") { _ in }
-    }
-    
-    private func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        \(command)
-        APPLESCRIPT
-        """
-        sshClient.executeCommandWithNewChannel(wrappedCommand, description: description, completion: completion)
+        _ = await enqueueCommand(script, description: "System: set volume(\(Int(volume * 100)))")
     }
     
     private func updateVolume() async {
+        guard !isShuttingDown else { return }
         let script = """
         get volume settings
         return output volume of result
         """
-        executeCommand(script, description: "System: get volume") { [weak self] result in
-            if case .success(let output) = result,
-               let volumeLevel = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                DispatchQueue.main.async {
-                    self?.currentVolume = volumeLevel / 100.0
-                }
-            }
+        let result = await enqueueCommand(script, description: "System: get volume")
+        
+        if case .success(let output) = result,
+           let volumeLevel = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            currentVolume = volumeLevel / 100.0
         }
+    }
+    
+    func cleanup() {
+        isShuttingDown = true
+        commandContinuation?.finish()
+        commandContinuation = nil
+    }
+    
+    nonisolated func cleanupSync() {
+        Task { @MainActor in
+            cleanup()
+        }
+    }
+    
+    deinit {
+        cleanupSync()
     }
 } 

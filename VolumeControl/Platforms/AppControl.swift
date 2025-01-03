@@ -13,12 +13,17 @@ struct AppControl: View {
                 isPlaying: state.isPlaying,
                 actions: platform.supportedActions,
                 onAction: { action in
-                    controller.executeAction(platform: platform, action: action)
+                    Task {
+                        await controller.executeAction(platform: platform, action: action)
+                    }
                 }
             )
         }
         .onAppear {
-            controller.updateState(for: platform)
+            Task {
+                await controller.updateState(for: platform)
+            }
         }
     }
 } 
+

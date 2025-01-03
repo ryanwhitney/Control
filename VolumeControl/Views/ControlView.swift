@@ -57,8 +57,8 @@ struct ControlView: View {
         ZStack {
             GeometryReader { geometry in
                 let totalHeight = geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom
-                let mediaHeight = totalHeight * 2 / 3
-                let volumeHeight = totalHeight * 1 / 3
+                let mediaHeight = totalHeight * 6 / 10
+                let volumeHeight = totalHeight * 4 / 10
 
                 VStack(spacing: 0) {
                     // Media Control Section (2/3 height)
@@ -122,18 +122,20 @@ struct ControlView: View {
                         }
                     }
                     .frame(height: volumeHeight, alignment: .center)
-                    .background(.red)
-                    .padding()
+
                 }
                 .frame(width: geometry.size.width, height: totalHeight)
-            }.background(.blue)
+            }
         }
+        .padding()
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {
-                    appController.updateAllStates()
+                    Task {
+                        await appController.updateAllStates()
+                    }
                 }
             }
         }
@@ -157,6 +159,14 @@ struct ControlView: View {
         .environment(\.screenBrightness, screenBrightness)
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
+        .onDisappear {
+            appController.cleanup()
+            sshClient.disconnect()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            appController.cleanup()
+            sshClient.disconnect()
+        }
     }
     
     private func connectToSSH() {
@@ -167,7 +177,9 @@ struct ControlView: View {
                 switch result {
                 case .success:
                     self.connectionState = .connected
-                    self.appController.updateAllStates()
+                    Task {
+                        await self.appController.updateAllStates()
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
                         self.isReady = true
                     }
@@ -181,13 +193,17 @@ struct ControlView: View {
     private func adjustVolume(by amount: Int) {
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
         volume = Float(newVolume) / 100.0
-        appController.setVolume(volume)
+        Task {
+            await appController.setVolume(volume)
+        }
     }
     
     private func debounceVolumeChange() {
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
-            appController.setVolume(volume)
+            Task {
+                await appController.setVolume(volume)
+            }
         }
         volumeChangeWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)

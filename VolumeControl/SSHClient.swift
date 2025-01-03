@@ -10,6 +10,7 @@ enum SSHError: Error {
     case connectionFailed(String)
     case timeout
     case channelError(String)
+    case noSession
 }
 
 class SSHClient {
@@ -24,6 +25,7 @@ class SSHClient {
 
     deinit {
         try? group.syncShutdownGracefully()
+        disconnect()
     }
 
     func connect(
@@ -260,7 +262,7 @@ class SSHClient {
             completion(.failure(SSHError.channelNotConnected))
             return
         }
-
+        
         print("$ \(description ?? "Running AppleScript command")")
         
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
@@ -308,15 +310,16 @@ class SSHClient {
             
             switch result {
             case .success(let output):
+                if let description = description {
+                    print("$ \(description)")
+                }
+                if !output.isEmpty {
+                    print("Received output: \(output)")
+                }
                 completion(.success(output))
             case .failure(let error):
-                let errorString = error.localizedDescription.lowercased()
-                if errorString.contains("channel setup rejected") || errorString.contains("open failed") {
-                    print("Channel setup was rejected by the server")
-                    completion(.failure(SSHError.channelError("Server rejected channel setup")))
-                } else {
-                    completion(.failure(error))
-                }
+                print("SSH Error: \(error)")
+                completion(.failure(error))
             }
         }
     }
