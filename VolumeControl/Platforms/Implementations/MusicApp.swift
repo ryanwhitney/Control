@@ -14,6 +14,13 @@ struct MusicApp: AppPlatform {
         ]
     }
     
+    func isRunningScript() -> String {
+        """
+        tell application "System Events" to set isAppOpen to exists (processes where name is "Music")
+        return isAppOpen as text
+        """
+    }
+    
     private let statusScript = """
     tell application "Music"
         if player state is stopped then

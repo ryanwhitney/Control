@@ -14,6 +14,13 @@ struct TVApp: AppPlatform {
         ]
     }
     
+    func isRunningScript() -> String {
+        """
+        tell application "System Events" to set isAppOpen to exists (processes where name is "TV")
+        return isAppOpen as text
+        """
+    }
+    
     private let statusScript = """
     tell application "TV"
         if player state is stopped then

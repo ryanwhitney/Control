@@ -14,6 +14,13 @@ struct QuickTimeApp: AppPlatform {
         ]
     }
     
+    func isRunningScript() -> String {
+        """
+        tell application "System Events" to set isAppOpen to exists (processes where name is "QuickTime Player")
+        return isAppOpen as text
+        """
+    }
+    
     private let statusScript = """
     tell application "QuickTime Player"
         if not (exists document 1) then

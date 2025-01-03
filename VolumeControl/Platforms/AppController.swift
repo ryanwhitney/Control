@@ -66,13 +66,40 @@ class AppController: ObservableObject {
     // Updates state for a single platform - used when tab becomes visible
     func updateState(for platform: any AppPlatform) async {
         guard isActive else { return }
-        let script = platform.fetchState()
-        let result = await executeCommand(script, description: "\(platform.name): fetch status")
         
-        switch result {
+        // First check if the app is running
+        let isRunningScript = platform.isRunningScript()
+        let isRunningResult = await executeCommand(isRunningScript, description: "\(platform.name): check if running")
+        
+        switch isRunningResult {
         case .success(let output):
-            let newState = platform.parseState(output)
-            states[platform.id] = newState
+            let isRunning = output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+            if isRunning {
+                // App is running, fetch its state
+                let script = platform.fetchState()
+                let result = await executeCommand(script, description: "\(platform.name): fetch status")
+                
+                switch result {
+                case .success(let output):
+                    let newState = platform.parseState(output)
+                    states[platform.id] = newState
+                case .failure(let error):
+                    states[platform.id] = AppState(
+                        title: "Error",
+                        subtitle: nil,
+                        isPlaying: nil,
+                        error: error.localizedDescription
+                    )
+                }
+            } else {
+                // App is not running
+                states[platform.id] = AppState(
+                    title: "Not Open",
+                    subtitle: "\(platform.name) is not running",
+                    isPlaying: nil,
+                    error: nil
+                )
+            }
         case .failure(let error):
             states[platform.id] = AppState(
                 title: "Error",

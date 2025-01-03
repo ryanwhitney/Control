@@ -12,6 +12,13 @@ struct SafariApp: AppPlatform {
         ]
     }
     
+    func isRunningScript() -> String {
+        """
+        tell application "System Events" to set isAppOpen to exists (processes where name is "Safari")
+        return isAppOpen as text
+        """
+    }
+    
     private let statusScript = """
     tell application "Safari"
         set windowCount to count of windows

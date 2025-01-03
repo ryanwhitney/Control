@@ -16,6 +16,13 @@ struct VLCApp: AppPlatform {
         ]
     }
     
+    func isRunningScript() -> String {
+        """
+        tell application "System Events" to set isAppOpen to exists (processes where name is "VLC")
+        return isAppOpen as text
+        """
+    }
+    
     private let statusScript = """
     tell application "VLC"
         try
@@ -46,10 +53,10 @@ struct VLCApp: AppPlatform {
             )
         }
         return AppState(
-            title: "Error",
-            subtitle: nil,
+            title: "Not Open",
+            subtitle: "VLC is not running",
             isPlaying: nil,
-            error: "Failed to parse VLC state"
+            error: nil
         )
     }
     

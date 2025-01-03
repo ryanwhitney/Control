@@ -76,4 +76,5 @@ protocol AppPlatform: Identifiable {
     func fetchState() -> String
     func executeAction(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
+    func isRunningScript() -> String
 } 
