@@ -41,9 +41,9 @@ class AppController: ObservableObject {
     
     // Updates state for a single platform - used when tab becomes visible
     func updateState(for platform: any AppPlatform) {
-        print("updating state for \(platform.id)")
+        print("$ Updating state: \(platform.id)")
         let script = platform.fetchState()
-        executeCommand(script) { [weak self] result in
+        executeCommand(script, description: "\(platform.name): fetch status") { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let output):
@@ -63,7 +63,7 @@ class AppController: ObservableObject {
     
     func executeAction(platform: any AppPlatform, action: AppAction) {
         let script = platform.executeAction(action)
-        executeCommand(script) { _ in
+        executeCommand(script, description: "\(platform.name): executeAction(.\(action))") { _ in
             print("Action executed for \(platform.id)")
         }
         
@@ -75,16 +75,16 @@ class AppController: ObservableObject {
     
     func setVolume(_ volume: Float) {
         let script = "set volume output volume \(Int(volume * 100))"
-        executeCommand(script) { _ in }
+        executeCommand(script, description: "System: set volume(\(Int(volume * 100)))") { _ in }
     }
     
-    private func executeCommand(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
+    private func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
         \(command)
         APPLESCRIPT
         """
-        sshClient.executeCommandWithNewChannel(wrappedCommand, completion: completion)
+        sshClient.executeCommandWithNewChannel(wrappedCommand, description: description, completion: completion)
     }
     
     private func updateVolume() async {
@@ -92,7 +92,7 @@ class AppController: ObservableObject {
         get volume settings
         return output volume of result
         """
-        executeCommand(script) { [weak self] result in
+        executeCommand(script, description: "System: get volume") { [weak self] result in
             if case .success(let output) = result,
                let volumeLevel = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 DispatchQueue.main.async {

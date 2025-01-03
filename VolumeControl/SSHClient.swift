@@ -221,14 +221,14 @@ class SSHClient {
         }
     }
 
-    func executeCommand(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
+    func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         guard let session = session else {
             print("No active session")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
 
-        print("$ \(command)")
+        print("$ \(description ?? "Running AppleScript command")")
 
         session.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler -> EventLoopFuture<String> in
             let promise = session.eventLoop.makePromise(of: String.self)
@@ -254,15 +254,14 @@ class SSHClient {
         }
     }
 
-    // New method for subsequent commands
-    func executeCommandWithNewChannel(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
+    func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         guard let connection = connection else {
             print("No active session")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
 
-        print("$ \(command)")
+        print("$ \(description ?? "Running AppleScript command")")
         
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
         var commandChannel: Channel?
