@@ -34,24 +34,14 @@ struct PermissionsView: View {
     var body: some View {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
-                Image(systemName: "lock.shield")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 60, height: 60)
-                    .foregroundStyle(.blue)
-                
-                Text("App Permissions")
+                Text("Accept permissions on your Mac")
                     .font(.title2)
                     .bold()
                 
-                Text("Grant permissions for \(displayName)")
+                Text("This allows Control to command only the specific apps that you allow.")
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
                 
-                Text("When prompted on your Mac, click 'OK' to allow control")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
             }
             
             platformList
@@ -195,7 +185,7 @@ struct PermissionsView: View {
         }
     }
     
-    private func executeCommand(_ command: String, description: String? = nil) async throws -> String {
+    private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
         try
@@ -206,9 +196,9 @@ struct PermissionsView: View {
         APPLESCRIPT
         """
         
-        return try await withCheckedThrowingContinuation { continuation in
+        return await withCheckedContinuation { continuation in
             sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
-                continuation.resume(with: result)
+                continuation.resume(returning: result)
             }
         }
     }
@@ -218,28 +208,22 @@ struct PermissionsView: View {
         
         permissionStates[platformId] = .checking
         
-        do {
-            // First check if the app is running
-            let isRunningScript = platform.isRunningScript()
-            let output = try await executeCommand(isRunningScript, description: "\(platform.name): check if running")
-            
-            let isRunning = output.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) == "true"
-            if isRunning {
-                // App is running, fetch its state
-                let script = platform.fetchState()
-                let stateOutput = try await executeCommand(script, description: "\(platform.name): fetch status")
-                
-                // Check if the output contains an authorization error
-                if stateOutput.contains("Not authorized to send Apple events") {
-                    permissionStates[platformId] = .failed("Permission needed")
-                } else {
-                    permissionStates[platformId] = .granted
-                }
+        // First activate the app - ignore result since it might close the channel
+        _ = await executeCommand(platform.activateScript(), description: "\(platform.name): activate")
+        
+        // Check permissions by fetching state
+        let stateResult = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
+        
+        switch stateResult {
+        case .success(let output):
+            if output.contains("Not authorized to send Apple events") {
+                permissionStates[platformId] = .failed("Permission needed")
             } else {
-                permissionStates[platformId] = .failed("App not running")
+                permissionStates[platformId] = .granted
             }
-        } catch {
-            permissionStates[platformId] = .failed("Connection error")
+        case .failure:
+            // Keep checking - no response likely means waiting for user to accept permissions
+            permissionStates[platformId] = .failed("Waiting for permission")
         }
     }
 }

@@ -77,4 +77,27 @@ protocol AppPlatform: Identifiable {
     func executeAction(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
     func isRunningScript() -> String
+    func isInstalledScript() -> String
+    func activateScript() -> String
+}
+
+extension AppPlatform {
+    func isInstalledScript() -> String {
+        let appPath = "/Applications/\(name).app"
+        return """
+        tell application "System Events"
+            if exists disk item "\(appPath)" then
+                return "true"
+            else
+                return "false"
+            end if
+        end tell
+        """
+    }
+    
+    func activateScript() -> String {
+        return """
+        tell application "\(name)" to activate
+        """
+    }
 } 
