@@ -78,6 +78,7 @@ struct ControlView: View {
 
                     VStack(spacing: 20) {
                         Spacer()
+
                         Text("Volume: \(Int(volume * 100))%")
                             .fontWeight(.bold)
                             .fontWidth(.expanded)
@@ -87,41 +88,20 @@ struct ControlView: View {
                             .onChange(of: volume) { oldValue, newValue in
                                 debounceVolumeChange()
                             }
-                        HStack(spacing: 20) {
-                            Button {
-                                adjustVolume(by: -5)
-                            } label: {
-                                Text("-5")
+                        HStack(spacing: 16) {
+                            ForEach([-5, -1, 1, 5], id: \.self) { adjustment in
+                                Button {
+                                    adjustVolume(by: adjustment)
+                                } label: {
+                                    Text(adjustment > 0 ? "+\(adjustment)" : "\(adjustment)")
+                                }
+                                .buttonStyle(CircularButtonStyle())
                             }
-                            .buttonStyle(CircularButtonStyle())
-
-                            Button {
-                                adjustVolume(by: -1)
-                            } label: {
-                                Text("-1")
-                            }
-                            .buttonStyle(CircularButtonStyle())
-
-                            Button {
-                                adjustVolume(by: 1)
-                            } label: {
-                                Text("+1")
-                            }
-                            .buttonStyle(CircularButtonStyle())
-
-                            Button {
-                                adjustVolume(by: 5)
-                            } label: {
-                                Text("+5")
-                            }
-                            .buttonStyle(CircularButtonStyle())
                         }
                         Spacer()
                     }
-                    .frame(height: volumeHeight, alignment: .center)
 
                 }
-                .frame(width: geometry.size.width, height: totalHeight)
             }
         }
         .padding()

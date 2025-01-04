@@ -22,7 +22,7 @@ struct MediaControlPanel: View {
                     .id(mediaInfo)
             }
             
-            HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 ForEach(actions) { config in
                     Button(action: { onAction(config.action) }) {
                         if let dynamicIcon = config.dynamicIcon, let isPlaying = isPlaying {
