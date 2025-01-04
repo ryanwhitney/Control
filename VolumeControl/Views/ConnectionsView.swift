@@ -23,6 +23,8 @@ struct ConnectionsView: View {
     @State private var connectionError: (title: String, message: String)?
     @State private var showingError = false
     @State private var showingFirstTimeSetup = false
+    @State private var showingPermissionsView = false
+    @State private var navigateToPermissions = false
 
     struct Connection: Identifiable, Hashable {
         let id: String
@@ -235,9 +237,8 @@ struct ConnectionsView: View {
                             sshClient: sshManager.currentClient
                         ) { selectedPlatforms in
                             savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
-                            savedConnections.markAsConnected(computer.host)
                             showingFirstTimeSetup = false
-                            navigateToControl = true
+                            navigateToPermissions = true
                         }
                     } else {
                         ControlView(
@@ -248,7 +249,20 @@ struct ConnectionsView: View {
                             sshClient: sshManager.currentClient,
                             enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
                         )
-                        .tint(preferences.tintColorValue)
+                    }
+                }
+            }
+            .navigationDestination(isPresented: $navigateToPermissions) {
+                if let computer = selectedConnection {
+                    PermissionsView(
+                        hostname: computer.host,
+                        displayName: computer.name,
+                        sshClient: sshManager.currentClient,
+                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
+                    ) {
+                        savedConnections.markAsConnected(computer.host)
+                        navigateToPermissions = false
+                        navigateToControl = true
                     }
                 }
             }

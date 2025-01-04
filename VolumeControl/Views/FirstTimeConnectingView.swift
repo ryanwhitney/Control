@@ -18,86 +18,83 @@ struct FirstTimeConnectingView: View {
     }
     
     var body: some View {
-        NavigationView {
-            ZStack{
-                Form {
-                    Section {
-                        VStack(alignment: .center){
-                            Image(systemName: "macbook.and.iphone")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 100, height: 60)
-                                .foregroundStyle(.green, .quaternary)
+        ZStack {
+            Form {
+                Section {
+                    VStack(alignment: .center){
+                        Image(systemName: "macbook.and.iphone")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 100, height: 60)
+                            .foregroundStyle(.green, .quaternary)
+                        
+                        Text("Which apps would you like to control?")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Text("You can change these anytime.")
+                            .foregroundStyle(.secondary)
+                    }.multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                }
 
-                            Text("Which apps would you like to control?")
-                                .font(.title2)
-                                .fontWeight(.bold)
-                            Text("You can change these anytime.")
-                                .foregroundStyle(.secondary)
-                        }.multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                    }
-
-                    Section() {
-                        if isChecking {
+                Section() {
+                    if isChecking {
+                        HStack {
+                            Text("Checking available apps...")
+                            Spacer()
+                            ProgressView()
+                        }
+                    } else {
+                        ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
                             HStack {
-                                Text("Checking available apps...")
-                                Spacer()
-                                ProgressView()
-                            }
-                        } else {
-                            ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
-                                HStack {
-                                    Toggle(isOn: Binding(
-                                        get: { selectedPlatforms.contains(platform.id) },
-                                        set: { isSelected in
-                                            if isSelected {
-                                                selectedPlatforms.insert(platform.id)
-                                            } else {
-                                                selectedPlatforms.remove(platform.id)
-                                            }
-                                        }
-                                    )) {
-                                        VStack(alignment: .leading) {
-                                            Text(platform.name)
-                                            if let result = checkResults[platform.id] {
-                                                Text(result ? "Available" : "Not installed")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                            }
+                                Toggle(isOn: Binding(
+                                    get: { selectedPlatforms.contains(platform.id) },
+                                    set: { isSelected in
+                                        if isSelected {
+                                            selectedPlatforms.insert(platform.id)
+                                        } else {
+                                            selectedPlatforms.remove(platform.id)
                                         }
                                     }
-                                    .disabled(!checkResults[platform.id, default: false])
+                                )) {
+                                    VStack(alignment: .leading) {
+                                        Text(platform.name)
+                                        if let result = checkResults[platform.id] {
+                                            Text(result ? "Available" : "Not installed")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
                                 }
+                                .disabled(!checkResults[platform.id, default: false])
                             }
                         }
                     }
-
-
                 }
-                VStack {
-                    Spacer()
-                    VStack(){
-                        Button(action: {
-                            onComplete(selectedPlatforms)
-                        }) {
-                            Text("Continue")
-                                .padding(.vertical, 11)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .padding()
-                        .buttonStyle(.bordered)
-                        .tint(.accentColor)
-                        .frame(maxWidth: .infinity) // Use `maxWidth` for full width
-                        .disabled(selectedPlatforms.isEmpty)
-                    }.background(.black)
-                }
+
             }
-            .navigationTitle("First-Time Setup")
-            .task {
-                await checkAvailableApps()
+            VStack {
+                Spacer()
+                VStack(){
+                    Button(action: {
+                        onComplete(selectedPlatforms)
+                    }) {
+                        Text("Continue")
+                            .padding(.vertical, 11)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .padding()
+                    .buttonStyle(.bordered)
+                    .tint(.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .disabled(selectedPlatforms.isEmpty)
+                }.background(.black)
             }
+        }
+        .navigationTitle("First-Time Setup")
+        .task {
+            await checkAvailableApps()
         }
     }
     
@@ -142,29 +139,15 @@ struct FirstTimeConnectingView: View {
 }
 
 #Preview {
-    NavigationStack {
+    let client = SSHClient()
+    client.connect(host: "rwhitney-mac.local", username: "ryan", password: "") { _ in }
+    
+    return NavigationStack {
         FirstTimeConnectingView(
-            hostname: "ryans-mac.local",
+            hostname: "rwhitney-mac.local",
             displayName: "Ryan's Mac",
-            sshClient: MockSSHClient(),
+            sshClient: client,
             onComplete: { _ in }
         )
-    }
-}
-
-// Mock SSH client for previews
-private class MockSSHClient: SSHClientProtocol {
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        completion(.success(()))
-    }
-    
-    func disconnect() {}
-    
-    func executeCommandWithNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
-        // Simulate checking app availability
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Randomly return true/false to show both states
-            completion(.success(Bool.random() ? "true" : "false"))
-        }
     }
 } 
