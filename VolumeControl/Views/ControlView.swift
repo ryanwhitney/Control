@@ -131,10 +131,14 @@ struct ControlView: View {
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .active {
                 connectToSSH()
+            } else if newPhase == .background {
+                appController.cleanup()
+                sshClient.disconnect()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            connectToSSH()
+        .onDisappear {
+            appController.cleanup()
+            sshClient.disconnect()
         }
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
@@ -145,14 +149,6 @@ struct ControlView: View {
         .environment(\.screenBrightness, screenBrightness)
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
-        .onDisappear {
-            appController.cleanup()
-            sshClient.disconnect()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            appController.cleanup()
-            sshClient.disconnect()
-        }
     }
     
     private func connectToSSH() {
@@ -167,7 +163,6 @@ struct ControlView: View {
                 switch result {
                 case .success:
                     self.connectionState = .connected
-                    // Reset AppController's active state
                     self.appController.reset()
                     Task {
                         await self.appController.updateAllStates()
