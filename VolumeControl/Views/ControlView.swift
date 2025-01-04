@@ -17,7 +17,6 @@ struct ControlView: View {
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
     @State private var connectionState: ConnectionState = .disconnected
-    @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var shouldShowLoadingOverlay: Bool = false
 
     enum ConnectionState: Equatable {
@@ -143,10 +142,7 @@ struct ControlView: View {
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIScreen.brightnessDidChangeNotification)) { _ in
-            screenBrightness = UIScreen.main.brightness
         }
-        .environment(\.screenBrightness, screenBrightness)
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
     }
