@@ -7,7 +7,7 @@ struct VLCApp: AppPlatform {
     var supportedActions: [ActionConfig] {
         [
             ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.clockwise"),
+            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),
             ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
                 isPlaying ? "pause.fill" : "play.fill"
             }),
