@@ -185,7 +185,7 @@ struct PermissionsView: View {
         }
     }
     
-    private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
         try
@@ -208,11 +208,40 @@ struct PermissionsView: View {
         
         permissionStates[platformId] = .checking
         
-        // First activate the app - ignore result since it might close the channel
-        _ = await executeCommand(platform.activateScript(), description: "\(platform.name): activate")
+        // First activate the app
+        let activateCommand = """
+        osascript << 'APPLESCRIPT'
+        tell application "\(platform.name)"
+            activate
+        end tell
+        APPLESCRIPT
+        """
         
-        // Check permissions by fetching state
-        let stateResult = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
+        _ = await withCheckedContinuation { continuation in
+            sshClient.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+                continuation.resume(returning: result)
+            }
+        }
+        
+        // Add a small delay to allow the app to fully activate
+        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        // Then check permissions by fetching state
+        let stateCommand = """
+        osascript << 'APPLESCRIPT'
+        try
+            \(platform.fetchState())
+        on error errMsg
+            return errMsg
+        end try
+        APPLESCRIPT
+        """
+        
+        let stateResult = await withCheckedContinuation { continuation in
+            sshClient.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+                continuation.resume(returning: result)
+            }
+        }
         
         switch stateResult {
         case .success(let output):

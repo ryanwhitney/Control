@@ -9,7 +9,8 @@ class PlatformRegistry: ObservableObject {
         VLCApp(),
         MusicApp(),
         TVApp(),
-        SafariApp()
+        SafariApp(),
+        SpotifyApp()
     ]
     
     init(platforms: [any AppPlatform]? = nil) {
