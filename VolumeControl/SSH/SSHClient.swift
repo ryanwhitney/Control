@@ -13,7 +13,7 @@ enum SSHError: Error {
     case noSession
 }
 
-class SSHClient {
+class SSHClient: SSHClientProtocol {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var session: Channel?
@@ -28,13 +28,7 @@ class SSHClient {
         disconnect()
     }
 
-    func connect(
-        host: String,
-        port: Int = 22,
-        username: String,
-        password: String,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
+    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
         // Add a master timeout that cannot be cancelled
         var hasCompleted = false
         let masterTimeout = DispatchWorkItem {
@@ -44,10 +38,10 @@ class SSHClient {
             self.disconnect()
             completion(.failure(SSHError.timeout))
         }
-        
+
         // Master timeout of 5 seconds, no exceptions
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: masterTimeout)
-        
+
         let wrappedCompletion: (Result<Void, Error>) -> Void = { result in
             guard !hasCompleted else { return }
             hasCompleted = true
@@ -56,10 +50,10 @@ class SSHClient {
         }
 
         print("\n=== SSH Connection Details ===")
-        print("Target: \(host):\(port)")
+        print("Target: \(host):22")
         print("Username: \(username)")
         print("Password length: \(password.count)")
-        
+
         let authDelegate = PasswordAuthDelegate(username: username, password: password)
         // Set up immediate auth failure callback
         authDelegate.onAuthFailure = { [weak self] in
@@ -68,7 +62,7 @@ class SSHClient {
             wrappedCompletion(.failure(SSHError.authenticationFailed))
         }
         self.authDelegate = authDelegate
-        
+
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
@@ -93,18 +87,18 @@ class SSHClient {
                         ])
                     }
                 )
-                
+
                 return channel.pipeline.addHandler(sshHandler)
             }
 
         print("\nAttempting connection...")
-        
-        bootstrap.connect(host: host, port: port).whenComplete { result in
+
+        bootstrap.connect(host: host, port: 22).whenComplete { result in
             switch result {
             case .failure(let error):
                 print("❌ Connection failed")
                 print("Error details: \(error)")
-                
+
                 // Handle DNS and connection errors specifically
                 if error is NIOConnectionError {
                     wrappedCompletion(.failure(SSHError.connectionFailed("Could not find the computer on the network")))
@@ -112,11 +106,11 @@ class SSHClient {
                     let errorMessage = self.interpretConnectionError(error)
                     wrappedCompletion(.failure(SSHError.connectionFailed(errorMessage)))
                 }
-                
+
             case .success(let channel):
                 print("✓ TCP connection established")
                 self.connection = channel
-                
+
                 self.createSession { result in
                     switch result {
                     case .success:
@@ -134,9 +128,9 @@ class SSHClient {
                         } else {
                             // Check for common auth failure indicators
                             let errorString = error.localizedDescription.lowercased()
-                            if errorString.contains("eof") || 
-                               errorString.contains("connection reset") ||
-                               errorString.contains("shutdown") {
+                            if errorString.contains("eof") ||
+                                errorString.contains("connection reset") ||
+                                errorString.contains("shutdown") {
                                 print("❌ Connection terminated (likely due to authentication failure)")
                                 wrappedCompletion(.failure(SSHError.authenticationFailed))
                             } else {
@@ -149,7 +143,7 @@ class SSHClient {
             }
         }
     }
-    
+
     private func interpretConnectionError(_ error: Error) -> String {
         if let posixError = error as? POSIXError {
             switch posixError.code {
@@ -165,30 +159,30 @@ class SSHClient {
         }
         return "Could not establish a connection to the computer"
     }
-    
+
     private func createSession(completion: @escaping (Result<Void, Error>) -> Void) {
         guard let connection = connection else {
             completion(.failure(SSHError.channelNotConnected))
             return
         }
-        
+
         print("Creating SSH session...")
-        
+
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
-        
+
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { sshHandler -> EventLoopFuture<Channel> in
             sshHandler.createChannel(childPromise) { (childChannel: Channel, channelType: SSHChannelType) -> EventLoopFuture<Void> in
                 guard channelType == .session else {
                     return childChannel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
                 }
-                
+
                 let commandHandler = SSHCommandHandler()
                 return childChannel.pipeline.addHandlers([
                     commandHandler,
                     ErrorHandler()
                 ])
             }
-            
+
             return childPromise.futureResult.flatMapError { error in
                 print("Channel creation failed: \(error)")
                 // If we get EOF during session creation and auth failed, it's an auth error
@@ -212,8 +206,8 @@ class SSHClient {
                    let authDelegate = self.authDelegate,
                    authDelegate.authFailed {
                     completion(.failure(SSHError.authenticationFailed))
-                } else if error.localizedDescription.lowercased().contains("channel setup rejected") || 
-                          error.localizedDescription.lowercased().contains("open failed") {
+                } else if error.localizedDescription.lowercased().contains("channel setup rejected") ||
+                            error.localizedDescription.lowercased().contains("open failed") {
                     print("Channel setup was rejected by the server")
                     completion(.failure(SSHError.channelError("Server rejected channel setup")))
                 } else {
@@ -235,7 +229,7 @@ class SSHClient {
         session.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler -> EventLoopFuture<String> in
             let promise = session.eventLoop.makePromise(of: String.self)
             handler.pendingCommandPromise = promise
-            
+
             let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
             return session.triggerUserOutboundEvent(execRequest).flatMap { _ in
                 return promise.futureResult
@@ -256,33 +250,35 @@ class SSHClient {
         }
     }
 
-    func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+    func executeCommandWithNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         guard let connection = connection else {
             print("No active session")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
-        
-        print("$ \(description ?? "Running AppleScript command")")
-        
+
+        if let description = description {
+            print("$ \(description)")
+        }
+
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
         var commandChannel: Channel?
-        
+
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { sshHandler -> EventLoopFuture<Channel> in
             sshHandler.createChannel(childPromise) { (childChannel: Channel, channelType: SSHChannelType) -> EventLoopFuture<Void> in
                 guard channelType == .session else {
                     return childChannel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
                 }
-                
+
                 let commandHandler = SSHCommandHandler()
                 commandHandler.pendingCommandPromise = childChannel.eventLoop.makePromise(of: String.self)
-                
+
                 return childChannel.pipeline.addHandlers([
                     commandHandler,
                     ErrorHandler()
                 ])
             }
-            
+
             return childPromise.futureResult.map { channel in
                 commandChannel = channel
                 return channel
@@ -296,7 +292,7 @@ class SSHClient {
                 guard let promise = handler.pendingCommandPromise else {
                     return channel.eventLoop.makeFailedFuture(SSHError.channelError("Command promise not set"))
                 }
-                
+
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
                     return promise.futureResult
@@ -307,7 +303,7 @@ class SSHClient {
             if let channel = commandChannel {
                 channel.close(promise: nil)
             }
-            
+
             switch result {
             case .success(let output):
                 if let description = description {
@@ -338,7 +334,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     private var _authFailed = false
     private var authAttempts = 0
     var onAuthFailure: (() -> Void)?
-    
+
     var authFailed: Bool { _authFailed }
 
     init(username: String, password: String) {
@@ -351,7 +347,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
     ) {
         authAttempts += 1
-        
+
         // If we're called more than once, it means previous attempts failed
         if authAttempts > 1 {
             print("❌ Authentication attempt #\(authAttempts) - previous attempt failed")
@@ -360,7 +356,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
             nextChallengePromise.succeed(nil)
             return
         }
-        
+
         guard availableMethods.contains(.password) else {
             print("❌ Password authentication not available")
             _authFailed = true
@@ -368,7 +364,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
             nextChallengePromise.succeed(nil)
             return
         }
-        
+
         print("Attempting password authentication...")
         let offer = NIOSSHUserAuthenticationOffer(
             username: username,
@@ -391,24 +387,24 @@ class SSHCommandHandler: ChannelInboundHandler {
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let channelData = unwrapInboundIn(data)
-        
+
         switch channelData.type {
         case .channel:
             guard case .byteBuffer(let buffer) = channelData.data else {
                 return
             }
-            
+
             if let output = buffer.getString(at: 0, length: buffer.readableBytes) {
                 print("Received output: \(output)")
                 self.buffer += output
                 hasReceivedOutput = true
-                
+
                 // Only complete if we've received actual output
                 if !output.isEmpty {
                     completeCommand()
                 }
             }
-            
+
         case .stdErr:
             guard case .byteBuffer(let buffer) = channelData.data,
                   let errorOutput = buffer.getString(at: 0, length: buffer.readableBytes) else {
@@ -418,7 +414,7 @@ class SSHCommandHandler: ChannelInboundHandler {
             self.buffer += "[Error] " + errorOutput
             hasReceivedOutput = true
             completeCommand()
-            
+
         default:
             break
         }
@@ -465,7 +461,7 @@ class AcceptAllHostKeysDelegate: NIOSSHClientServerAuthenticationDelegate {
 
 private class ErrorHandler: ChannelInboundHandler {
     typealias InboundIn = Any
-    
+
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         print("SSH Error: \(error)")
         let errorString = error.localizedDescription.lowercased()

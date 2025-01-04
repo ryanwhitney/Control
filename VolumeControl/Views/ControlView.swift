@@ -2,20 +2,21 @@ import SwiftUI
 import Combine
 
 struct ControlView: View {
-    @StateObject private var appController: AppController
-    @StateObject private var preferences = UserPreferences.shared
-    @Environment(\.scenePhase) private var scenePhase
     let host: String
     let displayName: String
     let username: String
     let password: String
-    let sshClient: SSHClient
+    let sshClient: SSHClientProtocol
+    let enabledPlatforms: Set<String>
     
+    @StateObject private var appController: AppController
+    @StateObject private var preferences = UserPreferences.shared
+    @Environment(\.scenePhase) private var scenePhase
     @State private var volume: Float = 0.5
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
-    @State private var connectionState: ConnectionState = .connecting
+    @State private var connectionState: ConnectionState = .disconnected
     @State private var screenBrightness: CGFloat = UIScreen.main.brightness
     @State private var shouldShowLoadingOverlay: Bool = false
 
@@ -44,13 +45,21 @@ struct ControlView: View {
         }
     }
     
-    init(host: String, displayName: String, username: String, password: String, sshClient: SSHClient) {
+    init(host: String, displayName: String, username: String, password: String, sshClient: SSHClientProtocol, enabledPlatforms: Set<String> = Set()) {
         self.host = host
         self.displayName = displayName
         self.username = username
         self.password = password
         self.sshClient = sshClient
-        _appController = StateObject(wrappedValue: AppController(sshClient: sshClient))
+        self.enabledPlatforms = enabledPlatforms
+        
+        // Filter platforms based on enabled set
+        let filteredPlatforms = PlatformRegistry.allPlatforms.filter { platform in
+            enabledPlatforms.isEmpty || enabledPlatforms.contains(platform.id)
+        }
+        let registry = PlatformRegistry(platforms: filteredPlatforms)
+        
+        _appController = StateObject(wrappedValue: AppController(sshClient: sshClient, platformRegistry: registry))
     }
     
     var body: some View {
@@ -62,7 +71,7 @@ struct ControlView: View {
                     VStack {
                         TabView {
                             ForEach(appController.platforms, id: \.id) { platform in
-                                AppControl(
+                                PlatformControl(
                                     platform: platform,
                                     state: Binding(
                                         get: { appController.states[platform.id] ?? AppState(title: "Error") },

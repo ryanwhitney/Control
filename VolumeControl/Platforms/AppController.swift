@@ -2,33 +2,44 @@ import SwiftUI
 
 @MainActor
 class AppController: ObservableObject {
+    private let sshClient: SSHClientProtocol
+    private let platformRegistry: PlatformRegistry
+    private var stateUpdateTimer: Timer?
+    private var isUpdating = false
+    private var isActive = true
+    
     @Published var states: [String: AppState] = [:]
     @Published var currentVolume: Float = 0.5
-    private let platformRegistry: PlatformRegistry
-    private let sshClient: SSHClient
-    private var isActive = true
     
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
     
-    init(sshClient: SSHClient) {
+    init(sshClient: SSHClientProtocol, platformRegistry: PlatformRegistry) {
         self.sshClient = sshClient
-        self.platformRegistry = PlatformRegistry()
+        self.platformRegistry = platformRegistry
         
-        // Initialize states for all platforms
+        // Initialize states
         for platform in platformRegistry.platforms {
-            states[platform.id] = AppState(
-                title: "Loading...",
-                subtitle: nil,
-                isPlaying: nil,
-                error: nil
-            )
+            states[platform.id] = AppState(title: "Loading...")
         }
         
-        // Initial state fetch
+        // Start periodic updates
+        startPeriodicUpdates()
+    }
+    
+    private func startPeriodicUpdates() {
+        isActive = true
+        // Initial update
         Task {
             await updateAllStates()
+        }
+        
+        // Set up timer for periodic updates
+        stateUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { [weak self] in
+                await self?.updateAllStates()
+            }
         }
     }
     
@@ -178,10 +189,13 @@ class AppController: ObservableObject {
     
     func cleanup() {
         isActive = false
+        stateUpdateTimer?.invalidate()
+        stateUpdateTimer = nil
     }
     
     func reset() {
-        isActive = true
+        cleanup()
+        startPeriodicUpdates()
     }
     
     nonisolated func cleanupSync() {

@@ -22,6 +22,7 @@ struct ConnectionsView: View {
     @State private var showingPreferences = false
     @State private var connectionError: (title: String, message: String)?
     @State private var showingError = false
+    @State private var showingFirstTimeSetup = false
 
     struct Connection: Identifiable, Hashable {
         let id: String
@@ -227,14 +228,28 @@ struct ConnectionsView: View {
             }
             .navigationDestination(isPresented: $navigateToControl) {
                 if let computer = selectedConnection {
-                    ControlView(
-                        host: computer.host,
-                        displayName: computer.name,
-                        username: username,
-                        password: password,
-                        sshClient: sshManager.currentClient
-                    )
-                    .tint(preferences.tintColorValue)
+                    if !savedConnections.hasConnectedBefore(computer.host) {
+                        FirstTimeConnectingView(
+                            hostname: computer.host,
+                            displayName: computer.name,
+                            sshClient: sshManager.currentClient
+                        ) { selectedPlatforms in
+                            savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
+                            savedConnections.markAsConnected(computer.host)
+                            showingFirstTimeSetup = false
+                            navigateToControl = true
+                        }
+                    } else {
+                        ControlView(
+                            host: computer.host,
+                            displayName: computer.name,
+                            username: username,
+                            password: password,
+                            sshClient: sshManager.currentClient,
+                            enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
+                        )
+                        .tint(preferences.tintColorValue)
+                    }
                 }
             }
             .sheet(isPresented: $showingPreferences) {

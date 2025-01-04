@@ -11,6 +11,8 @@ class SavedConnections: ObservableObject {
         var name: String?
         var username: String?
         let lastUsed: Date
+        var hasConnectedBefore: Bool
+        var enabledPlatforms: Set<String>
         
         init(hostname: String, name: String? = nil, username: String? = nil) {
             self.id = UUID()
@@ -18,6 +20,8 @@ class SavedConnections: ObservableObject {
             self.name = name
             self.username = username
             self.lastUsed = Date()
+            self.hasConnectedBefore = false
+            self.enabledPlatforms = []
         }
     }
     
@@ -130,5 +134,27 @@ class SavedConnections: ObservableObject {
             kSecAttrAccount as String: hostname
         ]
         SecItemDelete(deleteQuery as CFDictionary)
+    }
+    
+    func markAsConnected(_ hostname: String) {
+        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            items[index].hasConnectedBefore = true
+            save()
+        }
+    }
+    
+    func updateEnabledPlatforms(_ hostname: String, platforms: Set<String>) {
+        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            items[index].enabledPlatforms = platforms
+            save()
+        }
+    }
+    
+    func hasConnectedBefore(_ hostname: String) -> Bool {
+        return items.first(where: { $0.hostname == hostname })?.hasConnectedBefore ?? false
+    }
+    
+    func enabledPlatforms(_ hostname: String) -> Set<String> {
+        return items.first(where: { $0.hostname == hostname })?.enabledPlatforms ?? []
     }
 } 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct MediaControlPanel: View {
+struct PlatformControlPanel: View {
     @StateObject private var preferences = UserPreferences.shared
     let title: String
     let mediaInfo: String
