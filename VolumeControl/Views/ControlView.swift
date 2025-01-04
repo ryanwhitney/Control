@@ -139,9 +139,19 @@ struct ControlView: View {
             appController.cleanup()
             sshClient.disconnect()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            connectToSSH()
+        }
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
+        .onDisappear {
+            appController.cleanup()
+            sshClient.disconnect()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            appController.cleanup()
+            sshClient.disconnect()
         }
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
