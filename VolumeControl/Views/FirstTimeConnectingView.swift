@@ -19,52 +19,79 @@ struct FirstTimeConnectingView: View {
     
     var body: some View {
         NavigationView {
-            Form {
-                Section {
-                    Text("Welcome to \(displayName)! Let's check which apps we can control on this computer.")
-                        .foregroundStyle(.secondary)
-                }
-                
-                Section("Available Apps") {
-                    if isChecking {
-                        HStack {
-                            Text("Checking available apps...")
-                            Spacer()
-                            ProgressView()
-                        }
-                    } else {
-                        ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
+            ZStack{
+                Form {
+                    Section {
+                        VStack(alignment: .center){
+                            Image(systemName: "macbook.and.iphone")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 100, height: 60)
+                                .foregroundStyle(.green, .quaternary)
+
+                            Text("Which apps would you like to control?")
+                                .font(.title2)
+                                .fontWeight(.bold)
+                            Text("You can change these anytime.")
+                                .foregroundStyle(.secondary)
+                        }.multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                    }
+
+                    Section() {
+                        if isChecking {
                             HStack {
-                                Toggle(isOn: Binding(
-                                    get: { selectedPlatforms.contains(platform.id) },
-                                    set: { isSelected in
-                                        if isSelected {
-                                            selectedPlatforms.insert(platform.id)
-                                        } else {
-                                            selectedPlatforms.remove(platform.id)
+                                Text("Checking available apps...")
+                                Spacer()
+                                ProgressView()
+                            }
+                        } else {
+                            ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
+                                HStack {
+                                    Toggle(isOn: Binding(
+                                        get: { selectedPlatforms.contains(platform.id) },
+                                        set: { isSelected in
+                                            if isSelected {
+                                                selectedPlatforms.insert(platform.id)
+                                            } else {
+                                                selectedPlatforms.remove(platform.id)
+                                            }
+                                        }
+                                    )) {
+                                        VStack(alignment: .leading) {
+                                            Text(platform.name)
+                                            if let result = checkResults[platform.id] {
+                                                Text(result ? "Available" : "Not installed")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
                                         }
                                     }
-                                )) {
-                                    VStack(alignment: .leading) {
-                                        Text(platform.name)
-                                        if let result = checkResults[platform.id] {
-                                            Text(result ? "Available" : "Not installed")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
+                                    .disabled(!checkResults[platform.id, default: false])
                                 }
-                                .disabled(!checkResults[platform.id, default: false])
                             }
                         }
                     }
+
+
                 }
-                
-                Section {
-                    Button("Continue") {
-                        onComplete(selectedPlatforms)
-                    }
-                    .disabled(selectedPlatforms.isEmpty)
+                VStack {
+                    Spacer()
+                    VStack(){
+                        Button(action: {
+                            onComplete(selectedPlatforms)
+                        }) {
+                            Text("Continue")
+                                .padding(.vertical, 11)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .padding()
+                        .buttonStyle(.bordered)
+                        .tint(.accentColor)
+                        .frame(maxWidth: .infinity) // Use `maxWidth` for full width
+                        .disabled(selectedPlatforms.isEmpty)
+                    }.background(.black)
                 }
             }
             .navigationTitle("First-Time Setup")
