@@ -76,7 +76,6 @@ struct PermissionsView: View {
                 ForEach(Array(enabledPlatforms), id: \.self) { platformId in
                     if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
                         HStack {
-                            Image(systemName: "app.fill")
                             VStack(alignment: .leading) {
                                 Text(platform.name)
                                 permissionStateView(for: platformId)

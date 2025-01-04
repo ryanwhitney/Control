@@ -231,7 +231,7 @@ struct ConnectionsView: View {
             .navigationDestination(isPresented: $navigateToControl) {
                 if let computer = selectedConnection {
                     if !savedConnections.hasConnectedBefore(computer.host) {
-                        FirstTimeConnectingView(
+                        ChooseAppsView(
                             hostname: computer.host,
                             displayName: computer.name,
                             sshClient: sshManager.currentClient
