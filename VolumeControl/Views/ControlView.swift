@@ -56,10 +56,8 @@ struct ControlView: View {
     var body: some View {
         ZStack {
             GeometryReader { geometry in
-                let totalHeight = geometry.size.height - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom
+                let totalHeight = geometry.size.height
                 let mediaHeight = totalHeight * 6 / 10
-                let volumeHeight = totalHeight * 4 / 10
-
                 VStack(spacing: 0) {
                     VStack {
                         TabView {
@@ -79,6 +77,7 @@ struct ControlView: View {
                     .frame(height: mediaHeight)
 
                     VStack(spacing: 20) {
+                        Spacer()
                         Text("Volume: \(Int(volume * 100))%")
                             .fontWeight(.bold)
                             .fontWidth(.expanded)
@@ -88,7 +87,6 @@ struct ControlView: View {
                             .onChange(of: volume) { oldValue, newValue in
                                 debounceVolumeChange()
                             }
-
                         HStack(spacing: 20) {
                             Button {
                                 adjustVolume(by: -5)
@@ -118,6 +116,7 @@ struct ControlView: View {
                             }
                             .buttonStyle(CircularButtonStyle())
                         }
+                        Spacer()
                     }
                     .frame(height: volumeHeight, alignment: .center)
 
