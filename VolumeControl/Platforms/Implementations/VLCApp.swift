@@ -26,14 +26,36 @@ struct VLCApp: AppPlatform {
     private let statusScript = """
     tell application "VLC"
         try
-            set mediaName to name of current item
+            -- Check if VLC is currently running
+            if not running then
+                return "VLC is not running|||stopped|||false"
+            end if
+            
+            -- Check playback status
             if playing then
+                -- Attempt to get the name of the current media item
+                try
+                    set mediaName to name of current item
+                on error
+                    set mediaName to "Unknown media"
+                end try
                 return mediaName & "|||playing|||true"
             else
-                return mediaName & "|||paused|||false"
+                try
+                    set mediaName to name of current item
+                    return mediaName & "|||stopped|||false"
+                on error
+                    return "No media|||stopped|||false"
+                end try
             end if
-        on error
-            return "No media|||stopped|||false"
+            
+        on error errMsg
+            -- Handle errors gracefully
+            if errMsg contains "Not authorized to send Apple events" then
+                error errMsg
+            else
+                return "Error: " & errMsg & "|||stopped|||false"
+            end if
         end try
     end tell
     """
@@ -53,7 +75,7 @@ struct VLCApp: AppPlatform {
             )
         }
         return AppState(
-            title: "Not Open",
+            title: "",
             subtitle: "VLC is not running",
             isPlaying: nil,
             error: nil

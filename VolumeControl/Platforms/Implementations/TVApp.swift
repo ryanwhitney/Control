@@ -49,7 +49,7 @@ struct TVApp: AppPlatform {
             )
         }
         return AppState(
-            title: "Error",
+            title: "",
             subtitle: nil,
             isPlaying: nil,
             error: "Failed to parse TV state"

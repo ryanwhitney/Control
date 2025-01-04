@@ -81,8 +81,18 @@ class AppController: ObservableObject {
                 
                 switch result {
                 case .success(let output):
-                    let newState = platform.parseState(output)
-                    states[platform.id] = newState
+                    // Check if the output contains an authorization error
+                    if output.contains("Not authorized to send Apple events") {
+                        states[platform.id] = AppState(
+                            title: "Permissions Required",
+                            subtitle: "Grant permission in System Settings > Privacy > Automation",
+                            isPlaying: nil,
+                            error: nil
+                        )
+                    } else {
+                        let newState = platform.parseState(output)
+                        states[platform.id] = newState
+                    }
                 case .failure(let error):
                     states[platform.id] = AppState(
                         title: "Error",
@@ -130,7 +140,15 @@ class AppController: ObservableObject {
         
         if case .success(let output) = result {
             let lines = output.components(separatedBy: .newlines)
-            if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+            if let firstLine = lines.first,
+               firstLine.contains("Not authorized to send Apple events") {
+                states[platform.id] = AppState(
+                    title: "Permissions Required",
+                    subtitle: "Grant permission in System Settings > Privacy > Automation",
+                    isPlaying: nil,
+                    error: nil
+                )
+            } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
                 states[platform.id] = newState
