@@ -59,7 +59,7 @@ struct ConnectionsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                if !connections.isEmpty && savedConnections.items.isEmpty {
+                if connections.isEmpty && savedConnections.items.isEmpty {
                     VStack(spacing: 20) {
                         Spacer()
                         
