@@ -36,7 +36,10 @@ class AppController: ObservableObject {
     
     func updateAllStates() async {
         guard isActive else { return }
-        
+
+        // Update system volume
+        await updateSystemVolume()
+
         // First check which apps are running
         for platform in platforms {
             let isRunning = await checkIfRunning(platform)
@@ -51,9 +54,6 @@ class AppController: ObservableObject {
                 )
             }
         }
-        
-        // Update system volume
-        await updateSystemVolume()
     }
     
     func updateState(for platform: any AppPlatform) async {
@@ -110,13 +110,38 @@ class AppController: ObservableObject {
     func executeAction(platform: any AppPlatform, action: AppAction) async {
         guard isActive else { return }
         
+        // Combine action and status fetch into single script
         let actionScript = platform.executeAction(action)
-        let result = await executeCommand(actionScript, description: "\(platform.name): executeAction(.\(action))")
+        let statusScript = platform.fetchState()
         
-        if case .success = result {
-            // Add a small delay before fetching the new state
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-            await updateState(for: platform)
+        let combinedScript = """
+        try
+            \(actionScript)
+            delay 0.1
+            \(statusScript)
+        on error errMsg
+            delay 0.1
+            \(statusScript)
+        end try
+        """
+        
+        let result = await executeCommand(combinedScript, description: "\(platform.name): executeAction(.\(action))")
+        
+        if case .success(let output) = result {
+            let lines = output.components(separatedBy: .newlines)
+            if let firstLine = lines.first,
+               firstLine.contains("Not authorized to send Apple events") {
+                states[platform.id] = AppState(
+                    title: "Permissions Required",
+                    subtitle: "Grant permission in System Settings > Privacy > Automation",
+                    isPlaying: nil,
+                    error: nil
+                )
+            } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !lastLine.isEmpty {
+                let newState = platform.parseState(lastLine)
+                states[platform.id] = newState
+            }
         }
     }
     
@@ -141,6 +166,7 @@ class AppController: ObservableObject {
         }
     }
     
+    // Keep this simpler version for single commands (permissions checks, etc)
     private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
