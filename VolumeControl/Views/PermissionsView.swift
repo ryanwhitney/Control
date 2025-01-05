@@ -59,18 +59,12 @@ struct PermissionsView: View {
                 permissionsGranted = true
             }
         }
-        // Watch for changes to allPermissionsGranted, then do a staged animation
         .onChange(of: allPermissionsGranted) {
-            print("PERMISSIONS CHANGED: " + allPermissionsGranted.description)
-            print("PERMISSIONS CHANGED BOOL: " + permissionsGranted.description)
-            print("SHOWSUCCESS: " + showSuccess.description)
-
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 withAnimation(.easeInOut(duration: 0.5)) {
                     permissionsGranted = true
                 }
             }
-            // 2) Once main UI is fully transparent, fade in success UI
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation(.easeInOut(duration: 0.5)) {
                     showSuccess = true
@@ -224,13 +218,15 @@ struct PermissionsView: View {
                         .padding(.vertical, 11)
                         .frame(maxWidth: .infinity)
                         .tint(.accentColor)
+                        .foregroundStyle(.tint)
                         .fontWeight(.bold)
                 }
                 .background(.ultraThinMaterial)
                 .cornerRadius(12)
                 .buttonStyle(.bordered)
+                .tint(.gray)
                 .frame(maxWidth: .infinity)
-                .disabled(isChecking)
+                .disabled(isChecking || allPermissionsGranted)
             }
         }
     }

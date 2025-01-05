@@ -138,6 +138,9 @@ struct AuthenticationView: View {
                         Text("Enter the username and password you use to log in to Ryan’s MacBook Pro.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal)
+
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
@@ -171,15 +174,19 @@ struct AuthenticationView: View {
                             Text(mode.saveButtonTitle)
                         }
                     }
+                    .tint(.accentColor)
+                    .foregroundStyle(.tint)
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .buttonStyle(.bordered)
+                .tint(.gray)
                 .multilineTextAlignment(.center)
                 .disabled(!canSubmit || isConnecting)
             }
+            .background(.ultraThinMaterial)
             .onAppear {
                 if mode == .authenticate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

@@ -82,7 +82,7 @@ struct ConnectionsView: View {
 
                                 Button(action: startNetworkScan) {
                                     Text("Refresh")
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(.tint)
                                 }
                             }
                             .multilineTextAlignment(.center)
@@ -118,8 +118,8 @@ struct ConnectionsView: View {
                             
                             if !connections.isEmpty && isSearching {
                                 HStack {
-                                        .font(.caption)
                                     Text("Searching for others…")
+                                        .font(.subheadline)
                                         .foregroundColor(.secondary)
                                     Spacer()
                                     ProgressView()
@@ -182,7 +182,11 @@ struct ConnectionsView: View {
                                 .frame(maxWidth: .infinity)
                                 .background(.thickMaterial)
                                 .cornerRadius(12)
+                                .tint(.accentColor)
+                                .accentColor(.tint)
                         }
+                        .buttonStyle(.bordered)
+                        .tint(.gray)
                         .padding(.horizontal)
                         .padding(.bottom, 8)
                     } else {
@@ -192,12 +196,12 @@ struct ConnectionsView: View {
                             Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
                                 .padding()
                                 .frame(maxWidth: .infinity)
-                                .font(.footnote)
+                                .font(.subheadline)
                                 .foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 20)
                     }
                 }
             }

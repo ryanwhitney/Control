@@ -50,8 +50,8 @@ struct ChooseAppsView: View {
                         }
                     }
                 }
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(Color.clear)
-                .listRowSpacing(20)
             }
             VStack {
                 Spacer()
@@ -86,18 +86,18 @@ struct ChooseAppsView: View {
                                 .padding(.vertical, 11)
                                 .frame(maxWidth: .infinity)
                                 .tint(.accentColor)
+                                .foregroundStyle(.tint)
                                 .fontWeight(.bold)
-
-
                         }
                         .background(.ultraThinMaterial)
                         .cornerRadius(12)
                         .padding()
                         .buttonStyle(.bordered)
+                        .tint(.gray)
                         .frame(maxWidth: .infinity)
                         .disabled(selectedPlatforms.isEmpty)
                     }
-                }.background(.thinMaterial)
+                }.background(Material.bar)
             }
         }
     }
