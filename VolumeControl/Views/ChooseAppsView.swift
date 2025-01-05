@@ -17,8 +17,8 @@ struct ChooseAppsView: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 100, height: 60)
-                            .foregroundStyle(.green, .quaternary)
-                        
+                            .foregroundStyle(.tint, .clear)
+
                         Text("Which apps would you like to control?")
                             .font(.title2)
                             .fontWeight(.bold)
@@ -44,26 +44,60 @@ struct ChooseAppsView: View {
                             }
                         )) {
                             Text(platform.name)
+                                .font(.title3)
+                                .fontWeight(.medium)
+                                .padding(.vertical, 7)
                         }
                     }
                 }
+                .listRowBackground(Color.clear)
+                .listRowSpacing(20)
             }
             VStack {
                 Spacer()
                 VStack(){
-                    Button(action: {
-                        onComplete(selectedPlatforms)
-                    }) {
+                    ZStack {
                         Text("Continue")
                             .padding(.vertical, 11)
                             .frame(maxWidth: .infinity)
+                            .foregroundStyle(.tint)
+                            .fontWeight(.bold)
+                            .blur(radius: 50)
+                            .accessibilityHidden(true)
+                        Text("Continue")
+                            .padding(.vertical, 11)
+                            .frame(maxWidth: .infinity)
+                            .foregroundStyle(.tint)
+                            .fontWeight(.bold)
+                            .blur(radius: 10)
+                            .accessibilityHidden(true)
+                        Text("Continue")
+                            .padding(.vertical, 11)
+                            .frame(maxWidth: .infinity)
+                            .foregroundStyle(.tint)
+                            .fontWeight(.bold)
+                            .blur(radius: 20)
+                            .accessibilityHidden(true)
+
+                        Button(action: {
+                            onComplete(selectedPlatforms)
+                        }) {
+                            Text("Continue")
+                                .padding(.vertical, 11)
+                                .frame(maxWidth: .infinity)
+                                .tint(.accentColor)
+                                .fontWeight(.bold)
+
+
+                        }
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(12)
+                        .padding()
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                        .disabled(selectedPlatforms.isEmpty)
                     }
-                    .padding()
-                    .buttonStyle(.bordered)
-                    .tint(.accentColor)
-                    .frame(maxWidth: .infinity)
-                    .disabled(selectedPlatforms.isEmpty)
-                }.background(.black)
+                }.background(.thinMaterial)
             }
         }
     }

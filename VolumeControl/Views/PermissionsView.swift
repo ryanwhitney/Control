@@ -112,11 +112,11 @@ struct PermissionsView: View {
     private var mainPermissionsView: some View {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
-                Text("Accept permissions on your Mac")
+                Text("Accept Permissions On Your Mac")
                     .font(.title2)
                     .bold()
 
-                Text("This allows Control to command only the specific apps you choose.")
+                Text("Allows Control to command only the specific apps you selected.")
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
             }
@@ -142,8 +142,8 @@ struct PermissionsView: View {
                             permissionStatusIcon(for: platformId)
                         }
                         .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(8)
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(12)
                     }
                 }
             }
@@ -190,19 +190,48 @@ struct PermissionsView: View {
                 Text("Skip")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
             .tint(.accentColor)
-            Button {
-                Task { await checkAllPermissions() }
-            } label: {
-                Text( "Open Permissions on Mac")
+            ZStack {
+                Text("Open Permissions on Mac")
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
+                    .foregroundStyle(.tint)
+                    .fontWeight(.bold)
+                    .blur(radius: 50)
+                    .accessibilityHidden(true)
+                Text("Open Permissions on Mac")
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(.tint)
+                    .fontWeight(.bold)
+                    .blur(radius: 10)
+                    .accessibilityHidden(true)
+                Text("Open Permissions on Mac")
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(.tint)
+                    .fontWeight(.bold)
+                    .blur(radius: 20)
+                    .accessibilityHidden(true)
+
+                Button {
+                    Task { await checkAllPermissions() }
+                } label: {
+                    Text( "Open Permissions on Mac")
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity)
+                        .tint(.accentColor)
+                        .fontWeight(.bold)
+                }
+                .background(.ultraThinMaterial)
+                .cornerRadius(12)
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+                .disabled(isChecking)
             }
-            .buttonStyle(.bordered)
-            .tint(.accentColor)
-            .disabled(isChecking)
         }
     }
 

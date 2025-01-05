@@ -62,7 +62,6 @@ struct ConnectionsView: View {
                 if connections.isEmpty && savedConnections.items.isEmpty {
                     VStack(spacing: 20) {
                         Spacer()
-                        
                         if isSearching {
                             ProgressView()
                                 .controlSize(.large)
@@ -119,8 +118,8 @@ struct ConnectionsView: View {
                             
                             if !connections.isEmpty && isSearching {
                                 HStack {
-                                    Text("Searching for more...")
                                         .font(.caption)
+                                    Text("Searching for others…")
                                         .foregroundColor(.secondary)
                                     Spacer()
                                     ProgressView()
@@ -174,17 +173,32 @@ struct ConnectionsView: View {
                 
                 VStack {
                     Spacer()
-                    Button {
-                        activePopover = .help
-                    } label: {
-                        Label("How to enable Remote Login", systemImage: "questionmark.circle.fill")
-                            .padding()
-                            .frame(maxWidth: .infinity)
-                            .background(.thickMaterial)
-                            .cornerRadius(15)
+                    if connections.isEmpty && savedConnections.items.isEmpty {
+                        Button {
+                            activePopover = .help
+                        } label: {
+                            Label("How to enable Remote Login", systemImage: "questionmark.circle.fill")
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(.thickMaterial)
+                                .cornerRadius(12)
+                        }
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                    } else {
+                        Button {
+                            activePopover = .help
+                        } label: {
+                            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .font(.footnote)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
                     }
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
                 }
             }
             .refreshable {
