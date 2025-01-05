@@ -1,6 +1,15 @@
 {
-  "originHash" : "4ab409b58cff24729afa6c27b474ba9a732d1f8fb244ad9759a71b734134b738",
+  "originHash" : "5c9bfdf5626a6e0494d60c72be5fa70c35fa5963ce01ea7619865abb50839f8f",
   "pins" : [
+    {
+      "identity" : "multiblur",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ryanwhitney/MultiBlur",
+      "state" : {
+        "branch" : "main",
+        "revision" : "f07a1f24d3a364822c4ac5431364d801ab05eaec"
+      }
+    },
     {
       "identity" : "swift-asn1",
       "kind" : "remoteSourceControl",

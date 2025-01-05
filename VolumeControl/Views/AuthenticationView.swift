@@ -4,32 +4,32 @@ struct AuthenticationView: View {
     let mode: Mode
     let existingHost: String?
     let existingName: String?
-    
+
     @State private var hostname: String
     @State private var nickname: String
     @State private var isPopoverPresented = false
     @State private var isConnecting = false
     @FocusState private var focusedField: Field?
-    
+
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
-    
+
     let onSuccess: (String, String?) -> Void // (hostname, nickname?)
     let onCancel: () -> Void
-    
+
     enum Field: Hashable {
         case hostname
         case nickname
         case username
         case password
     }
-    
+
     enum Mode {
         case add
         case authenticate
         case edit
-        
+
         var title: String {
             switch self {
             case .add: return "Add Connection"
@@ -37,21 +37,21 @@ struct AuthenticationView: View {
             case .edit: return "Edit Connection"
             }
         }
-        
+
         var showsNetworkMessage: Bool {
             switch self {
             case .add: return true
             case .edit, .authenticate: return false
             }
         }
-        
+
         var showsHostField: Bool {
             switch self {
             case .add: return true
             case .authenticate, .edit: return false
             }
         }
-        
+
         var saveButtonTitle: String {
             switch self {
             case .add: return "Add"
@@ -60,7 +60,7 @@ struct AuthenticationView: View {
             }
         }
     }
-    
+
     init(mode: Mode,
          existingHost: String? = nil,
          existingName: String? = nil,
@@ -68,7 +68,8 @@ struct AuthenticationView: View {
          password: Binding<String>,
          saveCredentials: Binding<Bool>,
          onSuccess: @escaping (String, String?) -> Void,
-         onCancel: @escaping () -> Void) {
+         onCancel: @escaping () -> Void)
+    {
         self.mode = mode
         self.existingHost = existingHost
         self.existingName = existingName
@@ -80,7 +81,7 @@ struct AuthenticationView: View {
         self.onSuccess = onSuccess
         self.onCancel = onCancel
     }
-    
+
     var body: some View {
         NavigationView {
             Form {
@@ -89,9 +90,9 @@ struct AuthenticationView: View {
                         HStack {
                             Image(systemName: "network")
                                 .padding(.trailing, 4)
-                            
+
                             Text("Must be on the same Wi-Fi network with Remote Login enabled. ")
-                            + Text("Learn more…")
+                                + Text("Learn more…")
                                 .foregroundStyle(.tint)
                         }
                         .font(.subheadline)
@@ -124,7 +125,7 @@ struct AuthenticationView: View {
                             Text(existingHost ?? "")
                                 .foregroundStyle(.secondary)
                         }
-                        
+
                         TextField("Nickname (optional)", text: $nickname)
                             .focused($focusedField, equals: .nickname)
                             .onSubmit {
@@ -134,39 +135,37 @@ struct AuthenticationView: View {
                             .autocorrectionDisabled()
                     }
                 } else {
-                    Section{
+                    Section {
                         Text("Enter the username and password you use to log in to Ryan’s MacBook Pro.")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal)
-                        
                     }
                     .listRowBackground(Color.clear)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-                
-                Section("Credentials" + (mode == .add ? " (Optional)" : "")) {
-                    TextField("Username", text: $username)
+                Section{
+                    TextField("Username" + (mode == .add ? " (Optional)" : ""), text: $username)
                         .focused($focusedField, equals: .username)
                         .onSubmit {
                             focusedField = .password
                         }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    
-                    SecureField("Password", text: $password)
+
+                    SecureField("Password" + (mode == .add ? " (Optional)" : ""), text: $password)
                         .focused($focusedField, equals: .password)
                         .onSubmit {
                             handleSubmit()
                         }
                         .textContentType(.password)
                         .submitLabel(.done)
-                    
+
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
                 }
                 Button(action: handleSubmit) {
-                    HStack{
+                    HStack {
                         if isConnecting {
                             ProgressView()
                                 .controlSize(.regular)
@@ -211,7 +210,7 @@ struct AuthenticationView: View {
             }
         }
     }
-    
+
     private var canSubmit: Bool {
         switch mode {
         case .add:
@@ -222,7 +221,7 @@ struct AuthenticationView: View {
             return true
         }
     }
-    
+
     private func handleSubmit() {
         guard canSubmit else { return }
         isConnecting = true
@@ -232,7 +231,6 @@ struct AuthenticationView: View {
         )
     }
 }
-
 
 struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {

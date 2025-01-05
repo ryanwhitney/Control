@@ -11,9 +11,14 @@ struct PlatformControlPanel: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
-                Text(title)
-                    .fontWeight(.bold)
-                    .fontWidth(.expanded)
+                HStack{
+                    Text(title)
+                        .fontWeight(.bold)
+                        .fontWidth(.expanded)
+                    if title.contains("Safari") {
+                        Label("Experimental", systemImage: "exclamationmark.triangle")
+                    }
+                }
                 Text(mediaInfo)
                     .font(.caption)
                     .foregroundStyle(.secondary)

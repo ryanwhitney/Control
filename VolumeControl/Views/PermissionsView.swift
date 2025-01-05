@@ -30,8 +30,7 @@ struct PermissionsView: View {
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
-    
-    
+
     var body: some View {
         ZStack {
             // SUCCESS VIEW
@@ -61,13 +60,23 @@ struct PermissionsView: View {
         }
         .onChange(of: allPermissionsGranted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                withAnimation(.easeInOut(duration: 0.5)) {
+                withAnimation(.spring()) {
                     permissionsGranted = true
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation(.easeInOut(duration: 0.5)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation(.spring()) {
                     showSuccess = true
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                withAnimation(.spring()) {
+                    showSuccess = false
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                withAnimation(.spring()) {
+                    onComplete()
                 }
             }
         }
@@ -80,24 +89,9 @@ struct PermissionsView: View {
                 .frame(width: 50, height: 50)
                 .foregroundColor(.accentColor)
                 .padding(.bottom, 10)
-            
-            Text("Permissions look good.")
+            Text("You're all set")
                 .font(.title2)
                 .bold()
-            
-            VStack {
-                Button(action: onComplete) {
-                    HStack{
-                        Text("Take Control")
-                        Image(systemName: "arrow.right")
-                    }
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.accentColor)
-            }
-            .padding()
         }
         .padding()
     }
@@ -114,7 +108,6 @@ struct PermissionsView: View {
                     .multilineTextAlignment(.center)
                     .foregroundColor(.secondary)
             }
-            
             platformList
             actionButton
         }
@@ -128,16 +121,15 @@ struct PermissionsView: View {
                 ForEach(Array(enabledPlatforms), id: \.self) { platformId in
                     if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text(platform.name)
-                                permissionStateView(for: platformId)
-                            }
+                            Text(platform.name)
                             Spacer()
                             permissionStatusIcon(for: platformId)
                         }
                         .padding()
                         .background(.ultraThinMaterial)
                         .cornerRadius(12)
+                        .opacity(permissionStates[platformId] != .initial ? 1 : 0.5)
+                        .animation(.spring(), value: permissionStates[platformId])
                     }
                 }
             }
@@ -146,26 +138,13 @@ struct PermissionsView: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
     }
-    
-    private func permissionStateView(for platformId: String) -> some View {
-        Group {
-            switch permissionStates[platformId] ?? .initial {
-            case .initial, .checking, .granted:
-                EmptyView()
-            case .failed(let error):
-                Text(error)
-                    .foregroundStyle(.red)
-            }
-        }
-        .font(.caption)
-    }
+
     
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
             case .initial:
-                Image(systemName: "circle")
-                    .foregroundStyle(.secondary)
+                EmptyView()
             case .checking:
                 ProgressView()
             case .granted:
@@ -214,7 +193,7 @@ struct PermissionsView: View {
                 Button {
                     Task { await checkAllPermissions() }
                 } label: {
-                    Text( "Open Permissions on Mac")
+                    Text( "Check Permissions")
                         .padding(.vertical, 11)
                         .frame(maxWidth: .infinity)
                         .tint(.accentColor)
@@ -228,6 +207,11 @@ struct PermissionsView: View {
                 .frame(maxWidth: .infinity)
                 .disabled(isChecking || allPermissionsGranted)
             }
+            Text("This may open Permissions Dialogs on \(hostname). [Learn More…](systempreferences://) ")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
         }
     }
     
@@ -351,8 +335,9 @@ struct PermissionsView: View {
     return PermissionsView(
         hostname: "rwhitney-mac.local",
         displayName: "Ryan's Mac",
-        sshClient: client,
+        sshClient: SSHClient(),
         enabledPlatforms: ["music", "vlc"],
         onComplete: {}
     )
 }
+

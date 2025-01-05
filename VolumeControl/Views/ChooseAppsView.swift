@@ -9,29 +9,25 @@ struct ChooseAppsView: View {
     @State private var selectedPlatforms: Set<String> = Set(PlatformRegistry.allPlatforms.map { $0.id })
     
     var body: some View {
-        ZStack {
-            Form {
-                Section {
-                    VStack(alignment: .center){
-                        Image(systemName: "macbook.and.iphone")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 100, height: 60)
-                            .foregroundStyle(.tint, .clear)
-                        
-                        Text("Which apps would you like to control?")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        Text("You can change these anytime.")
-                            .foregroundStyle(.secondary)
-                    }.multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                
-                Section {
+        VStack {
+                VStack(alignment: .center){
+                    Image(systemName: "macbook.and.iphone")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 40)
+                        .foregroundStyle(.tint, .clear)
+
+                    Text("Which apps would you like to control?")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    Text("You can change these anytime.")
+                        .foregroundStyle(.secondary)
+                }.multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal)
+
+            ScrollView {
+                VStack(spacing: 2) {
                     ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
                         Toggle(isOn: Binding(
                             get: { selectedPlatforms.contains(platform.id) },
@@ -44,17 +40,19 @@ struct ChooseAppsView: View {
                             }
                         )) {
                             Text(platform.name)
-                                .font(.title3)
-                                .fontWeight(.medium)
-                                .padding(.vertical, 7)
                         }
+
                     }
-                }
-                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(Color.clear)
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                        .background(.ultraThinMaterial)
+                        .padding(.vertical, 4)
+                    )
+                }.padding()
             }
-            VStack {
-                Spacer()
+
+            }
                 VStack(){
                     ZStack {
                         Text("Continue")
@@ -62,23 +60,10 @@ struct ChooseAppsView: View {
                             .frame(maxWidth: .infinity)
                             .foregroundStyle(.tint)
                             .fontWeight(.bold)
-                            .blur(radius: 50)
-                            .accessibilityHidden(true)
-                        Text("Continue")
-                            .padding(.vertical, 11)
-                            .frame(maxWidth: .infinity)
-                            .foregroundStyle(.tint)
-                            .fontWeight(.bold)
                             .blur(radius: 10)
                             .accessibilityHidden(true)
-                        Text("Continue")
-                            .padding(.vertical, 11)
-                            .frame(maxWidth: .infinity)
-                            .foregroundStyle(.tint)
-                            .fontWeight(.bold)
-                            .blur(radius: 20)
-                            .accessibilityHidden(true)
-                        
+
+
                         Button(action: {
                             onComplete(selectedPlatforms)
                         }) {
@@ -99,9 +84,9 @@ struct ChooseAppsView: View {
                     }
                 }.background(Material.bar)
             }
-        }
+        
     }
-}
+
 
 #Preview {
     let client = SSHClient()

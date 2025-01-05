@@ -1,8 +1,8 @@
 import Foundation
 
-struct SafariApp: AppPlatform {
-    let id = "safari"
-    let name = "Safari"
+struct ChromeApp: AppPlatform {
+    let id = "chrome"
+    let name = "Google Chrome Canary"
 
     var supportedActions: [ActionConfig] {
         [
@@ -14,26 +14,29 @@ struct SafariApp: AppPlatform {
         ]
     }
 
+    // Checks if Chrome is running
     func isRunningScript() -> String {
         """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Safari")
+        tell application "System Events" to set isAppOpen to exists (processes where name is "Google Chrome")
         return isAppOpen as text
         """
     }
 
+    // Retrieves the current media status
     private let statusScript = """
-    tell application "Safari"
-        set windowCount to count of windows
+    tell application "Google Chrome Canary"
+        set windowCount to number of windows
         if windowCount is 0 then
             return "No windows open|||No media playing|||false"
         end if
         
         repeat with w in windows
-            set tabCount to count of tabs of w
+            set tabCount to number of tabs in w
             repeat with t in tabs of w
-                if t's URL starts with "https://www.youtube.com/watch" then
-                    set videoTitle to t's name
-                    set isPlaying to do JavaScript "document.querySelector('video').paused ? 'false' : 'true'" in t
+                set theURL to URL of t
+                if theURL starts with "https://www.youtube.com/watch" then
+                    set videoTitle to title of t
+                    set isPlaying to execute t javascript "document.querySelector('video').paused ? 'false' : 'true'"
                     return videoTitle & "|||YouTube|||" & isPlaying
                 end if
             end repeat
@@ -47,6 +50,7 @@ struct SafariApp: AppPlatform {
         return statusScript
     }
 
+    // Parses the output into a friendly AppState
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         if components.count >= 3 {
@@ -61,59 +65,64 @@ struct SafariApp: AppPlatform {
             title: "Error",
             subtitle: nil,
             isPlaying: nil,
-            error: "Failed to parse Safari state"
+            error: "Failed to parse Chrome state"
         )
     }
 
+    // Executes the given AppAction in Chrome via AppleScript
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
             return """
-            tell application "Safari"
-                set windowCount to count of windows
+            tell application "Google Chrome Canary"
+                set windowCount to number of windows
                 if windowCount is 0 then return
-                
+            
                 repeat with w in windows
-                    set tabCount to count of tabs of w
+                    set tabCount to number of tabs in w
                     repeat with t in tabs of w
-                        if t's URL starts with "https://www.youtube.com/watch" then
-                            do JavaScript "document.querySelector('video').click()" in t
+                        set theURL to URL of t
+                        if theURL starts with "https://www.youtube.com/watch" then
+                            execute t javascript "document.querySelector('video').click()"
                             return
                         end if
                     end repeat
                 end repeat
             end tell
             """
+
         case .skipForward(let seconds):
             return """
-            tell application "Safari"
-            if (count of windows) > 0 then
-                tell current tab of front window
-                    do JavaScript "
-                    (function() {
-                        const media = document.querySelector('video, audio');
-                        if (media) media.currentTime += \(seconds);
-                    })();
-                    "
-                end tell
-            end if
-        end tell
-        """
+            tell application "Google Chrome Canary"
+                if (count of windows) > 0 then
+                    tell active tab of front window
+                        execute javascript "
+                        (function() {
+                            const media = document.querySelector('video, audio');
+                            if (media) media.currentTime += \(seconds);
+                        })();
+                        "
+                    end tell
+                end if
+            end tell
+            """
+
         case .skipBackward(let seconds):
             return """
-            tell application "Safari"
+            tell application "Google Chrome Canary"
                 if (count of windows) > 0 then
-                    tell current tab of front window
-                        do JavaScript "
+                    tell active tab of front window
+                        execute javascript "
                         (function() {
                             const media = document.querySelector('video, audio');
                             if (media) media.currentTime -= \(seconds);
                         })();
-                    "
+                        "
                     end tell
                 end if
-                end tell
+            end tell
             """
+
         default:
             return ""
         }

@@ -23,14 +23,39 @@ struct TVApp: AppPlatform {
     
     private let statusScript = """
     tell application "TV"
-        if player state is stopped then
-            return "No video playing|||No show|||stopped|||false"
+    -- Grab the raw player state: can be "playing", "paused", or "stopped".
+    set rawState to player state as text
+    
+    -- Try to get the current track, which might fail if truly no track is loaded.
+    set currentTrack to missing value
+    try
+        set currentTrack to current track
+    end try
+    try
+        set currentTrack to name of front window
+    end try
+    
+    if currentTrack is not missing value then
+        -- If we do have a track, gather info.
+        if currentTrack is not "TV" then
+            set trackName to name of currentTrack
+            set showName to show of currentTrack
+        else
+            set trackName to currentTrack
+            set showName to "No show"
         end if
-        set videoName to name of current track
-        set showName to show of current track
-        set playerState to player state as text
-        set isPlaying to player state is playing
-        return videoName & "|||" & showName & "|||" & playerState & "|||" & isPlaying
+        
+        if rawState is "playing" then
+            -- Standard playing scenario
+            return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
+        else if rawState is "paused" or rawState is "stopped" then
+            -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
+            return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
+        end if
+    else
+        -- If we can't retrieve a track, there's truly no video playing.
+        return "No video playing|||No show|||stopped|||false"
+    end if
     end tell
     """
     

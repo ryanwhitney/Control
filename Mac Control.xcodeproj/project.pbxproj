@@ -17,6 +17,7 @@
 		94D5B4DE2D21F685001C0272 /* NIOTLS in Frameworks */ = {isa = PBXBuildFile; productRef = 94D5B4DD2D21F685001C0272 /* NIOTLS */; };
 		94D5B4E02D21F685001C0272 /* NIOTestUtils in Frameworks */ = {isa = PBXBuildFile; productRef = 94D5B4DF2D21F685001C0272 /* NIOTestUtils */; };
 		94D5B4E62D21F829001C0272 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 94D5B4E52D21F829001C0272 /* NIOSSH */; };
+		94E1D8EA2D2AC6CE00990C6C /* MultiBlur in Frameworks */ = {isa = PBXBuildFile; productRef = 94E1D8E92D2AC6CE00990C6C /* MultiBlur */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				94E1D8EA2D2AC6CE00990C6C /* MultiBlur in Frameworks */,
 				94D5B4E62D21F829001C0272 /* NIOSSH in Frameworks */,
 				94D5B4D42D21F685001C0272 /* NIOCore in Frameworks */,
 				94D5B4D82D21F685001C0272 /* NIOFoundationCompat in Frameworks */,
@@ -111,6 +113,7 @@
 				94D5B4DD2D21F685001C0272 /* NIOTLS */,
 				94D5B4DF2D21F685001C0272 /* NIOTestUtils */,
 				94D5B4E52D21F829001C0272 /* NIOSSH */,
+				94E1D8E92D2AC6CE00990C6C /* MultiBlur */,
 			);
 			productName = VolumeControl;
 			productReference = 944328822D21F4E500496EFA /* Mac Control.app */;
@@ -143,6 +146,7 @@
 				94D5B4CE2D21F685001C0272 /* XCRemoteSwiftPackageReference "swift-nio" */,
 				94D5B4E42D21F829001C0272 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
 				943313782D2A91CA00846837 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
+				94E1D8E82D2AC6CE00990C6C /* XCRemoteSwiftPackageReference "MultiBlur" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 944328832D21F4E500496EFA /* Products */;
@@ -410,6 +414,14 @@
 				minimumVersion = 0.9.1;
 			};
 		};
+		94E1D8E82D2AC6CE00990C6C /* XCRemoteSwiftPackageReference "MultiBlur" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ryanwhitney/MultiBlur";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -462,6 +474,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 94D5B4E42D21F829001C0272 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
 			productName = NIOSSH;
+		};
+		94E1D8E92D2AC6CE00990C6C /* MultiBlur */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 94E1D8E82D2AC6CE00990C6C /* XCRemoteSwiftPackageReference "MultiBlur" */;
+			productName = MultiBlur;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
