@@ -8,6 +8,7 @@ struct AuthenticationView: View {
     @State private var hostname: String
     @State private var nickname: String
     @State private var isPopoverPresented = false
+    @State private var isConnecting = false
     @FocusState private var focusedField: Field?
 
     @Binding var username: String
@@ -162,15 +163,22 @@ struct AuthenticationView: View {
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
                 }
                 Button(action: handleSubmit) {
-                    Text(mode.saveButtonTitle)
-                        .padding(.vertical, 11)
-                        .frame(maxWidth: .infinity)
+                    HStack{
+                        if isConnecting {
+                            ProgressView()
+                                .controlSize(.regular)
+                        } else {
+                            Text(mode.saveButtonTitle)
+                        }
+                    }
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .buttonStyle(.bordered)
                 .multilineTextAlignment(.center)
-                .disabled(!canSubmit)
+                .disabled(!canSubmit || isConnecting)
             }
             .onAppear {
                 if mode == .authenticate {
@@ -210,6 +218,7 @@ struct AuthenticationView: View {
 
     private func handleSubmit() {
         guard canSubmit else { return }
+        isConnecting = true
         onSuccess(
             mode == .add ? hostname : (existingHost ?? ""),
             !nickname.isEmpty ? nickname : nil
@@ -222,8 +231,8 @@ struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {
         AuthenticationView(
             mode: .authenticate,
-            username: .constant("faew"),
-            password: .constant("sac"),
+            username: .constant("User"),
+            password: .constant("••••"),
             saveCredentials: .constant(true),
             onSuccess: { _, _ in },
             onCancel: {}
