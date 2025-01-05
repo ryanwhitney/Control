@@ -51,9 +51,9 @@ struct ConnectionsView: View {
         NavigationStack {
             List {
                 Section(header: Text("On Your Network".capitalized)) {
-                    if isSearching {
+                    if connections.isEmpty && isSearching {
                         HStack {
-                            Text("Searching for connections...")
+                            Text("Scanning...")
                                 .foregroundColor(.secondary)
                             Spacer()
                             ProgressView()
@@ -61,14 +61,24 @@ struct ConnectionsView: View {
                     } else if connections.isEmpty {
                         Text("No connections found")
                             .foregroundColor(.secondary)
-                    } else {
-                        ForEach(networkComputers) { computer in
-                            ComputerRow(
-                                computer: computer,
-                                isConnecting: connectingComputer?.id == computer.id
-                            ) {
-                                selectComputer(computer)
-                            }
+                    }
+                    
+                    ForEach(networkComputers) { computer in
+                        ComputerRow(
+                            computer: computer,
+                            isConnecting: connectingComputer?.id == computer.id
+                        ) {
+                            selectComputer(computer)
+                        }
+                    }
+                    
+                    if !connections.isEmpty && isSearching {
+                        HStack {
+                            Text("Searching for more...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            ProgressView()
                         }
                     }
                 }
