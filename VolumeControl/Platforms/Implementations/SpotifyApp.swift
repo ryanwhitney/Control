@@ -3,7 +3,7 @@ import Foundation
 struct SpotifyApp: AppPlatform {
     let id = "spotify"
     let name = "Spotify"
-
+    
     var supportedActions: [ActionConfig] {
         [
             ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
@@ -13,14 +13,14 @@ struct SpotifyApp: AppPlatform {
             ActionConfig(action: .nextTrack, icon: "forward.end.fill")
         ]
     }
-
+    
     func isRunningScript() -> String {
         """
         tell application "System Events" to set isAppOpen to exists (processes where name is "Spotify")
         return isAppOpen as text
         """
     }
-
+    
     private let statusScript = """
     tell application "Spotify"
         if not running then
@@ -33,11 +33,11 @@ struct SpotifyApp: AppPlatform {
         return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
     end tell
     """
-
+    
     func fetchState() -> String {
         return statusScript
     }
-
+    
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         if components.count >= 4 {
@@ -55,7 +55,7 @@ struct SpotifyApp: AppPlatform {
             error: nil
         )
     }
-
+    
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:

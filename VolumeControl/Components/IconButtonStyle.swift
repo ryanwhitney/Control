@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 
-
 struct IconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -17,7 +16,6 @@ struct IconButtonStyle: ButtonStyle {
     }
 }
 
-
 struct IconButtonStyle_Previews: PreviewProvider {
     static var previews: some View {
         HStack(spacing: 16) {
@@ -29,25 +27,25 @@ struct IconButtonStyle_Previews: PreviewProvider {
             .buttonStyle(IconButtonStyle())
             Button {
                 print("test")
-                } label: {
-                    Image(systemName: "5.arrow.trianglehead.counterclockwise")
-                }
-                .buttonStyle(IconButtonStyle())
-
+            } label: {
+                Image(systemName: "5.arrow.trianglehead.counterclockwise")
+            }
+            .buttonStyle(IconButtonStyle())
+            
             Button {
                 print("test")
-                } label: {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(IconButtonStyle())
-
+            } label: {
+                Image(systemName: "play.fill")
+            }
+            .buttonStyle(IconButtonStyle())
+            
             Button {
                 print("test")
-                } label: {
-                    Image(systemName: "5.arrow.trianglehead.clockwise")
-                }
-                .buttonStyle(IconButtonStyle())
-
+            } label: {
+                Image(systemName: "5.arrow.trianglehead.clockwise")
+            }
+            .buttonStyle(IconButtonStyle())
+            
             Button {
                 print("test")
             } label: {
@@ -57,4 +55,3 @@ struct IconButtonStyle_Previews: PreviewProvider {
         }
     }
 }
-

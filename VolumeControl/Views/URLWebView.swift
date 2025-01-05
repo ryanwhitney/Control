@@ -3,7 +3,7 @@ import WebKit
 
 struct URLWebView: UIViewRepresentable {
     let urlString: String
-
+    
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
         if let url = URL(string: urlString) {
@@ -12,7 +12,7 @@ struct URLWebView: UIViewRepresentable {
         }
         return webView
     }
-
+    
     func updateUIView(_ uiView: WKWebView, context: Context) {
         // No updates needed
     }

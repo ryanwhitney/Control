@@ -7,7 +7,7 @@ struct ChooseAppsView: View {
     let onComplete: (Set<String>) -> Void
     
     @State private var selectedPlatforms: Set<String> = Set(PlatformRegistry.allPlatforms.map { $0.id })
-
+    
     var body: some View {
         ZStack {
             Form {
@@ -18,7 +18,7 @@ struct ChooseAppsView: View {
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 100, height: 60)
                             .foregroundStyle(.tint, .clear)
-
+                        
                         Text("Which apps would you like to control?")
                             .font(.title2)
                             .fontWeight(.bold)
@@ -30,7 +30,7 @@ struct ChooseAppsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-
+                
                 Section {
                     ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
                         Toggle(isOn: Binding(
@@ -78,7 +78,7 @@ struct ChooseAppsView: View {
                             .fontWeight(.bold)
                             .blur(radius: 20)
                             .accessibilityHidden(true)
-
+                        
                         Button(action: {
                             onComplete(selectedPlatforms)
                         }) {

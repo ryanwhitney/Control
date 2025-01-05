@@ -36,10 +36,10 @@ class AppController: ObservableObject {
     
     func updateAllStates() async {
         guard isActive else { return }
-
+        
         // Update system volume
         await updateSystemVolume()
-
+        
         // First check which apps are running
         for platform in platforms {
             let isRunning = await checkIfRunning(platform)

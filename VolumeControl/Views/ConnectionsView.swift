@@ -27,11 +27,11 @@ struct ConnectionsView: View {
     @State private var navigateToPermissions = false
     @State private var showingHelpPopover = false
     @State private var activePopover: ActivePopover?
-    
+
     enum ActivePopover: Identifiable {
         case help
         case preferences
-        
+
         var id: Self { self }
     }
 
@@ -41,16 +41,16 @@ struct ConnectionsView: View {
         let host: String
         let type: ConnectionType
         var lastUsername: String?
-        
+
         enum ConnectionType {
             case bonjour(NetService)
             case manual
         }
-        
+
         static func == (lhs: Connection, rhs: Connection) -> Bool {
             return lhs.host == rhs.host
         }
-        
+
         func hash(into hasher: inout Hasher) {
             hasher.combine(host)
         }

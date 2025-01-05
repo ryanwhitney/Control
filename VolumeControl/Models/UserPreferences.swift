@@ -16,7 +16,7 @@ class UserPreferences: ObservableObject {
     private init() {
         self.tintColor = UserDefaults.standard.string(forKey: "appTintColor") ?? "green"
     }
-
+    
     var tintColorValue: Color {
         switch tintColor {
         case "blue": return .blue

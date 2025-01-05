@@ -3,9 +3,9 @@ import UIKit
 
 
 struct CircularButtonStyle: ButtonStyle {
-
+    
     func makeBody(configuration: Configuration) -> some View {
-
+        
         configuration.label
             .padding(12)
             .fontWeight(.medium)
@@ -23,35 +23,35 @@ struct CircularButtonStyle: ButtonStyle {
 
 struct CircularButtonStyle_Previews: PreviewProvider {
     static var previews: some View {
-
+        
         HStack(spacing: 20) {
             Button {
                 print("test")
             } label: {
-                    Text("-5")
-                }
-                .buttonStyle(CircularButtonStyle())
-
+                Text("-5")
+            }
+            .buttonStyle(CircularButtonStyle())
+            
             Button {
                 print("test")
-                } label: {
-                    Text("-1")
-                }
-                .buttonStyle(CircularButtonStyle())
-
+            } label: {
+                Text("-1")
+            }
+            .buttonStyle(CircularButtonStyle())
+            
             Button {
                 print("test")
-                } label: {
-                    Text("+1")
-                }
-                .buttonStyle(CircularButtonStyle())
-
+            } label: {
+                Text("+1")
+            }
+            .buttonStyle(CircularButtonStyle())
+            
             Button {
                 print("test")
-                } label: {
-                    Text("+5")
-                }
-                .buttonStyle(CircularButtonStyle())
+            } label: {
+                Text("+5")
+            }
+            .buttonStyle(CircularButtonStyle())
         }
     }
 }

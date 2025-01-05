@@ -18,7 +18,7 @@ struct ControlView: View {
     @State private var isReady: Bool = false
     @State private var connectionState: ConnectionState = .disconnected
     @State private var shouldShowLoadingOverlay: Bool = false
-
+    
     enum ConnectionState: Equatable {
         case connecting
         case connected
@@ -83,14 +83,14 @@ struct ControlView: View {
                         .tabViewStyle(.page)
                     }
                     .frame(height: mediaHeight)
-
+                    
                     VStack(spacing: 20) {
                         Spacer()
-
+                        
                         Text("Volume: \(Int(volume * 100))%")
                             .fontWeight(.bold)
                             .fontWidth(.expanded)
-
+                        
                         Slider(value: $volume, in: 0...1, step: 0.01)
                             .padding(.horizontal)
                             .onChange(of: volume) { oldValue, newValue in
@@ -108,7 +108,7 @@ struct ControlView: View {
                         }
                         Spacer()
                     }
-
+                    
                 }
             }
         }

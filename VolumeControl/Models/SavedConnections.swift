@@ -157,4 +157,4 @@ class SavedConnections: ObservableObject {
     func enabledPlatforms(_ hostname: String) -> Set<String> {
         return items.first(where: { $0.hostname == hostname })?.enabledPlatforms ?? []
     }
-} 
+}

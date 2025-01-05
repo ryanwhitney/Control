@@ -142,6 +142,7 @@
 			packageReferences = (
 				94D5B4CE2D21F685001C0272 /* XCRemoteSwiftPackageReference "swift-nio" */,
 				94D5B4E42D21F829001C0272 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				943313782D2A91CA00846837 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 944328832D21F4E500496EFA /* Products */;
@@ -385,6 +386,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		943313782D2A91CA00846837 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SimplyDanny/SwiftLintPlugins";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.57.1;
+			};
+		};
 		94D5B4CE2D21F685001C0272 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apple/swift-nio.git";
