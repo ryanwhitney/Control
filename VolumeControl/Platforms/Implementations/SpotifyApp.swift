@@ -30,7 +30,7 @@ struct SpotifyApp: AppPlatform {
         set artistName to artist of current track
         set playerState to player state as text
         set isPlaying to player state is playing
-        return trackName & "|||" & artistName & "|||" & playerState & "||" & isPlaying
+        return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
     end tell
     """
 
