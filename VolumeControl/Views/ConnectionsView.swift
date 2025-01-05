@@ -25,6 +25,15 @@ struct ConnectionsView: View {
     @State private var showingFirstTimeSetup = false
     @State private var showingPermissionsView = false
     @State private var navigateToPermissions = false
+    @State private var showingHelpPopover = false
+    @State private var activePopover: ActivePopover?
+    
+    enum ActivePopover: Identifiable {
+        case help
+        case preferences
+        
+        var id: Self { self }
+    }
 
     struct Connection: Identifiable, Hashable {
         let id: String
@@ -49,80 +58,133 @@ struct ConnectionsView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section(header: Text("On Your Network".capitalized)) {
-                    if connections.isEmpty && isSearching {
-                        HStack {
-                            Text("Scanning...")
-                                .foregroundColor(.secondary)
-                            Spacer()
+            ZStack {
+                if !connections.isEmpty && savedConnections.items.isEmpty {
+                    VStack(spacing: 20) {
+                        Spacer()
+                        
+                        if isSearching {
                             ProgressView()
+                                .controlSize(.large)
+                            Text("Finding devices on your network...")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: 16){
+                                Image(systemName: "macbook.and.iphone")
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 60, height: 40)
+                                    .foregroundStyle(.tint)
+                                Text("No connections found")
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                Text("Ensure your Mac is on the same WiFi network and has Remote Login enabled.")
+                                    .foregroundStyle(.secondary)
+
+                                Button(action: startNetworkScan) {
+                                    Text("Refresh")
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+
                         }
-                    } else if connections.isEmpty {
-                        Text("No connections found")
-                            .foregroundColor(.secondary)
+                        
+                        Spacer()
                     }
-                    
-                    ForEach(networkComputers) { computer in
-                        ComputerRow(
-                            computer: computer,
-                            isConnecting: connectingComputer?.id == computer.id
-                        ) {
-                            selectComputer(computer)
+                } else {
+                    List {
+                        Section(header: Text("On Your Network".capitalized)) {
+                            if connections.isEmpty && isSearching {
+                                HStack {
+                                    Text("Scanning...")
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            } else if connections.isEmpty {
+                                Text("No connections found")
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            ForEach(networkComputers) { computer in
+                                ComputerRow(
+                                    computer: computer,
+                                    isConnecting: connectingComputer?.id == computer.id
+                                ) {
+                                    selectComputer(computer)
+                                }
+                            }
+                            
+                            if !connections.isEmpty && isSearching {
+                                HStack {
+                                    Text("Searching for more...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    ProgressView()
+                                }
+                            }
                         }
-                    }
-                    
-                    if !connections.isEmpty && isSearching {
-                        HStack {
-                            Text("Searching for more...")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            ProgressView()
+
+
+                        Section(header: Text("Recent".capitalized)) {
+                            if savedComputers.isEmpty {
+                                Text("No recent connections")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                ForEach(savedComputers) { computer in
+                                    ComputerRow(
+                                        computer: computer,
+                                        isConnecting: connectingComputer?.id == computer.id
+                                    ) {
+                                        selectComputer(computer)
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button(role: .destructive) {
+                                            savedConnections.remove(hostname: computer.host)
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                        .tint(.red)
+
+                                        Button {
+                                            selectedConnection = computer
+                                            username = computer.lastUsername ?? ""
+                                            password = "•••••"  // keep pass empty
+                                            saveCredentials = false
+                                            showingAddDialog = true
+                                        } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }
+                                        .tint(.blue)
+                                    }
+                                }
+                                .onDelete { indexSet in
+                                    for index in indexSet {
+                                        let computer = savedComputers[index]
+                                        savedConnections.remove(hostname: computer.host)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-
-
-                Section(header: Text("Recent".capitalized)) {
-                    if savedComputers.isEmpty {
-                        Text("No recent connections")
-                            .foregroundColor(.secondary)
-                    } else {
-                        ForEach(savedComputers) { computer in
-                            ComputerRow(
-                                computer: computer,
-                                isConnecting: connectingComputer?.id == computer.id
-                            ) {
-                                selectComputer(computer)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    savedConnections.remove(hostname: computer.host)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                .tint(.red)
-
-                                Button {
-                                    selectedConnection = computer
-                                    username = computer.lastUsername ?? ""
-                                    password = "•••••"  // keep pass empty
-                                    saveCredentials = false
-                                    showingAddDialog = true
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                        .onDelete { indexSet in
-                            for index in indexSet {
-                                let computer = savedComputers[index]
-                                savedConnections.remove(hostname: computer.host)
-                            }
-                        }
+                
+                VStack {
+                    Spacer()
+                    Button {
+                        activePopover = .help
+                    } label: {
+                        Label("How to enable Remote Login", systemImage: "questionmark.circle.fill")
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(.thickMaterial)
+                            .cornerRadius(15)
                     }
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 }
             }
             .refreshable {
@@ -162,7 +224,7 @@ struct ConnectionsView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        showingPreferences = true
+                        activePopover = .preferences
                     } label: {
                         Image(systemName: "gear")
                     }
@@ -276,8 +338,19 @@ struct ConnectionsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingPreferences) {
-                PreferencesView()
+            .sheet(item: $activePopover) { popover in
+                switch popover {
+                case .help:
+                    NavigationView {
+                        URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
+                            .navigationBarItems(trailing: Button("Done") {
+                                activePopover = nil
+                            })
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
+                case .preferences:
+                    PreferencesView()
+                }
             }
             .tint(preferences.tintColorValue)
         }
