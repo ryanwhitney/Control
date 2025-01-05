@@ -22,6 +22,7 @@ struct VolumeControlApp: App {
                 }
                 .tint(preferences.tintColorValue)
                 .accentColor(preferences.tintColorValue)
+                .preferredColorScheme(.dark)
         }
     }
 }
