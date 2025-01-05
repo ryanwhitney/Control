@@ -424,12 +424,9 @@ struct ConnectionsView: View {
                         case .authenticationFailed:
                             print("Authentication failed - showing error")
                             self.connectionError = (
-                                "Authentication Failed",
+                                "Failed To Connect",
                                 """
                                 The username or password provided was incorrect.
-                                Please check your credentials and try again.
-                                
-                                Technical details: Authentication failed
                                 """
                             )
                             self.showingError = true
@@ -445,8 +442,6 @@ struct ConnectionsView: View {
                                 • The computer is turned on
                                 • You're on the same network
                                 • Remote Login is enabled in System Settings
-                                
-                                Technical details: Connection failed
                                 """
                             )
                             self.showingError = true

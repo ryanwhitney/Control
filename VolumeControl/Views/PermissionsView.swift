@@ -5,14 +5,12 @@ enum PlatformPermissionState: Equatable {
     case checking
     case granted
     case failed(String)
-    
+
     static func == (lhs: PlatformPermissionState, rhs: PlatformPermissionState) -> Bool {
         switch (lhs, rhs) {
-        case (.initial, .initial):
-            return true
-        case (.checking, .checking):
-            return true
-        case (.granted, .granted):
+        case (.initial, .initial),
+            (.checking, .checking),
+            (.granted, .granted):
             return true
         case (.failed(let lhsError), .failed(let rhsError)):
             return lhsError == rhsError
@@ -28,38 +26,108 @@ struct PermissionsView: View {
     let sshClient: SSHClientProtocol
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
-    
+
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
-    
+    @State private var permissionsGranted: Bool = false
+    @State private var showSuccess: Bool = false
+
+
     var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Accept permissions on your Mac")
-                    .font(.title2)
-                    .bold()
-                
-                Text("This allows Control to command only the specific apps that you allow.")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-                
-            }
-            
-            platformList
-            
-            actionButton
+        ZStack {
+            // SUCCESS VIEW
+            successView
+            // Keep it around, but drive its visibility via opacity
+                .opacity(showSuccess ? 1 : 0)
+            // Hide from accessibility if fully invisible
+                .accessibilityHidden(!showSuccess)
+
+            // MAIN PERMISSIONS VIEW
+            mainPermissionsView
+                .opacity(permissionsGranted ? 0 : 1)
+                .accessibilityHidden(permissionsGranted)
         }
-        .padding()
-        .frame(maxWidth: 400)
         .onAppear {
-            // Initialize states
+            // Initialize permission states
             for platformId in enabledPlatforms {
                 if permissionStates[platformId] == nil {
                     permissionStates[platformId] = .initial
                 }
             }
+
+            // If permissions are already granted, show success right away
+            if allPermissionsGranted {
+                permissionsGranted = true
+            }
+        }
+        // Watch for changes to allPermissionsGranted, then do a staged animation
+        .onChange(of: allPermissionsGranted) {
+            print("PERMISSIONS CHANGED: " + allPermissionsGranted.description)
+            print("PERMISSIONS CHANGED BOOL: " + permissionsGranted.description)
+            print("SHOWSUCCESS: " + showSuccess.description)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    permissionsGranted = true
+                }
+            }
+            // 2) Once main UI is fully transparent, fade in success UI
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    showSuccess = true
+                }
+            }
         }
     }
-    
+
+    private var successView: some View {
+        VStack {
+            Image(systemName: "checkmark.circle.fill")
+                .resizable()
+                .frame(width: 50, height: 50)
+                .foregroundColor(.accentColor)
+                .padding(.bottom, 10)
+
+            Text("Permissions look good.")
+                .font(.title2)
+                .bold()
+
+            VStack {
+                Button(action: onComplete) {
+                    HStack{
+                        Text("Take Control")
+                        Image(systemName: "arrow.right")
+                    }
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.accentColor)
+            }
+            .padding()
+        }
+        .padding()
+    }
+
+    /// The “Main Permissions” UI that appears until the user grants permissions
+    private var mainPermissionsView: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                Text("Accept permissions on your Mac")
+                    .font(.title2)
+                    .bold()
+
+                Text("This allows Control to command only the specific apps you choose.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+            }
+
+            platformList
+            actionButton
+        }
+        .padding()
+    }
+
+
     private var platformList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
@@ -84,19 +152,12 @@ struct PermissionsView: View {
         .background(Color(.systemBackground))
         .cornerRadius(12)
     }
-    
+
     private func permissionStateView(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
-            case .initial:
-                Text("Waiting to check...")
-                    .foregroundStyle(.secondary)
-            case .checking:
-                Text("Checking permissions...")
-                    .foregroundStyle(.secondary)
-            case .granted:
-                Text("Permission granted")
-                    .foregroundStyle(.green)
+            case .initial, .checking, .granted:
+                EmptyView()
             case .failed(let error):
                 Text(error)
                     .foregroundStyle(.red)
@@ -104,7 +165,7 @@ struct PermissionsView: View {
         }
         .font(.caption)
     }
-    
+
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
@@ -122,40 +183,41 @@ struct PermissionsView: View {
             }
         }
     }
-    
+
     private var actionButton: some View {
-        Group {
-            if allPermissionsGranted {
-                Button(action: onComplete) {
-                    Text("Continue")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button {
-                    Task { await checkAllPermissions() }
-                } label: {
-                    Text(anyPermissionsChecked ? "Try Again" : "Check Permissions")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isChecking)
+        VStack(spacing: 10){
+            Button(action: onComplete) {
+                Text("Skip")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
             }
+            .buttonStyle(.plain)
+            .tint(.accentColor)
+            Button {
+                Task { await checkAllPermissions() }
+            } label: {
+                Text( "Open Permissions on Mac")
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.accentColor)
+            .disabled(isChecking)
         }
     }
-    
+
     private var allPermissionsGranted: Bool {
         enabledPlatforms.allSatisfy { platformId in
             permissionStates[platformId] == .granted
         }
     }
-    
+
     private var isChecking: Bool {
         enabledPlatforms.contains { platformId in
             permissionStates[platformId] == .checking
         }
     }
-    
+
     private var anyPermissionsChecked: Bool {
         enabledPlatforms.contains { platformId in
             if case .initial = permissionStates[platformId] ?? .initial {
@@ -164,7 +226,7 @@ struct PermissionsView: View {
             return true
         }
     }
-    
+
     private func checkAllPermissions() async {
         // Reset failed states to initial
         for platformId in enabledPlatforms {
@@ -172,7 +234,7 @@ struct PermissionsView: View {
                 permissionStates[platformId] = .initial
             }
         }
-        
+
         // Check each platform
         await withTaskGroup(of: Void.self) { group in
             for platformId in enabledPlatforms {
@@ -184,7 +246,7 @@ struct PermissionsView: View {
             }
         }
     }
-    
+
     func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
@@ -195,19 +257,19 @@ struct PermissionsView: View {
         end try
         APPLESCRIPT
         """
-        
+
         return await withCheckedContinuation { continuation in
             sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
                 continuation.resume(returning: result)
             }
         }
     }
-    
+
     private func checkPermission(for platformId: String) async {
         guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { return }
-        
+
         permissionStates[platformId] = .checking
-        
+
         // First activate the app
         let activateCommand = """
         osascript << 'APPLESCRIPT'
@@ -216,16 +278,16 @@ struct PermissionsView: View {
         end tell
         APPLESCRIPT
         """
-        
+
         _ = await withCheckedContinuation { continuation in
             sshClient.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
         }
-        
+
         // Add a small delay to allow the app to fully activate
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        
+
         // Then check permissions by fetching state
         let stateCommand = """
         osascript << 'APPLESCRIPT'
@@ -236,13 +298,13 @@ struct PermissionsView: View {
         end try
         APPLESCRIPT
         """
-        
+
         let stateResult = await withCheckedContinuation { continuation in
             sshClient.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
-        
+
         switch stateResult {
         case .success(let output):
             if output.contains("Not authorized to send Apple events") {
@@ -260,7 +322,7 @@ struct PermissionsView: View {
 #Preview {
     let client = SSHClient()
     client.connect(host: "rwhitney-mac.local", username: "ryan", password: "") { _ in }
-    
+
     return PermissionsView(
         hostname: "rwhitney-mac.local",
         displayName: "Ryan's Mac",
@@ -269,6 +331,3 @@ struct PermissionsView: View {
         onComplete: {}
     )
 }
-
-// Delete the mock implementation 
-

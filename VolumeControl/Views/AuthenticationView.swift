@@ -4,23 +4,31 @@ struct AuthenticationView: View {
     let mode: Mode
     let existingHost: String?
     let existingName: String?
-    
+
     @State private var hostname: String
     @State private var nickname: String
     @State private var isPopoverPresented = false
+    @FocusState private var focusedField: Field?
 
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
-    
+
     let onSuccess: (String, String?) -> Void // (hostname, nickname?)
     let onCancel: () -> Void
-    
+
+    enum Field: Hashable {
+        case hostname
+        case nickname
+        case username
+        case password
+    }
+
     enum Mode {
         case add
         case authenticate
         case edit
-        
+
         var title: String {
             switch self {
             case .add: return "Add Connection"
@@ -28,21 +36,21 @@ struct AuthenticationView: View {
             case .edit: return "Edit Connection"
             }
         }
-        
+
         var showsNetworkMessage: Bool {
             switch self {
-            case .add, .authenticate: return true
-            case .edit: return false
+            case .add: return true
+            case .edit, .authenticate: return false
             }
         }
-        
+
         var showsHostField: Bool {
             switch self {
             case .add: return true
             case .authenticate, .edit: return false
             }
         }
-        
+
         var saveButtonTitle: String {
             switch self {
             case .add: return "Add"
@@ -51,7 +59,7 @@ struct AuthenticationView: View {
             }
         }
     }
-    
+
     init(mode: Mode,
          existingHost: String? = nil,
          existingName: String? = nil,
@@ -71,7 +79,7 @@ struct AuthenticationView: View {
         self.onSuccess = onSuccess
         self.onCancel = onCancel
     }
-    
+
     var body: some View {
         NavigationView {
             Form {
@@ -101,55 +109,111 @@ struct AuthenticationView: View {
                         }
                     }
                 }
-                
-                Section("Connection") {
-                    if mode.showsHostField {
-                        TextField("Hostname or IP", text: $hostname)
+                if mode != .authenticate {
+                    Section("Connection") {
+                        if mode.showsHostField {
+                            TextField("Hostname or IP", text: $hostname)
+                                .focused($focusedField, equals: .hostname)
+                                .onSubmit {
+                                    focusedField = .nickname
+                                }
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        } else {
+                            Text(existingHost ?? "")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        TextField("Nickname (optional)", text: $nickname)
+                            .focused($focusedField, equals: .nickname)
+                            .onSubmit {
+                                focusedField = .username
+                            }
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .textContentType(nil)
-                    } else {
-                        Text(existingHost ?? "")
+                    }
+                } else {
+                    Section{
+                        Text("Enter the username and password you use to log in to Ryan’s MacBook Pro.")
+                            .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
-                    
-                    TextField("Nickname (optional)", text: $nickname)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .textContentType(nil)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-                
+
                 Section("Credentials" + (mode == .add ? " (Optional)" : "")) {
                     TextField("Username", text: $username)
+                        .focused($focusedField, equals: .username)
+                        .onSubmit {
+                            focusedField = .password
+                        }
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .textContentType(nil)
-                    
+
                     SecureField("Password", text: $password)
-                        .textContentType(nil)
+                        .focused($focusedField, equals: .password)
+                        .onSubmit {
+                            handleSubmit()
+                        }
+                        .textContentType(.password)
                         .submitLabel(.done)
-                    
-                    Toggle("Save for quick connect", isOn: $saveCredentials)
+
+                    Toggle("Save for one-tap connect", isOn: $saveCredentials)
+                }
+                Button(action: handleSubmit) {
+                    Text(mode.saveButtonTitle)
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .buttonStyle(.bordered)
+                .multilineTextAlignment(.center)
+                .disabled(!canSubmit)
+            }
+            .onAppear {
+                if mode == .authenticate {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        focusedField = .username
+                    }
                 }
             }
-            .navigationTitle(mode.title)
+            .navigationTitle(mode != .authenticate ? mode.title : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(mode.saveButtonTitle) {
-                        onSuccess(
-                            mode == .add ? hostname : (existingHost ?? ""),
-                            !nickname.isEmpty ? nickname : nil
-                        )
+                if mode != .authenticate {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(mode.saveButtonTitle) {
+                            handleSubmit()
+                        }
+                        .disabled(!canSubmit)
                     }
-                    .disabled(mode == .add ? hostname.isEmpty : (mode == .authenticate && (username.isEmpty || password.isEmpty)))
                 }
             }
         }
+    }
+
+    private var canSubmit: Bool {
+        switch mode {
+        case .add:
+            return !hostname.isEmpty
+        case .authenticate:
+            return !username.isEmpty && !password.isEmpty
+        case .edit:
+            return true
+        }
+    }
+
+    private func handleSubmit() {
+        guard canSubmit else { return }
+        onSuccess(
+            mode == .add ? hostname : (existingHost ?? ""),
+            !nickname.isEmpty ? nickname : nil
+        )
     }
 }
 
@@ -157,9 +221,9 @@ struct AuthenticationView: View {
 struct AuthenticationView_Previews: PreviewProvider {
     static var previews: some View {
         AuthenticationView(
-            mode: .add,
-            username: .constant(""),
-            password: .constant(""),
+            mode: .authenticate,
+            username: .constant("faew"),
+            password: .constant("sac"),
             saveCredentials: .constant(true),
             onSuccess: { _, _ in },
             onCancel: {}

@@ -6,8 +6,8 @@ struct ChooseAppsView: View {
     let sshClient: SSHClientProtocol
     let onComplete: (Set<String>) -> Void
     
-    @State private var selectedPlatforms: Set<String> = []
-    
+    @State private var selectedPlatforms: Set<String> = Set(PlatformRegistry.allPlatforms.map { $0.id })
+
     var body: some View {
         ZStack {
             Form {
@@ -28,6 +28,8 @@ struct ChooseAppsView: View {
                         .frame(maxWidth: .infinity)
                         .padding()
                 }
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
 
                 Section {
                     ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
@@ -64,7 +66,6 @@ struct ChooseAppsView: View {
                 }.background(.black)
             }
         }
-        .navigationTitle("Choose Apps")
     }
 }
 
