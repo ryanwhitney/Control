@@ -170,7 +170,6 @@ struct ConnectionsView: View {
                         }
                     }
                 }
-                
                 VStack {
                     Spacer()
                     if connections.isEmpty && savedConnections.items.isEmpty {
@@ -183,7 +182,7 @@ struct ConnectionsView: View {
                                 .background(.thickMaterial)
                                 .cornerRadius(12)
                                 .tint(.accentColor)
-                                .accentColor(.tint)
+                                .foregroundStyle(.tint)
                         }
                         .buttonStyle(.bordered)
                         .tint(.gray)
