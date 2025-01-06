@@ -1,4 +1,5 @@
 import SwiftUI
+import MultiBlur
 
 enum PlatformPermissionState: Equatable {
     case initial
@@ -30,8 +31,11 @@ struct PermissionsView: View {
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
-    
-    
+    @State private var headerHeight: CGFloat = 0
+    @State private var showAppList: Bool = false
+
+
+
     var body: some View {
         ZStack {
             // SUCCESS VIEW
@@ -61,13 +65,23 @@ struct PermissionsView: View {
         }
         .onChange(of: allPermissionsGranted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                withAnimation(.easeInOut(duration: 0.5)) {
+                withAnimation(.spring()) {
                     permissionsGranted = true
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation(.easeInOut(duration: 0.5)) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                withAnimation(.spring()) {
                     showSuccess = true
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                withAnimation(.spring()) {
+                    showSuccess = false
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                withAnimation(.spring()) {
+                    onComplete()
                 }
             }
         }
@@ -78,26 +92,11 @@ struct PermissionsView: View {
             Image(systemName: "checkmark.circle.fill")
                 .resizable()
                 .frame(width: 50, height: 50)
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.tint)
                 .padding(.bottom, 10)
-            
-            Text("Permissions look good.")
+            Text("You're all set")
                 .font(.title2)
                 .bold()
-            
-            VStack {
-                Button(action: onComplete) {
-                    HStack{
-                        Text("Take Control")
-                        Image(systemName: "arrow.right")
-                    }
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.accentColor)
-            }
-            .padding()
         }
         .padding()
     }
@@ -105,67 +104,94 @@ struct PermissionsView: View {
     /// The “Main Permissions” UI that appears until the user grants permissions
     private var mainPermissionsView: some View {
         VStack(spacing: 20) {
-            VStack(spacing: 8) {
-                Text("Accept Permissions On Your Mac")
-                    .font(.title2)
-                    .bold()
-                
-                Text("Allows Control to command only the specific apps you selected.")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-            }
-            
-            platformList
-            actionButton
-        }
-        .padding()
-    }
-    
-    
-    private var platformList: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(enabledPlatforms), id: \.self) { platformId in
-                    if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(platform.name)
-                                permissionStateView(for: platformId)
+            ZStack(alignment: .top){
+                ScrollView(showsIndicators: false) {
+                    HStack{EmptyView()}.frame(height: headerHeight)
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(enabledPlatforms), id: \.self) { platformId in
+                            if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
+                                HStack {
+                                    Text(platform.name)
+                                    Spacer()
+                                    permissionStatusIcon(for: platformId)
+                                }
+                                .padding()
+                                .background(.ultraThinMaterial.opacity(0.5))
+                                .cornerRadius(12)
+                                .opacity(permissionStates[platformId] != .initial ? 1 : 0.5)
+                                .animation(.spring(), value: permissionStates[platformId])
                             }
-                            Spacer()
-                            permissionStatusIcon(for: platformId)
                         }
-                        .padding()
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(12)
+                    }
+                    .opacity(showAppList ? 1 : 0)
+                    .onChange(of: headerHeight){
+                        if headerHeight > 0 {
+                            withAnimation(.spring()) {
+                                showAppList = true
+                            }
+
+                        }
+                    }
+                    .padding()
+                }
+                .mask(
+                    LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
+                )
+                .background(Color(.systemBackground))
+                .cornerRadius(12)
+                VStack(spacing: 8) {
+                    Image(systemName: "macwindow.and.cursorarrow")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 50, height: 40)
+                        .padding(0)
+                        .foregroundStyle(.primary, .tint)
+                        .padding(.bottom, -20)
+                    Text("Accept Permissions On Your Mac")
+                        .font(.title2)
+                        .bold()
+                        .padding(.horizontal)
+                        .padding(.top)
+
+                    Text("Control can only access apps you approve.")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                }
+                .frame(maxWidth:.infinity)
+                .background(GeometryReader {
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .padding(.bottom, -30)
+                            .preference(key: headerSizePreferenceKey.self, value: $0.size.height)
+                })
+                .onPreferenceChange(headerSizePreferenceKey.self) { value in
+                    self.headerHeight = value
+                    print("Header Height: \(headerHeight)")
+                }
+                VStack{
+                    Spacer()
+                    BottomButtonPanel{
+                        actionButtons
+                            .padding()
                     }
                 }
             }
-            .padding()
         }
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
+        .toolbarBackground(.black, for: .navigationBar)
     }
-    
-    private func permissionStateView(for platformId: String) -> some View {
-        Group {
-            switch permissionStates[platformId] ?? .initial {
-            case .initial, .checking, .granted:
-                EmptyView()
-            case .failed(let error):
-                Text(error)
-                    .foregroundStyle(.red)
-            }
+
+    struct headerSizePreferenceKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value += nextValue()
         }
-        .font(.caption)
     }
-    
+
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
             case .initial:
-                Image(systemName: "circle")
-                    .foregroundStyle(.secondary)
+                EmptyView()
             case .checking:
                 ProgressView()
             case .granted:
@@ -178,7 +204,7 @@ struct PermissionsView: View {
         }
     }
     
-    private var actionButton: some View {
+    private var actionButtons: some View {
         VStack(spacing: 10){
             Button(action: onComplete) {
                 Text("Skip")
@@ -188,47 +214,32 @@ struct PermissionsView: View {
             }
             .buttonStyle(.plain)
             .tint(.accentColor)
-            ZStack {
-                Text("Open Permissions on Mac")
+            Button {
+                Task { await checkAllPermissions() }
+            } label: {
+                Text( "Check Permissions")
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
+                    .tint(.accentColor)
                     .foregroundStyle(.tint)
                     .fontWeight(.bold)
-                    .blur(radius: 50)
-                    .accessibilityHidden(true)
-                Text("Open Permissions on Mac")
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(.tint)
-                    .fontWeight(.bold)
-                    .blur(radius: 10)
-                    .accessibilityHidden(true)
-                Text("Open Permissions on Mac")
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(.tint)
-                    .fontWeight(.bold)
-                    .blur(radius: 20)
-                    .accessibilityHidden(true)
-                
-                Button {
-                    Task { await checkAllPermissions() }
-                } label: {
-                    Text( "Open Permissions on Mac")
-                        .padding(.vertical, 11)
-                        .frame(maxWidth: .infinity)
-                        .tint(.accentColor)
-                        .foregroundStyle(.tint)
-                        .fontWeight(.bold)
-                }
-                .background(.ultraThinMaterial)
-                .cornerRadius(12)
-                .buttonStyle(.bordered)
-                .tint(.gray)
-                .frame(maxWidth: .infinity)
-                .disabled(isChecking || allPermissionsGranted)
+                    .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
             }
+            .background(.ultraThinMaterial)
+            .cornerRadius(12)
+            .buttonStyle(.bordered)
+            .tint(.gray)
+            .frame(maxWidth: .infinity)
+            .disabled(isChecking || allPermissionsGranted)
+
+            Text("This may open Permissions Dialogs on \(hostname). [Learn More…](systempreferences://) ")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
         }
+        .toolbarBackground(.hidden, for: .navigationBar)
+
     }
     
     private var allPermissionsGranted: Bool {
@@ -351,8 +362,9 @@ struct PermissionsView: View {
     return PermissionsView(
         hostname: "rwhitney-mac.local",
         displayName: "Ryan's Mac",
-        sshClient: client,
-        enabledPlatforms: ["music", "vlc"],
+        sshClient: SSHClient(),
+        enabledPlatforms: ["music", "vlc", "tv", "safari", "chrome"],
         onComplete: {}
     )
 }
+
