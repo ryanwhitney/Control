@@ -32,25 +32,24 @@ struct TVApp: AppPlatform {
         set currentTrack to current track
     end try
     try
-        set currentTrack to name of front window
+        set frontWindow to name of front window
     end try
     
     if currentTrack is not missing value then
-        -- If we do have a track, gather info.
-        if currentTrack is not "TV" then
-            set trackName to name of currentTrack
-            set showName to show of currentTrack
-        else
-            set trackName to currentTrack
-            set showName to "No show"
-        end if
-        
+        set trackName to currentTrack
+        set showName to "No show"
         if rawState is "playing" then
             -- Standard playing scenario
             return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
         else if rawState is "paused" or rawState is "stopped" then
             -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
             return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
+        end if
+    else if frontWindow is not "TV" then
+        if rawState is "playing" then
+            return frontWindow & "|||" & frontWindow & "|||" & "playing" & "|||" & "true"
+        else
+            return frontWindow & "|||" & frontWindow & "|||" & "paused" & "|||" & "false"
         end if
     else
         -- If we can't retrieve a track, there's truly no video playing.
@@ -92,15 +91,46 @@ struct TVApp: AppPlatform {
         case .skipBackward:
             return """
             tell application "TV"
-                set currentTime to player position
-                set player position to (currentTime - 10)
+            activate
+            try
+            set currentPosition to player position
+            if currentPosition is not missing value then
+            set player position to currentPosition - 10
+            else
+            -- Fallback for streaming content
+            tell application "System Events"
+                -- Target the TV app directly
+                tell process "TV"
+                    key code 123 -- Right Arrow
+                end tell
             end tell
+            end if
+            on error errMsg
+            return "Error: " & errMsg
+            end try
+            end tell
+
             """
         case .skipForward:
             return """
             tell application "TV"
-                set currentTime to player position
-                set player position to (currentTime + 10)
+            activate
+            try
+            set currentPosition to player position
+            if currentPosition is not missing value then
+            set player position to currentPosition + 10
+            else
+            -- Fallback for streaming content
+            tell application "System Events"
+                -- Target the TV app directly
+                tell process "TV"
+                    key code 124 -- Right Arrow
+                end tell
+            end tell
+            end if
+            on error errMsg
+            return "Error: " & errMsg
+            end try
             end tell
             """
         default:
