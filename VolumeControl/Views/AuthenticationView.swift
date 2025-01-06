@@ -1,4 +1,5 @@
 import SwiftUI
+import MultiBlur
 
 struct AuthenticationView: View {
     let mode: Mode
@@ -136,13 +137,15 @@ struct AuthenticationView: View {
                     }
                 } else {
                     Section {
-                        Text("Enter the username and password you use to log in to Ryan’s MacBook Pro.")
+                        Text("Enter the username and password you use to log in to \(hostname.isEmpty ? "this Mac" : hostname).")
                             .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
                             .padding(.horizontal)
                     }
                     .listRowBackground(Color.clear)
+                    .padding(.top, 16)
+                    .padding(.vertical, 24)
+                    .listSectionSpacing(0)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
                 Section{
@@ -164,28 +167,34 @@ struct AuthenticationView: View {
 
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
                 }
-                Button(action: handleSubmit) {
+                Button {
+                    handleSubmit()
+                } label: {
                     HStack {
                         if isConnecting {
                             ProgressView()
                                 .controlSize(.regular)
                         } else {
                             Text(mode.saveButtonTitle)
+                                .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
                         }
                     }
-                    .tint(.accentColor)
-                    .foregroundStyle(.tint)
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
+                    .tint(.accentColor)
+                    .foregroundStyle(.tint)
+                    .fontWeight(.bold)
                 }
-                .listRowBackground(Color.clear)
-                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .background(.ultraThinMaterial)
+                .cornerRadius(12)
                 .buttonStyle(.bordered)
                 .tint(.gray)
-                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
                 .disabled(!canSubmit || isConnecting)
+                .listRowBackground(Color.clear)
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
             }
-            .background(.ultraThinMaterial)
+            .contentMargins(.top, 0)
             .onAppear {
                 if mode == .authenticate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -199,15 +208,15 @@ struct AuthenticationView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
                 }
-                if mode != .authenticate {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(mode.saveButtonTitle) {
-                            handleSubmit()
-                        }
-                        .disabled(!canSubmit)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(mode.saveButtonTitle) {
+                        handleSubmit()
                     }
+                    .disabled(!canSubmit)
                 }
+
             }
+            .navigationBarHidden(mode == .authenticate)
         }
     }
 

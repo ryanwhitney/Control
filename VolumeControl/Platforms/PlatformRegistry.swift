@@ -11,7 +11,7 @@ class PlatformRegistry: ObservableObject {
         TVApp(),
         SafariApp(),
         SpotifyApp(),
-        ChromeApp()
+//        ChromeApp()
     ]
     
     init(platforms: [any AppPlatform]? = nil) {

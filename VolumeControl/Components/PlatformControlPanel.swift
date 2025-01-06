@@ -16,7 +16,8 @@ struct PlatformControlPanel: View {
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
                     if title.contains("Safari") {
-                        Label("Experimental", systemImage: "exclamationmark.triangle")
+                        Label("Experimental", systemImage: "exclamationmark.triangle.fill")
+                            .labelStyle(.iconOnly)
                     }
                 }
                 Text(mediaInfo)

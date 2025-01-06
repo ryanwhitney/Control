@@ -157,7 +157,7 @@ struct ConnectionsView: View {
                                         } label: {
                                             Label("Edit", systemImage: "pencil")
                                         }
-                                        .tint(.blue)
+                                        .tint(.accentColor)
                                     }
                                 }
                                 .onDelete { indexSet in
@@ -315,6 +315,7 @@ struct ConnectionsView: View {
                             isAuthenticating = false
                         }
                     )
+                    .presentationDragIndicator(.visible)
                 }
             }
             .navigationDestination(isPresented: $navigateToControl) {
@@ -398,7 +399,7 @@ struct ConnectionsView: View {
         let computer: Connection
         let isConnecting: Bool
         let action: () -> Void
-        
+
         var body: some View {
             Button(action: action) {
                 HStack {
@@ -414,9 +415,8 @@ struct ConnectionsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    
+                    Spacer()
                     if isConnecting {
-                        Spacer()
                         ProgressView()
                     }
                 }
