@@ -4,12 +4,17 @@ import MultiBlur
 struct ChooseAppsView: View {
     let hostname: String
     let displayName: String
-    let sshClient: SSHClientProtocol
+    let username: String
+    let password: String
     let onComplete: (Set<String>) -> Void
 
+    @StateObject private var connectionManager = SSHConnectionManager()
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
     @State private var selectedPlatforms: Set<String> = Set(PlatformRegistry.allPlatforms.map { $0.id })
+    @State private var showingConnectionLostAlert = false
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -53,6 +58,9 @@ struct ChooseAppsView: View {
                 }
                 .padding()
             }
+            .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
+            .animation(.spring(), value: connectionManager.connectionState)
+            
         /// Header
             VStack(spacing: 8) {
                 Image(systemName: "macbook.and.iphone")
@@ -103,11 +111,75 @@ struct ChooseAppsView: View {
                     .buttonStyle(.bordered)
                     .tint(.gray)
                     .frame(maxWidth: .infinity)
-                    .disabled(selectedPlatforms.isEmpty)
+                    .disabled(selectedPlatforms.isEmpty || connectionManager.connectionState != .connected)
+                    .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
                 }
             }
         }
         .toolbarBackground(.black, for: .navigationBar)
+        .onAppear {
+            // Set up connection lost handler
+            connectionManager.setConnectionLostHandler { @MainActor in
+                showingConnectionLostAlert = true
+            }
+            connectToSSH()
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            print("\n=== ChooseAppsView: Scene Phase Change ===")
+            print("Old phase: \(oldPhase)")
+            print("New phase: \(newPhase)")
+            
+            if newPhase == .active {
+                print("Scene became active - connecting")
+                connectToSSH()
+            } else if newPhase == .background {
+                print("Scene entering background - cleaning up")
+                Task { @MainActor in
+                    connectionManager.disconnect()
+                }
+            }
+        }
+        .onDisappear {
+            print("\n=== ChooseAppsView: Disappearing ===")
+            Task { @MainActor in
+                connectionManager.disconnect()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            print("\n=== ChooseAppsView: Will Enter Foreground ===")
+            connectToSSH()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            print("\n=== ChooseAppsView: Will Resign Active ===")
+            Task { @MainActor in
+                connectionManager.disconnect()
+            }
+        }
+        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
+            Button("OK") {
+                dismiss()
+            }
+        } message: {
+            Text("The connection to \(displayName) was lost. Please try connecting again.")
+        }
+    }
+    
+    private func connectToSSH() {
+        print("\n=== ChooseAppsView: Initiating SSH Connection ===")
+        Task {
+            // Check if we need to reconnect
+            if !connectionManager.shouldReconnect(host: hostname, username: username, password: password) {
+                print("✓ Using existing connection")
+                return
+            }
+            
+            do {
+                try await connectionManager.connect(host: hostname, username: username, password: password)
+                print("✓ Connection established")
+            } catch {
+                print("❌ Connection failed in ChooseAppsView: \(error)")
+            }
+        }
     }
 }
 
@@ -127,7 +199,8 @@ struct headerSizePreferenceKey: PreferenceKey {
         ChooseAppsView(
             hostname: "rwhitney-mac.local",
             displayName: "Ryan's Mac",
-            sshClient: client,
+            username: "ryan",
+            password: "",
             onComplete: { _ in }
         )
     }

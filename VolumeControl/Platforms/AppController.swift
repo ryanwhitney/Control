@@ -2,13 +2,13 @@ import SwiftUI
 
 @MainActor
 class AppController: ObservableObject {
-    private let sshClient: SSHClientProtocol
+    private var sshClient: SSHClientProtocol
     private let platformRegistry: PlatformRegistry
     private var isUpdating = false
     private var isActive = true
     
     @Published var states: [String: AppState] = [:]
-    @Published var currentVolume: Float = 0.5
+    @Published var currentVolume: Float?
     
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
@@ -29,13 +29,13 @@ class AppController: ObservableObject {
         print("\n=== AppController: Resetting ===")
         isActive = true
         isUpdating = false
+        states = [:]
+        currentVolume = nil
     }
     
     func cleanup() {
         print("\n=== AppController: Cleaning up ===")
         isActive = false
-        isUpdating = false
-        // Don't disconnect here - let the connection manager handle it
     }
     
     func updateAllStates() async {
@@ -198,7 +198,9 @@ class AppController: ObservableObject {
         if case .success(let output) = result,
            let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
             currentVolume = volume / 100.0
-            print("✓ Current volume: \(Int(currentVolume * 100))%")
+            if let currentVolume = currentVolume {
+                print("✓ Current volume: \(Int(currentVolume * 100))%")
+            }
         } else {
             print("❌ Failed to get current volume")
         }
@@ -222,19 +224,43 @@ class AppController: ObservableObject {
         APPLESCRIPT
         """
         
-        return await withCheckedContinuation { continuation in
-            sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+        return await withCheckedContinuation { [weak self] continuation in
+            guard let self = self else {
+                continuation.resume(returning: .failure(SSHError.channelError("AppController was deallocated")))
+                return
+            }
+            
+            self.sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
                 switch result {
                 case .success(let output):
                     print("✓ Command executed successfully")
                     if !output.isEmpty {
                         print("Output length: \(output.count) characters")
                     }
+                    continuation.resume(returning: result)
                 case .failure(let error):
                     print("❌ Command failed: \(error)")
+                    // Check if this is a connection loss
+                    let errorString = error.localizedDescription.lowercased()
+                    if errorString.contains("eof") || 
+                       errorString.contains("connection reset") ||
+                       errorString.contains("broken pipe") ||
+                       errorString.contains("connection closed") {
+                        print("Connection appears to be lost")
+                        if let connectionManager = self.sshClient as? SSHConnectionManager {
+                            connectionManager.handleConnectionLost()
+                        }
+                    }
+                    continuation.resume(returning: result)
                 }
-                continuation.resume(returning: result)
             }
         }
+    }
+    
+    func updateClient(_ newClient: SSHClientProtocol) {
+        print("\n=== AppController: Updating SSH Client ===")
+        cleanup()
+        sshClient = newClient
+        reset()
     }
 } 

@@ -56,6 +56,47 @@ struct ConnectionsView: View {
         }
     }
 
+    @ViewBuilder
+    private func destinationView(for computer: Connection) -> some View {
+        if !savedConnections.hasConnectedBefore(computer.host) {
+            ChooseAppsView(
+                hostname: computer.host,
+                displayName: computer.name,
+                username: username,
+                password: password,
+                onComplete: { selectedPlatforms in
+                    savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
+                    showingFirstTimeSetup = false
+                    navigateToPermissions = true
+                }
+            )
+        } else {
+            ControlView(
+                host: computer.host,
+                displayName: computer.name,
+                username: username,
+                password: password,
+                enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
+            )
+        }
+    }
+    
+    @ViewBuilder
+    private func permissionsDestinationView(for computer: Connection) -> some View {
+        PermissionsView(
+            hostname: computer.host,
+            displayName: computer.name,
+            username: username,
+            password: password,
+            enabledPlatforms: savedConnections.enabledPlatforms(computer.host),
+            onComplete: {
+                savedConnections.markAsConnected(computer.host)
+                navigateToPermissions = false
+                navigateToControl = true
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -318,28 +359,19 @@ struct ConnectionsView: View {
                     .presentationDragIndicator(.visible)
                 }
             }
-            .navigationDestination(isPresented: $navigateToControl) {
+            .navigationDestination(isPresented: $showingFirstTimeSetup) {
                 if let computer = selectedConnection {
-                    if !savedConnections.hasConnectedBefore(computer.host) {
-                        ChooseAppsView(
-                            hostname: computer.host,
-                            displayName: computer.name,
-                            sshClient: sshManager.currentClient
-                        ) { selectedPlatforms in
+                    ChooseAppsView(
+                        hostname: computer.host,
+                        displayName: computer.name,
+                        username: username,
+                        password: password,
+                        onComplete: { selectedPlatforms in
                             savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
                             showingFirstTimeSetup = false
                             navigateToPermissions = true
                         }
-                    } else {
-                        ControlView(
-                            host: computer.host,
-                            displayName: computer.name,
-                            username: username,
-                            password: password,
-                            sshClient: sshManager.currentClient,
-                            enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
-                        )
-                    }
+                    )
                 }
             }
             .navigationDestination(isPresented: $navigateToPermissions) {
@@ -347,13 +379,26 @@ struct ConnectionsView: View {
                     PermissionsView(
                         hostname: computer.host,
                         displayName: computer.name,
-                        sshClient: sshManager.currentClient,
+                        username: username,
+                        password: password,
+                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host),
+                        onComplete: {
+                            savedConnections.markAsConnected(computer.host)
+                            navigateToPermissions = false
+                            navigateToControl = true
+                        }
+                    )
+                }
+            }
+            .navigationDestination(isPresented: $navigateToControl) {
+                if let computer = selectedConnection {
+                    ControlView(
+                        host: computer.host,
+                        displayName: computer.name,
+                        username: username,
+                        password: password,
                         enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
-                    ) {
-                        savedConnections.markAsConnected(computer.host)
-                        navigateToPermissions = false
-                        navigateToControl = true
-                    }
+                    )
                 }
             }
             .sheet(item: $activePopover) { popover in
@@ -391,6 +436,32 @@ struct ConnectionsView: View {
             }
         } message: { error in
             Text(error.message)
+        }
+        .onChange(of: navigateToControl) { _, newValue in
+            if !newValue {
+                // Reset states when returning from ControlView
+                connectingComputer = nil
+                selectedConnection = nil
+            }
+        }
+        .onChange(of: showingFirstTimeSetup) { _, newValue in
+            if !newValue {
+                // Reset states when returning from setup
+                connectingComputer = nil
+            }
+        }
+        .onChange(of: navigateToPermissions) { _, newValue in
+            if !newValue {
+                // Reset states when returning from permissions
+                connectingComputer = nil
+            }
+        }
+        .onChange(of: showingError) { _, newValue in
+            if newValue {
+                // Reset states when showing error
+                connectingComputer = nil
+                selectedConnection = nil
+            }
         }
     }
 
@@ -456,177 +527,47 @@ struct ConnectionsView: View {
 
     private func selectComputer(_ computer: Connection) {
         selectedConnection = computer
-        connectingComputer = computer
-        username = computer.lastUsername ?? ""
-        password = ""  // Reset password
-        saveCredentials = true  // Default to true
         
-        if let savedUsername = computer.lastUsername,
-           let savedPassword = savedConnections.password(for: computer.host) {
-            // We have complete saved credentials, try connecting
-            username = savedUsername
-            password = savedPassword
-            tryConnect(computer: computer, showAuthOnFail: true)
+        // Check if we have saved credentials
+        if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
+            username = savedConnection.username ?? ""
+            password = savedConnections.password(for: computer.host) ?? ""
+            tryConnect(computer: computer)
         } else {
-            // Missing some credentials, show auth view
-            connectingComputer = nil
+            // Show authentication dialog
+            username = computer.lastUsername ?? ""
+            password = ""
+            saveCredentials = true
             isAuthenticating = true
         }
     }
     
-    private func tryConnect(computer: Connection, showAuthOnFail: Bool = false) {
-        print("\n=== Connection Attempt ===")
+    private func tryConnect(computer: Connection) {
+        print("\n=== ConnectionsView: Trying to connect ===")
         print("Computer: \(computer.name) (\(computer.host))")
-        print("Username: \(username)")
-        print("Has Password: \(!password.isEmpty)")
-        print("Save Credentials: \(saveCredentials)")
         
-        // Add state to track if we've already handled a response
-        var hasHandledResponse = false
+        connectingComputer = computer
+        selectedConnection = computer
         
-        sshManager.connect(host: computer.host, username: username, password: password) { result in
-            DispatchQueue.main.async {
-                // Guard against multiple callbacks
-                guard !hasHandledResponse else { return }
-                hasHandledResponse = true
-                
-                self.connectingComputer = nil
-                switch result {
-                case .success:
-                    print("✅ Connection successful")
-                    if self.saveCredentials {
-                        self.savedConnections.updateLastUsername(
-                            for: computer.host,
-                            name: computer.name,
-                            username: self.username,
-                            password: self.password
-                        )
-                    } else {
-                        self.savedConnections.updateLastUsername(
-                            for: computer.host,
-                            name: computer.name,
-                            username: self.username
-                        )
-                    }
-                    self.selectedConnection = computer
-                    self.navigateToControl = true
-                    self.isAuthenticating = false
-                    
-                case .failure(let error):
-                    print("❌ Connection failed")
-                    print("Error: \(error)")
-                    
-                    // Always close the auth view if it's open
-                    self.isAuthenticating = false
-                    
-                    if let sshError = error as? SSHError {
-                        switch sshError {
-                        case .authenticationFailed:
-                            print("Authentication failed - showing error")
-                            self.connectionError = (
-                                "Failed To Connect",
-                                """
-                                The username or password provided was incorrect.
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .connectionFailed(let reason):
-                            print("Connection failed: \(reason)")
-                            self.connectionError = (
-                                "Connection Failed",
-                                """
-                                \(reason)
-                                
-                                Please check that:
-                                • The computer is turned on
-                                • You're on the same network
-                                • Remote Login is enabled in System Settings
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .timeout:
-                            print("Connection timed out")
-                            self.connectionError = (
-                                "Connection Timeout",
-                                """
-                                The connection to \(computer.name) timed out.
-                                Please check your network connection and ensure the computer is reachable.
-                                
-                                Technical details: Connection attempt timed out after 5 seconds
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .channelError(let details):
-                            print("Channel error: \(details)")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Failed to establish a secure connection with \(computer.name).
-                                Please try again in a few moments.
-                                
-                                Technical details: \(details)
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .channelNotConnected:
-                            print("Channel not connected")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Could not establish a connection with \(computer.name).
-                                Please ensure Remote Login is enabled and try again.
-                                
-                                Technical details: SSH channel not connected
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .invalidChannelType:
-                            print("Invalid channel type")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                An internal error occurred while connecting to \(computer.name).
-                                Please try again.
-                                
-                                Technical details: Invalid SSH channel type
-                                """
-                            )
-                            self.showingError = true
-                            
-                        case .noSession:
-                            print("No active session")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Could not establish a connection with \(computer.name).
-                                Please try again.
-                                
-                                Technical details: No active SSH session
-                                """
-                            )
-                            self.showingError = true
-                        }
-                    } else {
-                        print("Unknown error: \(error)")
-                        self.connectionError = (
-                            "Connection Error",
-                            """
-                            An unexpected error occurred while connecting to \(computer.name).
-                            Please try again.
-                            
-                            Technical details: \(error.localizedDescription)
-                            """
-                        )
-                        self.showingError = true
-                    }
-                }
-            }
+        if !savedConnections.hasConnectedBefore(computer.host) {
+            print("First time setup needed")
+            showingFirstTimeSetup = true
+        } else {
+            print("Regular connection")
+            navigateToControl = true
         }
+        
+        // Save credentials if requested
+        if saveCredentials {
+            savedConnections.add(
+                hostname: computer.host,
+                name: computer.name,
+                username: username,
+                password: password
+            )
+        }
+        
+        isAuthenticating = false
     }
 
     private func addManualComputer(_ host: String, name: String, username: String? = nil, password: String? = nil) {

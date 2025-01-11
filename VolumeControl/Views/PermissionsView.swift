@@ -24,25 +24,26 @@ enum PlatformPermissionState: Equatable {
 struct PermissionsView: View {
     let hostname: String
     let displayName: String
-    let sshClient: SSHClientProtocol
+    let username: String
+    let password: String
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
     
+    @StateObject private var connectionManager = SSHConnectionManager()
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
-
-
+    @State private var showingConnectionLostAlert = false
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ZStack {
             // SUCCESS VIEW
             successView
-            // Keep it around, but drive its visibility via opacity
                 .opacity(showSuccess ? 1 : 0)
-            // Hide from accessibility if fully invisible
                 .accessibilityHidden(!showSuccess)
             
             // MAIN PERMISSIONS VIEW
@@ -58,10 +59,56 @@ struct PermissionsView: View {
                 }
             }
             
+            // Set up connection lost handler
+            connectionManager.setConnectionLostHandler { @MainActor in
+                showingConnectionLostAlert = true
+            }
+            
+            // Connect to SSH
+            connectToSSH()
+            
             // If permissions are already granted, show success right away
             if allPermissionsGranted {
                 permissionsGranted = true
             }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            print("\n=== PermissionsView: Scene Phase Change ===")
+            print("Old phase: \(oldPhase)")
+            print("New phase: \(newPhase)")
+            
+            if newPhase == .active {
+                print("Scene became active - connecting")
+                connectToSSH()
+            } else if newPhase == .background {
+                print("Scene entering background - cleaning up")
+                Task { @MainActor in
+                    connectionManager.disconnect()
+                }
+            }
+        }
+        .onDisappear {
+            print("\n=== PermissionsView: Disappearing ===")
+            Task { @MainActor in
+                connectionManager.disconnect()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            print("\n=== PermissionsView: Will Enter Foreground ===")
+            connectToSSH()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            print("\n=== PermissionsView: Will Resign Active ===")
+            Task { @MainActor in
+                connectionManager.disconnect()
+            }
+        }
+        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
+            Button("OK") {
+                dismiss()
+            }
+        } message: {
+            Text("The connection to \(displayName) was lost. Please try connecting again.")
         }
         .onChange(of: allPermissionsGranted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
@@ -83,6 +130,24 @@ struct PermissionsView: View {
                 withAnimation(.spring()) {
                     onComplete()
                 }
+            }
+        }
+    }
+
+    private func connectToSSH() {
+        print("\n=== PermissionsView: Initiating SSH Connection ===")
+        Task {
+            // Check if we need to reconnect
+            if !connectionManager.shouldReconnect(host: hostname, username: username, password: password) {
+                print("✓ Using existing connection")
+                return
+            }
+            
+            do {
+                try await connectionManager.connect(host: hostname, username: username, password: password)
+                print("✓ Connection established")
+            } catch {
+                print("❌ Connection failed in PermissionsView: \(error)")
             }
         }
     }
@@ -214,6 +279,9 @@ struct PermissionsView: View {
             }
             .buttonStyle(.plain)
             .tint(.accentColor)
+            .disabled(connectionManager.connectionState != .connected)
+            .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
+            
             Button {
                 Task { await checkAllPermissions() }
             } label: {
@@ -230,7 +298,8 @@ struct PermissionsView: View {
             .buttonStyle(.bordered)
             .tint(.gray)
             .frame(maxWidth: .infinity)
-            .disabled(isChecking || allPermissionsGranted)
+            .disabled(isChecking || allPermissionsGranted || connectionManager.connectionState != .connected)
+            .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
 
             Text("This may open Permissions Dialogs on \(hostname). [Learn More…](systempreferences://) ")
                 .font(.footnote)
@@ -239,7 +308,6 @@ struct PermissionsView: View {
                 .padding(.horizontal)
         }
         .toolbarBackground(.hidden, for: .navigationBar)
-
     }
     
     private var allPermissionsGranted: Bool {
@@ -295,7 +363,7 @@ struct PermissionsView: View {
         """
         
         return await withCheckedContinuation { continuation in
-            sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
                 continuation.resume(returning: result)
             }
         }
@@ -316,7 +384,7 @@ struct PermissionsView: View {
         """
         
         _ = await withCheckedContinuation { continuation in
-            sshClient.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+            connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -336,7 +404,7 @@ struct PermissionsView: View {
         """
         
         let stateResult = await withCheckedContinuation { continuation in
-            sshClient.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+            connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -350,7 +418,32 @@ struct PermissionsView: View {
             }
         case .failure:
             // Keep checking - no response likely means waiting for user to accept permissions
-            permissionStates[platformId] = .failed("Waiting for permission")
+            // Keep the checking state and start a retry loop
+            var attempts = 0
+            while attempts < 60 { // Try for up to 30 seconds
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
+                
+                let retryResult = await withCheckedContinuation { continuation in
+                    connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                        continuation.resume(returning: result)
+                    }
+                }
+                
+                switch retryResult {
+                case .success(let output):
+                    if output.contains("Not authorized to send Apple events") {
+                        permissionStates[platformId] = .failed("Permission needed")
+                    } else {
+                        permissionStates[platformId] = .granted
+                    }
+                    return
+                case .failure:
+                    attempts += 1
+                }
+            }
+            
+            // If we get here, we've timed out waiting for a response
+            permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
 }
@@ -362,7 +455,8 @@ struct PermissionsView: View {
     return PermissionsView(
         hostname: "rwhitney-mac.local",
         displayName: "Ryan's Mac",
-        sshClient: SSHClient(),
+        username: "ryan",
+        password: "",
         enabledPlatforms: ["music", "vlc", "tv", "safari", "chrome"],
         onComplete: {}
     )

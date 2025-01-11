@@ -252,7 +252,7 @@ class SSHClient: SSHClientProtocol {
     
     func executeCommandWithNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         guard let connection = connection else {
-            print("No active session")
+            print("No active connection")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
@@ -295,6 +295,14 @@ class SSHClient: SSHClientProtocol {
                 
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
+                    // Add timeout for command execution
+                    channel.eventLoop.scheduleTask(in: .seconds(5)) {
+                        if let pendingPromise = handler.pendingCommandPromise {
+                            print("Command execution timed out")
+                            pendingPromise.fail(SSHError.timeout)
+                            channel.close(promise: nil)
+                        }
+                    }
                     return promise.futureResult
                 }
             }
@@ -315,7 +323,18 @@ class SSHClient: SSHClientProtocol {
                 completion(.success(output))
             case .failure(let error):
                 print("SSH Error: \(error)")
-                completion(.failure(error))
+                // Check if the error indicates a disconnection
+                let errorString = error.localizedDescription.lowercased()
+                if errorString.contains("eof") || 
+                   errorString.contains("connection reset") ||
+                   errorString.contains("broken pipe") ||
+                   errorString.contains("connection closed") {
+                    print("Connection appears to be closed - disconnecting")
+                    self.disconnect()
+                    completion(.failure(SSHError.channelError("Connection closed by remote host")))
+                } else {
+                    completion(.failure(error))
+                }
             }
         }
     }
@@ -432,13 +451,10 @@ class SSHCommandHandler: ChannelInboundHandler {
     }
     
     func channelInactive(context: ChannelHandlerContext) {
-        // If the channel closes before we complete, ensure we complete the promise
+        print("SSH Channel became inactive")
         if let promise = pendingCommandPromise {
-            if !buffer.isEmpty {
-                promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
-            } else {
-                promise.fail(SSHError.channelError("Channel closed before receiving output"))
-            }
+            print("Completing pending command with connection closed error")
+            promise.fail(SSHError.channelError("Connection closed by remote host"))
             pendingCommandPromise = nil
         }
         context.fireChannelInactive()
@@ -447,9 +463,21 @@ class SSHCommandHandler: ChannelInboundHandler {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         print("SSH Error: \(error)")
         // Ensure promise is completed on error
-        pendingCommandPromise?.fail(error)
-        pendingCommandPromise = nil
+        if let promise = pendingCommandPromise {
+            print("Completing pending command with error: \(error)")
+            promise.fail(error)
+            pendingCommandPromise = nil
+        }
         context.close(promise: nil)
+    }
+    
+    func handlerRemoved(context: ChannelHandlerContext) {
+        print("SSH Handler removed")
+        if let promise = pendingCommandPromise {
+            print("Completing pending command with handler removed error")
+            promise.fail(SSHError.channelError("SSH handler removed"))
+            pendingCommandPromise = nil
+        }
     }
 }
 

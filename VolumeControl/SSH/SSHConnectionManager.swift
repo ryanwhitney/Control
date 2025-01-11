@@ -6,6 +6,7 @@ class SSHConnectionManager: ObservableObject {
     @Published private(set) var connectionState: ConnectionState = .disconnected
     private nonisolated let sshClient: SSHClient
     private var currentCredentials: Credentials?
+    private var connectionLostHandler: (@MainActor () -> Void)?
     
     struct Credentials: Equatable {
         let host: String
@@ -34,9 +35,40 @@ class SSHConnectionManager: ObservableObject {
         self.sshClient = SSHClient()
     }
     
+    func setConnectionLostHandler(_ handler: @escaping @MainActor () -> Void) {
+        self.connectionLostHandler = handler
+    }
+    
     nonisolated var client: SSHClient { 
         print("SSHConnectionManager: Accessing SSH client")
         return sshClient 
+    }
+    
+    func handleConnectionLost() {
+        print("\n=== SSHConnectionManager: Connection Lost ===")
+        Task { @MainActor in
+            // Clean up existing connection
+            disconnect()
+            
+            // If we have credentials, try to reconnect once
+            if let credentials = currentCredentials {
+                print("Attempting to reconnect...")
+                do {
+                    try await connect(
+                        host: credentials.host,
+                        username: credentials.username,
+                        password: credentials.password
+                    )
+                    print("✓ Reconnection successful")
+                } catch {
+                    print("❌ Reconnection failed, notifying handler")
+                    connectionLostHandler?()
+                }
+            } else {
+                print("No credentials available for reconnection")
+                connectionLostHandler?()
+            }
+        }
     }
     
     func connect(host: String, username: String, password: String) async throws {
@@ -101,31 +133,6 @@ class SSHConnectionManager: ObservableObject {
         }
     }
     
-    func reconnectIfNeeded() {
-        print("\n=== SSHConnectionManager: Checking Reconnection ===")
-        print("Current state: \(connectionState.description)")
-        
-        guard case .disconnected = connectionState,
-              let credentials = currentCredentials else {
-            print("⚠️ No reconnection needed")
-            return
-        }
-        
-        print("Initiating reconnection...")
-        Task {
-            do {
-                try await connect(
-                    host: credentials.host,
-                    username: credentials.username,
-                    password: credentials.password
-                )
-                print("✓ Reconnection successful")
-            } catch {
-                print("❌ Reconnection failed: \(error)")
-            }
-        }
-    }
-    
     nonisolated func disconnect() {
         print("\n=== SSHConnectionManager: Disconnecting ===")
         sshClient.disconnect()
@@ -145,5 +152,20 @@ class SSHConnectionManager: ObservableObject {
     deinit {
         print("\n=== SSHConnectionManager: Deinitializing ===")
         disconnectSync()
+    }
+    
+    func shouldReconnect(host: String, username: String, password: String) -> Bool {
+        guard case .connected = connectionState else { return true }
+        
+        // Check if we're already connected with the same credentials
+        if let existing = currentCredentials,
+           existing.host == host,
+           existing.username == username,
+           existing.password == password {
+            print("✓ Already connected with same credentials")
+            return false
+        }
+        
+        return true
     }
 } 

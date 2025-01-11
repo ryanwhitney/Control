@@ -8,17 +8,19 @@ struct ControlView: View {
     let password: String
     let enabledPlatforms: Set<String>
     
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var connectionManager = SSHConnectionManager()
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
-    @State private var volume: Float = 0.5
+    @State private var volume: Float?
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
+    @State private var showingConnectionLostAlert = false
     
-    init(host: String, displayName: String, username: String, password: String, sshClient: SSHClientProtocol, enabledPlatforms: Set<String> = Set()) {
+    init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
         self.host = host
         self.displayName = displayName
         self.username = username
@@ -31,8 +33,16 @@ struct ControlView: View {
         }
         let registry = PlatformRegistry(platforms: filteredPlatforms)
         
-        // Initialize with the connection manager's client
-        _appController = StateObject(wrappedValue: AppController(sshClient: sshClient, platformRegistry: registry))
+        // Initialize with a temporary client - it will be replaced when we connect
+        _appController = StateObject(wrappedValue: AppController(sshClient: SSHClient(), platformRegistry: registry))
+    }
+    
+    private var displayVolume: String {
+        if let volume = volume {
+            return "\(Int(volume * 100))%"
+        } else {
+            return "Loading..."
+        }
     }
     
     var body: some View {
@@ -61,15 +71,24 @@ struct ControlView: View {
                     VStack(spacing: 20) {
                         Spacer()
                         
-                        Text("Volume: \(Int(volume * 100))%")
+                        Text("Volume: \(displayVolume)")
                             .fontWeight(.bold)
                             .fontWidth(.expanded)
                         
-                        Slider(value: $volume, in: 0...1, step: 0.01)
-                            .padding(.horizontal)
-                            .onChange(of: volume) { oldValue, newValue in
-                                debounceVolumeChange()
-                            }
+                        if let currentVolume = volume {
+                            Slider(value: Binding(
+                                get: { currentVolume },
+                                set: { newValue in
+                                    volume = newValue
+                                    debounceVolumeChange()
+                                }
+                            ), in: 0...1, step: 0.01)
+                                .padding(.horizontal)
+                        } else {
+                            ProgressView()
+                                .padding(.horizontal)
+                        }
+                        
                         HStack(spacing: 16) {
                             ForEach([-5, -1, 1, 5], id: \.self) { adjustment in
                                 Button {
@@ -78,6 +97,7 @@ struct ControlView: View {
                                     Text(adjustment > 0 ? "+\(adjustment)" : "\(adjustment)")
                                 }
                                 .buttonStyle(CircularButtonStyle())
+                                .disabled(volume == nil)
                             }
                         }
                         Spacer()
@@ -108,6 +128,10 @@ struct ControlView: View {
             }
         }
         .onAppear {
+            // Set up connection lost handler
+            connectionManager.setConnectionLostHandler { @MainActor in
+                showingConnectionLostAlert = true
+            }
             connectToSSH()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -149,18 +173,35 @@ struct ControlView: View {
         }
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
+        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
+            Button("OK") {
+                dismiss()
+            }
+        } message: {
+            Text("The connection to \(displayName) was lost. Please try connecting again.")
+        }
     }
     
     private func connectToSSH() {
         print("\n=== ControlView: Initiating SSH Connection ===")
         Task {
+            // Check if we need to reconnect
+            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
+                print("✓ Using existing connection")
+                // Update app controller with current client
+                appController.cleanup()
+                appController.updateClient(connectionManager.client)
+                await appController.updateAllStates()
+                return
+            }
+            
             do {
                 try await connectionManager.connect(host: host, username: username, password: password)
                 print("✓ Connection established, updating app controller")
                 
                 // Update app controller with new client
                 appController.cleanup()
-                appController.reset()
+                appController.updateClient(connectionManager.client)
                 
                 // Update states
                 await appController.updateAllStates()
@@ -176,18 +217,21 @@ struct ControlView: View {
     }
     
     private func adjustVolume(by amount: Int) {
-        let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
-        volume = Float(newVolume) / 100.0
+        guard var currentVolume = volume else { return }
+        let newVolume = min(max(Int(currentVolume * 100) + amount, 0), 100)
+        currentVolume = Float(newVolume) / 100.0
+        volume = currentVolume
         Task {
-            await appController.setVolume(volume)
+            await appController.setVolume(currentVolume)
         }
     }
     
     private func debounceVolumeChange() {
+        guard let currentVolume = volume else { return }
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
             Task {
-                await appController.setVolume(volume)
+                await appController.setVolume(currentVolume)
             }
         }
         volumeChangeWorkItem = workItem
@@ -202,8 +246,7 @@ struct ControlView_Previews: PreviewProvider {
                 host: "rwhitney-mac.local",
                 displayName: "Ryan's Mac",
                 username: "ryan",
-                password: "",
-                sshClient: SSHClient()
+                password: ""
             )
         }
     }
