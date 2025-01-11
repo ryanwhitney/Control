@@ -35,6 +35,7 @@ class AppController: ObservableObject {
         print("\n=== AppController: Cleaning up ===")
         isActive = false
         isUpdating = false
+        // Don't disconnect here - let the connection manager handle it
     }
     
     func updateAllStates() async {

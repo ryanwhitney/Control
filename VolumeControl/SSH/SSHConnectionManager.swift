@@ -63,9 +63,7 @@ class SSHConnectionManager: ObservableObject {
         }
         
         // Clean up any existing connection
-        Task { @MainActor in
-            self.disconnect()
-        }
+        await cleanupExistingConnection()
         
         connectionState = .connecting
         currentCredentials = Credentials(host: host, username: username, password: password)
@@ -84,11 +82,22 @@ class SSHConnectionManager: ObservableObject {
                         case .failure(let error):
                             print("❌ Connection failed: \(error)")
                             self.connectionState = .failed(error.localizedDescription)
+                            self.currentCredentials = nil
                             continuation.resume(throwing: error)
                         }
                     }
                 }
             }
+        }
+    }
+    
+    private func cleanupExistingConnection() async {
+        print("\n=== SSHConnectionManager: Cleaning up existing connection ===")
+        if case .connected = connectionState {
+            print("Found existing connection, disconnecting...")
+            disconnect()
+            // Give a small delay to ensure cleanup
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
         }
     }
     
@@ -123,6 +132,7 @@ class SSHConnectionManager: ObservableObject {
         Task { @MainActor in
             print("Current state before disconnect: \(self.connectionState.description)")
             self.connectionState = .disconnected
+            self.currentCredentials = nil
             print("✓ Disconnected")
         }
     }
