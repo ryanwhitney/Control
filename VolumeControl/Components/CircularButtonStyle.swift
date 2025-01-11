@@ -9,7 +9,7 @@ struct CircularButtonStyle: ButtonStyle {
             .fontWeight(.medium)
             .frame(width: 60, height: 60)
             .foregroundStyle(Color.accentColor)
-            .background( Color.accentColor.opacity(0.15))
+            .background( Color.accentColor.opacity(0.10))
             .clipShape(Circle())
             .labelStyle(.iconOnly)
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
@@ -25,7 +25,7 @@ struct CircularButtonStyle_Previews: PreviewProvider {
             Button {
                 print("test")
             } label: {
-                Text("-5")
+                Text("−5")
             }
             .buttonStyle(CircularButtonStyle())
             

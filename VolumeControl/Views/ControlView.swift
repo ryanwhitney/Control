@@ -115,6 +115,7 @@ struct ControlView: View {
         .padding()
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
+        .toolbarRole(.editor)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Refresh", systemImage: "arrow.clockwise") {

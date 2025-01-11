@@ -28,13 +28,19 @@ struct PlatformControlPanel: View {
                     .id(mediaInfo)
             }
             
-            HStack(spacing: 10) {
+            HStack(spacing: 16) {
                 ForEach(actions) { config in
                     Button(action: { onAction(config.action) }) {
                         if let dynamicIcon = config.dynamicIcon, let isPlaying = isPlaying {
                             Image(systemName: dynamicIcon(isPlaying))
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 34, height: 34)
                         } else {
-                            Label(config.action.label, systemImage: config.staticIcon)
+                            Image(systemName: config.staticIcon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 34, height: 34)
                         }
                     }
                     .buttonStyle(IconButtonStyle())
