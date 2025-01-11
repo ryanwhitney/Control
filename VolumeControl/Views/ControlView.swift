@@ -6,9 +6,9 @@ struct ControlView: View {
     let displayName: String
     let username: String
     let password: String
-    let sshClient: SSHClientProtocol
     let enabledPlatforms: Set<String>
     
+    @StateObject private var connectionManager = SSHConnectionManager()
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -16,7 +16,6 @@ struct ControlView: View {
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
-    @State private var connectionState: ConnectionState = .disconnected
     @State private var shouldShowLoadingOverlay: Bool = false
     
     enum ConnectionState: Equatable {
@@ -49,7 +48,6 @@ struct ControlView: View {
         self.displayName = displayName
         self.username = username
         self.password = password
-        self.sshClient = sshClient
         self.enabledPlatforms = enabledPlatforms
         
         // Filter platforms based on enabled set
@@ -58,6 +56,7 @@ struct ControlView: View {
         }
         let registry = PlatformRegistry(platforms: filteredPlatforms)
         
+        // Initialize with the connection manager's client
         _appController = StateObject(wrappedValue: AppController(sshClient: sshClient, platformRegistry: registry))
     }
     
@@ -129,57 +128,66 @@ struct ControlView: View {
             connectToSSH()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
+            print("\n=== ControlView: Scene Phase Change ===")
+            print("Old phase: \(oldPhase)")
+            print("New phase: \(newPhase)")
+            
             if newPhase == .active {
+                print("Scene became active - connecting")
                 connectToSSH()
             } else if newPhase == .background {
-                appController.cleanup()
-                sshClient.disconnect()
+                print("Scene entering background - cleaning up")
+                Task { @MainActor in
+                    appController.cleanup()
+                    connectionManager.disconnect()
+                }
             }
         }
         .onDisappear {
-            appController.cleanup()
-            sshClient.disconnect()
+            print("\n=== ControlView: Disappearing ===")
+            Task { @MainActor in
+                appController.cleanup()
+                connectionManager.disconnect()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            print("\n=== ControlView: Will Enter Foreground ===")
             connectToSSH()
         }
         .onReceive(appController.$currentVolume) { newVolume in
             self.volume = newVolume
         }
-        .onDisappear {
-            appController.cleanup()
-            sshClient.disconnect()
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            appController.cleanup()
-            sshClient.disconnect()
+            print("\n=== ControlView: Will Resign Active ===")
+            Task { @MainActor in
+                appController.cleanup()
+                connectionManager.disconnect()
+            }
         }
         .tint(preferences.tintColorValue)
         .accentColor(preferences.tintColorValue)
     }
     
     private func connectToSSH() {
-        // First cleanup existing connections
-        appController.cleanup()
-        sshClient.disconnect()
-        
-        connectionState = .connecting
-        
-        sshClient.connect(host: host, username: username, password: password) { result in
-            DispatchQueue.main.async {
-                switch result {
-                case .success:
-                    self.connectionState = .connected
-                    self.appController.reset()
-                    Task {
-                        await self.appController.updateAllStates()
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
-                        self.isReady = true
-                    }
-                case .failure(let error):
-                    self.connectionState = .failed(error.localizedDescription)
+        print("\n=== ControlView: Initiating SSH Connection ===")
+        Task {
+            do {
+                try await connectionManager.connect(host: host, username: username, password: password)
+                print("✓ Connection established, updating app controller")
+                
+                // Update app controller with new client
+                appController.cleanup()
+                appController.reset()
+                
+                // Update states
+                await appController.updateAllStates()
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+                    isReady = true
                 }
+            } catch {
+                print("❌ Connection failed in ControlView: \(error)")
+                errorMessage = error.localizedDescription
             }
         }
     }

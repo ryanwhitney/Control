@@ -15,6 +15,7 @@ class AppController: ObservableObject {
     }
     
     init(sshClient: SSHClientProtocol, platformRegistry: PlatformRegistry) {
+        print("\n=== AppController: Initializing ===")
         self.sshClient = sshClient
         self.platformRegistry = platformRegistry
         
@@ -25,27 +26,36 @@ class AppController: ObservableObject {
     }
     
     func reset() {
+        print("\n=== AppController: Resetting ===")
         isActive = true
         isUpdating = false
     }
     
     func cleanup() {
+        print("\n=== AppController: Cleaning up ===")
         isActive = false
         isUpdating = false
     }
     
     func updateAllStates() async {
-        guard isActive else { return }
+        print("\n=== AppController: Updating All States ===")
+        guard isActive else {
+            print("⚠️ Controller not active, skipping update")
+            return
+        }
         
         // Update system volume
         await updateSystemVolume()
         
         // First check which apps are running
         for platform in platforms {
+            print("\nChecking platform: \(platform.name)")
             let isRunning = await checkIfRunning(platform)
             if isRunning {
+                print("✓ \(platform.name) is running, updating state")
                 await updateState(for: platform)
             } else {
+                print("⚠️ \(platform.name) is not running")
                 states[platform.id] = AppState(
                     title: "Not Running",
                     subtitle: nil,
@@ -95,14 +105,24 @@ class AppController: ObservableObject {
     }
     
     private func checkIfRunning(_ platform: any AppPlatform) async -> Bool {
-        guard isActive else { return false }
+        print("\n=== AppController: Checking if \(platform.name) is running ===")
+        guard isActive else {
+            print("⚠️ Controller not active, returning false")
+            return false
+        }
         
-        let result = await executeCommand(platform.isRunningScript(), description: "\(platform.name): check if running")
+        let result = await executeCommand(
+            platform.isRunningScript(),
+            description: "\(platform.name): check if running"
+        )
         
         switch result {
         case .success(let output):
-            return output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+            let isRunning = output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+            print(isRunning ? "✓ App is running" : "⚠️ App is not running")
+            return isRunning
         case .failure:
+            print("❌ Failed to check if running")
             return false
         }
     }
@@ -146,13 +166,27 @@ class AppController: ObservableObject {
     }
     
     func setVolume(_ volume: Float) async {
-        guard isActive else { return }
+        print("\n=== AppController: Setting Volume ===")
+        print("Target volume: \(Int(volume * 100))%")
+        guard isActive else {
+            print("⚠️ Controller not active, skipping volume change")
+            return
+        }
+        
         let script = "set volume output volume \(Int(volume * 100))"
-        _ = await executeCommand(script, description: "System: set volume(\(Int(volume * 100)))")
+        let result = await executeCommand(script, description: "System: set volume(\(Int(volume * 100)))")
+        
+        if case .success = result {
+            print("✓ Volume set successfully")
+        }
     }
     
     private func updateSystemVolume() async {
-        guard isActive else { return }
+        print("\n=== AppController: Updating System Volume ===")
+        guard isActive else {
+            print("⚠️ Controller not active, skipping volume update")
+            return
+        }
         
         let script = """
         output volume of (get volume settings)
@@ -163,11 +197,20 @@ class AppController: ObservableObject {
         if case .success(let output) = result,
            let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
             currentVolume = volume / 100.0
+            print("✓ Current volume: \(Int(currentVolume * 100))%")
+        } else {
+            print("❌ Failed to get current volume")
         }
     }
     
     // Keep this simpler version for single commands (permissions checks, etc)
     private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+        print("\n=== AppController: Executing Command ===")
+        if let description = description {
+            print("Description: \(description)")
+        }
+        print("Command length: \(command.count) characters")
+        
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
         try
@@ -180,6 +223,15 @@ class AppController: ObservableObject {
         
         return await withCheckedContinuation { continuation in
             sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+                switch result {
+                case .success(let output):
+                    print("✓ Command executed successfully")
+                    if !output.isEmpty {
+                        print("Output length: \(output.count) characters")
+                    }
+                case .failure(let error):
+                    print("❌ Command failed: \(error)")
+                }
                 continuation.resume(returning: result)
             }
         }
