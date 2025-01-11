@@ -18,31 +18,6 @@ struct ControlView: View {
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     
-    enum ConnectionState: Equatable {
-        case connecting
-        case connected
-        case disconnected
-        case failed(String)
-        
-        var isOverlay: Bool {
-            switch self {
-            case .connecting: return true
-            case .disconnected, .failed: return false
-            case .connected: return false
-            }
-        }
-        
-        static func == (lhs: ConnectionState, rhs: ConnectionState) -> Bool {
-            switch (lhs, rhs) {
-            case (.connecting, .connecting): return true
-            case (.connected, .connected): return true
-            case (.disconnected, .disconnected): return true
-            case (.failed(let lhsError), .failed(let rhsError)): return lhsError == rhsError
-            default: return false
-            }
-        }
-    }
-    
     init(host: String, displayName: String, username: String, password: String, sshClient: SSHClientProtocol, enabledPlatforms: Set<String> = Set()) {
         self.host = host
         self.displayName = displayName
@@ -109,7 +84,15 @@ struct ControlView: View {
                     }
                     
                 }
+                .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
+                .animation(.spring(), value: connectionManager.connectionState)
             }
+            Rectangle()
+                .foregroundStyle(.black)
+                .blendMode(.saturation)
+                .opacity(connectionManager.connectionState == .connected ? 0 : 1)
+                .animation(.spring(), value: connectionManager.connectionState)
+                .allowsHitTesting(connectionManager.connectionState == .connected)
         }
         .padding()
         .navigationTitle(displayName)
