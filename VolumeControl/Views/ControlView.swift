@@ -74,6 +74,8 @@ struct ControlView: View {
                         Text("Volume: \(displayVolume)")
                             .fontWeight(.bold)
                             .fontWidth(.expanded)
+                            .accessibilityLabel("System Volume")
+                            .accessibilityValue(displayVolume)
                         
                         if let currentVolume = volume {
                             Slider(value: Binding(
@@ -84,9 +86,13 @@ struct ControlView: View {
                                 }
                             ), in: 0...1, step: 0.01)
                                 .padding(.horizontal)
+                                .accessibilityLabel("Volume Slider")
+                                .accessibilityValue("\(Int(currentVolume * 100))%")
+                                .accessibilityHint("Adjust to change system volume")
                         } else {
                             ProgressView()
                                 .padding(.horizontal)
+                                .accessibilityLabel("Loading volume")
                         }
                         
                         HStack(spacing: 16) {
@@ -98,11 +104,12 @@ struct ControlView: View {
                                 }
                                 .buttonStyle(CircularButtonStyle())
                                 .disabled(volume == nil)
+                                .accessibilityLabel("Adjust volume by \(adjustment)")
+                                .accessibilityHint("Tap to \(adjustment > 0 ? "increase" : "decrease") volume by \(abs(adjustment))%")
                             }
                         }
                         Spacer()
                     }
-                    
                 }
                 .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
                 .animation(.spring(), value: connectionManager.connectionState)

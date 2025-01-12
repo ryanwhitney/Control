@@ -19,13 +19,10 @@ struct ConnectionsView: View {
     @State private var isSearching = false
     @State private var networkScanner: NWBrowser?
     @State private var connectingComputer: Connection?
-    @State private var showingPreferences = false
     @State private var connectionError: (title: String, message: String)?
     @State private var showingError = false
     @State private var showingFirstTimeSetup = false
-    @State private var showingPermissionsView = false
     @State private var navigateToPermissions = false
-    @State private var showingHelpPopover = false
     @State private var activePopover: ActivePopover?
 
     enum ActivePopover: Identifiable {
@@ -143,6 +140,7 @@ struct ConnectionsView: View {
                                     Spacer()
                                     ProgressView()
                                 }
+                                .accessibilityLabel("Scanning for devices")
                             } else if connections.isEmpty {
                                 Text("No connections found")
                                     .foregroundColor(.secondary)
@@ -155,6 +153,9 @@ struct ConnectionsView: View {
                                 ) {
                                     selectComputer(computer)
                                 }
+                                .accessibilityLabel("\(computer.name) on \(computer.host)")
+                                .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
+                                .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
                             }
                             
                             if !connections.isEmpty && isSearching {
@@ -165,9 +166,10 @@ struct ConnectionsView: View {
                                     Spacer()
                                     ProgressView()
                                 }
+                                .accessibilityLabel("Searching for additional devices")
                             }
                         }
-
+                        .accessibilityLabel("Network Devices")
 
                         Section(header: Text("Recent".capitalized)) {
                             if savedComputers.isEmpty {
@@ -181,12 +183,16 @@ struct ConnectionsView: View {
                                     ) {
                                         selectComputer(computer)
                                     }
+                                    .accessibilityLabel("\(computer.name) - Recent connection")
+                                    .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
+                                    .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
                                             savedConnections.remove(hostname: computer.host)
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
+                                        .accessibilityLabel("Delete \(computer.name)")
                                         .tint(.red)
 
                                         Button {
@@ -198,17 +204,13 @@ struct ConnectionsView: View {
                                         } label: {
                                             Label("Edit", systemImage: "pencil")
                                         }
+                                        .accessibilityLabel("Edit \(computer.name)")
                                         .tint(.accentColor)
-                                    }
-                                }
-                                .onDelete { indexSet in
-                                    for index in indexSet {
-                                        let computer = savedComputers[index]
-                                        savedConnections.remove(hostname: computer.host)
                                     }
                                 }
                             }
                         }
+                        .accessibilityLabel("Recent Connections")
                     }
                 }
                 VStack {
@@ -268,6 +270,7 @@ struct ConnectionsView: View {
                         Button(action: startNetworkScan) {
                             Image(systemName: "arrow.clockwise")
                         }
+                        .accessibilityLabel("Refresh device list")
                         
                         Button(action: {
                             selectedConnection = nil
@@ -278,6 +281,7 @@ struct ConnectionsView: View {
                         }) {
                             Image(systemName: "plus")
                         }
+                        .accessibilityLabel("Add new connection")
                     }
                 }
                 ToolbarItem(placement: .topBarLeading) {
@@ -286,6 +290,7 @@ struct ConnectionsView: View {
                     } label: {
                         Image(systemName: "gear")
                     }
+                    .accessibilityLabel("Settings")
                 }
             }
             .sheet(isPresented: $showingAddDialog) {
@@ -701,16 +706,6 @@ class SSHManager: ObservableObject {
     }
 }
 
-struct ComputerListView_Previews: PreviewProvider {
-    static var previews: some View {
-        ConnectionsView()
-    }
-}
-
-struct ComputerListView_Previews_settings: PreviewProvider {
-    @State private var showingPreferences = true
-
-    static var previews: some View {
-        ConnectionsView()
-    }
+#Preview {
+    ConnectionsView()
 }
