@@ -257,14 +257,18 @@ struct PermissionsView: View {
             switch permissionStates[platformId] ?? .initial {
             case .initial:
                 EmptyView()
+                    .accessibilityHidden(true)
             case .checking:
                 ProgressView()
+                    .accessibilityLabel("Checking permissions")
             case .granted:
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
+                    .accessibilityLabel("Permissions granted")
             case .failed:
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
+                    .accessibilityLabel("Permission check failed")
             }
         }
     }
@@ -281,11 +285,12 @@ struct PermissionsView: View {
             .tint(.accentColor)
             .disabled(connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
+            .accessibilityHint("Skip permission checks and continue")
             
             Button {
                 Task { await checkAllPermissions() }
             } label: {
-                Text( "Check Permissions")
+                Text("Check Permissions")
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
                     .tint(.accentColor)
@@ -300,6 +305,7 @@ struct PermissionsView: View {
             .frame(maxWidth: .infinity)
             .disabled(isChecking || allPermissionsGranted || connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
+            .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
 
             Text("This may open Permissions Dialogs on \(hostname). [Learn More…](systempreferences://) ")
                 .font(.footnote)
@@ -319,15 +325,6 @@ struct PermissionsView: View {
     private var isChecking: Bool {
         enabledPlatforms.contains { platformId in
             permissionStates[platformId] == .checking
-        }
-    }
-    
-    private var anyPermissionsChecked: Bool {
-        enabledPlatforms.contains { platformId in
-            if case .initial = permissionStates[platformId] ?? .initial {
-                return false
-            }
-            return true
         }
     }
     
