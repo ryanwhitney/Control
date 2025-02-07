@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ThemeSettingsView: View {
     @StateObject private var preferences = UserPreferences.shared
-//    @StateObject private var savedConnections = SavedConnections()
+    @StateObject private var savedConnections = SavedConnections()
 //    @State private var previewComputer: (name: String, host: String)?
     @State private var selectedIndex: Int = 0
 
@@ -18,27 +18,25 @@ struct ThemeSettingsView: View {
         ("Teal", "teal", Color.teal),
         ("Cyan", "cyan", Color.cyan)
     ]
-//
-//    private var defaultComputerInfo: (name: String, host: String) {
-//        if let firstSaved = savedConnections.items.first {
-//            return (firstSaved.name ?? "Unknown Device", firstSaved.hostname)
-//        }
-//        return ("JH's MacBook Pro", "johnny-highway-mbp.local")
-//    }
+
+    private var defaultComputerInfo: (name: String, host: String) {
+        if let firstSaved = savedConnections.items.first {
+            return (firstSaved.name ?? "Unknown Device", firstSaved.hostname)
+        }
+        return ("JH's MacBook Pro", "johnny-highway-mbp.local")
+    }
 
     var body: some View {
-//        let computerInfo = defaultComputerInfo
+        let computerInfo = defaultComputerInfo
         VStack {
-            ZStack {
-
-
-                VStack(spacing: 16) {
+            VStack(spacing: 0) {
+                VStack(spacing: 32) {
                     HStack {
                         VStack(alignment: .leading) {
-                            Text("JH's MacBook Pro")
+                            Text(computerInfo.name)
                                 .font(.headline)
-                                .foregroundStyle(Self.colors[selectedIndex].2)
-                            Text("johnny-highway-mbp.local")
+                                .foregroundColor(.accentColor)
+                            Text(computerInfo.host)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
@@ -55,7 +53,7 @@ struct ThemeSettingsView: View {
                                 Image(systemName: symbol)
                             }
                             .buttonStyle(IconButtonStyle())
-                            .accentColor(Self.colors[selectedIndex].2)
+                            .tint(.accentColor)
                         }
                     }
                     HStack(spacing: 16) {
@@ -64,36 +62,61 @@ struct ThemeSettingsView: View {
                                 Text(text)
                             }
                             .buttonStyle(CircularButtonStyle())
-                            .accentColor(Self.colors[selectedIndex].2)
+                            .tint(.accentColor)
                         }
                     }
                 }
-                .animation(.spring(), value: selectedIndex)
+                .animation(.spring(), value: preferences.tintColor)
                 .padding()
                 .cornerRadius(12)
                 .padding()
-                .background(.black)
 
-                TabView(selection: $selectedIndex) {
-                    ForEach(Self.colors.indices, id: \.self) { index in
-                        let (name, value, color) = Self.colors[index]
-                        VStack {
-                            Text(name)
-                                .font(.title2.bold())
-                                .padding()
-                            Button(action: {
+                List {
+                    Section {
+                        ForEach(Self.colors.indices, id: \.self) { index in
+                            let (name, value, color) = Self.colors[index]
+                            Button {
                                 preferences.tintColor = value
-                            }) {
-                                Text("Set as theme color")
+//                                selectedIndex = index
+                            } label: {
+                                HStack {
+                                    Circle()
+                                        .fill(color)
+                                        .frame(width: 16, height: 16)
+                                        .padding(.trailing, 4)
+                                    Text(name)
+                                    Spacer()
+                                    if preferences.tintColor == value {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(color)
+                                    }
+                                }
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(color)
+                            .foregroundStyle(.primary)
                         }
-                        .padding()
-                        .tag(index)
                     }
                 }
-                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .always))
+                .scrollContentBackground(.hidden)
+//
+//                TabView(selection: $selectedIndex) {
+//                    ForEach(Self.colors.indices, id: \.self) { index in
+//                        let (name, value, color) = Self.colors[index]
+//                        VStack {
+//                            Text(name)
+//                                .font(.title2.bold())
+//                                .padding()
+//                            Button(action: {
+//                                preferences.tintColor = value
+//                            }) {
+//                                Text("Set as theme color")
+//                            }
+//                            .buttonStyle(.borderedProminent)
+//                        }
+//                        .padding()
+//                        .tag(index)
+//                    }
+//                }
+//                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .always))
             }
         }
         .background(.black)
