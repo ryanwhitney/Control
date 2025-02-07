@@ -19,7 +19,8 @@ struct ControlView: View {
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var showingConnectionLostAlert = false
-    
+    @State private var showingThemeSettings: Bool = false
+
     init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
         self.host = host
         self.displayName = displayName
@@ -127,10 +128,21 @@ struct ControlView: View {
         .toolbarRole(.editor)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Refresh", systemImage: "arrow.clockwise") {
-                    Task {
-                        await appController.updateAllStates()
+                Menu {
+                    Button {
+                        Task {
+                            await appController.updateAllStates()
+                        }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
+                    Button {
+                        showingThemeSettings = true
+                    } label: {
+                        Label("Change Theme", systemImage: "paintpalette")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
                 }
             }
         }
@@ -186,6 +198,11 @@ struct ControlView: View {
             }
         } message: {
             Text("The connection to \(displayName) was lost. Please try connecting again.")
+        }
+        .sheet(isPresented: $showingThemeSettings){
+            ThemeSettingsSheet()
+                .presentationDetents([.height(200)])
+                .presentationDragIndicator(.visible)
         }
     }
     

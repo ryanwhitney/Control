@@ -11,7 +11,7 @@ struct PreferencesView: View {
                         ThemeSettingsView()
                     } label: {
                         HStack {
-                            Image(systemName: "theatermask.and.paintbrush.fill")
+                            Image(systemName: "paintpalette")
                                 .symbolRenderingMode(.hierarchical)
                                 .foregroundStyle(.primary, .secondary)
                                 .frame(width: 28, height: 28)
