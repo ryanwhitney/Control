@@ -139,7 +139,11 @@ struct ControlView: View {
                     Button {
                         showingThemeSettings = true
                     } label: {
-                        Label("Change Theme", systemImage: "paintpalette")
+                        HStack{
+                            Text("Change Theme")
+                            Image(systemName: "circle.fill")
+                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
