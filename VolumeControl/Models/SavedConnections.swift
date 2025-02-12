@@ -13,6 +13,7 @@ class SavedConnections: ObservableObject {
         let lastUsed: Date
         var hasConnectedBefore: Bool
         var enabledPlatforms: Set<String>
+        var lastViewedPlatform: String?
         
         init(hostname: String, name: String? = nil, username: String? = nil) {
             self.id = UUID()
@@ -22,6 +23,7 @@ class SavedConnections: ObservableObject {
             self.lastUsed = Date()
             self.hasConnectedBefore = false
             self.enabledPlatforms = []
+            self.lastViewedPlatform = nil
         }
     }
     
@@ -156,5 +158,16 @@ class SavedConnections: ObservableObject {
     
     func enabledPlatforms(_ hostname: String) -> Set<String> {
         return items.first(where: { $0.hostname == hostname })?.enabledPlatforms ?? []
+    }
+    
+    func updateLastViewedPlatform(_ hostname: String, platform: String) {
+        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            items[index].lastViewedPlatform = platform
+            save()
+        }
+    }
+    
+    func lastViewedPlatform(_ hostname: String) -> String? {
+        return items.first(where: { $0.hostname == hostname })?.lastViewedPlatform
     }
 }

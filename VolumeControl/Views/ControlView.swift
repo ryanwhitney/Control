@@ -12,6 +12,7 @@ struct ControlView: View {
     @StateObject private var connectionManager = SSHConnectionManager()
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
+    @StateObject private var savedConnections = SavedConnections()
     @Environment(\.scenePhase) private var scenePhase
     @State private var volume: Float?
     @State private var errorMessage: String?
@@ -20,6 +21,7 @@ struct ControlView: View {
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var showingConnectionLostAlert = false
     @State private var showingThemeSettings: Bool = false
+    @State private var selectedPlatformIndex: Int = 0
 
     init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
         self.host = host
@@ -53,19 +55,25 @@ struct ControlView: View {
                 let mediaHeight = totalHeight * 6 / 10
                 VStack(spacing: 0) {
                     VStack {
-                        TabView {
-                            ForEach(appController.platforms, id: \.id) { platform in
+                        TabView(selection: $selectedPlatformIndex) {
+                            ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
                                 PlatformControl(
                                     platform: platform,
                                     state: Binding(
-                                        get: { appController.states[platform.id] ?? AppState(title: "Error") },
+                                        get: { appController.states[platform.id] ?? AppState(title: " ") },
                                         set: { appController.states[platform.id] = $0 }
                                     )
                                 )
                                 .environmentObject(appController)
+                                .tag(index)
                             }
                         }
                         .tabViewStyle(.page)
+                        .onChange(of: selectedPlatformIndex) { _, newValue in
+                            if let platform = appController.platforms[safe: newValue] {
+                                savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+                            }
+                        }
                     }
                     .frame(height: mediaHeight)
                     
@@ -123,6 +131,8 @@ struct ControlView: View {
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
         .padding()
+        .tint(preferences.tintColorValue)
+        .accentColor(preferences.tintColorValue)
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
@@ -156,6 +166,12 @@ struct ControlView: View {
                 showingConnectionLostAlert = true
             }
             connectToSSH()
+            
+            // Set initial platform if one was previously selected
+            if let lastPlatform = savedConnections.lastViewedPlatform(host),
+               let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
+                selectedPlatformIndex = index
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             print("\n=== ControlView: Scene Phase Change ===")
@@ -194,8 +210,6 @@ struct ControlView: View {
                 connectionManager.disconnect()
             }
         }
-        .tint(preferences.tintColorValue)
-        .accentColor(preferences.tintColorValue)
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
             Button("OK") {
                 dismiss()
@@ -277,5 +291,13 @@ struct ControlView_Previews: PreviewProvider {
                 password: ""
             )
         }
+    }
+}
+
+// Add a safe subscript extension for Array
+extension Array {
+    subscript(safe index: Int) -> Element? {
+        guard index >= 0, index < endIndex else { return nil }
+        return self[index]
     }
 }

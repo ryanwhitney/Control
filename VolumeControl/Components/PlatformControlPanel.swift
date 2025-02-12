@@ -20,6 +20,9 @@ struct PlatformControlPanel: View {
                             .labelStyle(.iconOnly)
                     }
                 }
+                .id(title)
+                .contentTransition(.opacity)
+                .animation(.spring(), value: title)
                 Text(mediaInfo)
                     .font(.caption)
                     .foregroundStyle(.secondary)
