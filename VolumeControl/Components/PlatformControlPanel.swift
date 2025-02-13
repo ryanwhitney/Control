@@ -11,24 +11,26 @@ struct PlatformControlPanel: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
-                HStack{
+                HStack {
                     Text(title)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
+                        .id(title)
+                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     if title.contains("Safari") {
                         Label("Experimental", systemImage: "exclamationmark.triangle.fill")
                             .labelStyle(.iconOnly)
                     }
                 }
-                .id(title)
-                .contentTransition(.opacity)
                 .animation(.spring(), value: title)
+                
                 Text(mediaInfo)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .contentTransition(.opacity)
                     .id(mediaInfo)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .animation(.spring(), value: mediaInfo)
             }
             
             HStack(spacing: 16) {
