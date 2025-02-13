@@ -4,7 +4,7 @@
 
 Control is an iOS app that provides remote controls for common MacOS media apps. 
 
-It connects over SSH and uses AppleScript to control applications. Nothing needs to be installed on the Mac.
+It works by connecting directly to the Mac via SSH and uses AppleScript for commands. Nothing needs to be installed on the Mac!
 
 
 ### Supported MacOS Apps
@@ -14,5 +14,7 @@ Control supports basic media controls for:
   - QuickTime Player
   - VLC
   - Spotify
+  - Safari (experimental, disabled)
+  - Chrome (experimental, disabled)
 
 To request support for additional apps, [file an Issue](https://github.com/ryanwhitney/Control/issues).
