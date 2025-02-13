@@ -279,10 +279,10 @@ struct ControlView_Previews: PreviewProvider {
     static var previews: some View {
         NavigationStack {
             ControlView(
-                host: "rwhitney-mac.local",
-                displayName: "Ryan's Mac",
-                username: "ryan",
-                password: ""
+                host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
+                displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
+                username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
+                password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
             )
         }
     }

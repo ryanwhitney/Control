@@ -447,13 +447,17 @@ struct PermissionsView: View {
 
 #Preview {
     let client = SSHClient()
-    client.connect(host: "rwhitney-mac.local", username: "ryan", password: "") { _ in }
-    
+    client.connect(
+        host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
+        username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
+        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
+    ) { _ in }
+
     return PermissionsView(
-        hostname: "rwhitney-mac.local",
-        displayName: "Ryan's Mac",
-        username: "ryan",
-        password: "",
+        hostname: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
+        displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
+        username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
+        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
         enabledPlatforms: ["music", "vlc", "tv", "safari", "chrome"],
         onComplete: {}
     )
