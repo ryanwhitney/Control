@@ -14,7 +14,8 @@ struct ControlView: View {
     @StateObject private var preferences = UserPreferences.shared
     @StateObject private var savedConnections = SavedConnections()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var volume: Float?
+    @State private var volume: Float = 0.5  // Default value instead of optional
+    @State private var volumeInitialized: Bool = false  // Track if we've received real volume
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
@@ -41,11 +42,7 @@ struct ControlView: View {
     }
     
     private var displayVolume: String {
-        if let volume = volume {
-            return "\(Int(volume * 100))%"
-        } else {
-            return "Loading..."
-        }
+        return "\(Int(volume * 100))%"
     }
     
     var body: some View {
@@ -60,7 +57,7 @@ struct ControlView: View {
                                 PlatformControl(
                                     platform: platform,
                                     state: Binding(
-                                        get: { appController.states[platform.id] ?? AppState(title: " ") },
+                                        get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: " ") },
                                         set: { appController.states[platform.id] = $0 }
                                     )
                                 )
@@ -86,23 +83,20 @@ struct ControlView: View {
                             .accessibilityLabel("System Volume")
                             .accessibilityValue(displayVolume)
                         
-                        if let currentVolume = volume {
-                            Slider(value: Binding(
-                                get: { currentVolume },
-                                set: { newValue in
+                        Slider(value: Binding(
+                            get: { volume },
+                            set: { newValue in
+                                if volumeInitialized {
                                     volume = newValue
                                     debounceVolumeChange()
                                 }
-                            ), in: 0...1, step: 0.01)
-                                .padding(.horizontal)
-                                .accessibilityLabel("Volume Slider")
-                                .accessibilityValue("\(Int(currentVolume * 100))%")
-                                .accessibilityHint("Adjust to change system volume")
-                        } else {
-                            ProgressView()
-                                .padding(.horizontal)
-                                .accessibilityLabel("Loading volume")
-                        }
+                            }
+                        ), in: 0...1, step: 0.01)
+                            .padding(.horizontal)
+                            .accessibilityLabel("Volume Slider")
+                            .accessibilityValue("\(Int(volume * 100))%")
+                            .accessibilityHint("Adjust to change system volume")
+                            .disabled(!volumeInitialized)
                         
                         HStack(spacing: 16) {
                             ForEach([-5, -1, 1, 5], id: \.self) { adjustment in
@@ -112,7 +106,7 @@ struct ControlView: View {
                                     Text(adjustment > 0 ? "+\(adjustment)" : "\(adjustment)")
                                 }
                                 .buttonStyle(CircularButtonStyle())
-                                .disabled(volume == nil)
+                                .disabled(!volumeInitialized)
                                 .accessibilityLabel("Adjust volume by \(adjustment)")
                                 .accessibilityHint("Tap to \(adjustment > 0 ? "increase" : "decrease") volume by \(abs(adjustment))%")
                             }
@@ -201,7 +195,10 @@ struct ControlView: View {
             connectToSSH()
         }
         .onReceive(appController.$currentVolume) { newVolume in
-            self.volume = newVolume
+            if let newVolume = newVolume {
+                volumeInitialized = true
+                volume = newVolume
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
             print("\n=== ControlView: Will Resign Active ===")
@@ -231,7 +228,6 @@ struct ControlView: View {
             if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
                 print("✓ Using existing connection")
                 // Update app controller with current client
-                appController.cleanup()
                 appController.updateClient(connectionManager.client)
                 await appController.updateAllStates()
                 return
@@ -242,7 +238,6 @@ struct ControlView: View {
                 print("✓ Connection established, updating app controller")
                 
                 // Update app controller with new client
-                appController.cleanup()
                 appController.updateClient(connectionManager.client)
                 
                 // Update states
@@ -259,21 +254,20 @@ struct ControlView: View {
     }
     
     private func adjustVolume(by amount: Int) {
-        guard var currentVolume = volume else { return }
-        let newVolume = min(max(Int(currentVolume * 100) + amount, 0), 100)
-        currentVolume = Float(newVolume) / 100.0
-        volume = currentVolume
+        guard volumeInitialized else { return }
+        let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
+        volume = Float(newVolume) / 100.0
         Task {
-            await appController.setVolume(currentVolume)
+            await appController.setVolume(volume)
         }
     }
     
     private func debounceVolumeChange() {
-        guard let currentVolume = volume else { return }
+        guard volumeInitialized else { return }
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
             Task {
-                await appController.setVolume(currentVolume)
+                await appController.setVolume(volume)
             }
         }
         volumeChangeWorkItem = workItem

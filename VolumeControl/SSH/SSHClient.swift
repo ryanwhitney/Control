@@ -284,7 +284,17 @@ class SSHClient: SSHClientProtocol {
                 return channel
             }.flatMapError { error in
                 print("Channel creation failed: \(error)")
-                childPromise.fail(error)  // Ensure promise is completed
+                // Check for TCP shutdown and other fatal errors
+                let errorString = error.localizedDescription.lowercased()
+                if errorString.contains("tcp shutdown") ||
+                   errorString.contains("connection reset") ||
+                   errorString.contains("broken pipe") ||
+                   errorString.contains("connection closed") ||
+                   errorString.contains("eof") {
+                    print("Fatal connection error detected: \(error)")
+                    self.disconnect()
+                    return connection.eventLoop.makeFailedFuture(SSHError.channelError("Connection lost"))
+                }
                 return connection.eventLoop.makeFailedFuture(error)
             }
         }.flatMap { channel -> EventLoopFuture<String> in
@@ -328,10 +338,11 @@ class SSHClient: SSHClientProtocol {
                 if errorString.contains("eof") || 
                    errorString.contains("connection reset") ||
                    errorString.contains("broken pipe") ||
-                   errorString.contains("connection closed") {
+                   errorString.contains("connection closed") ||
+                   errorString.contains("tcp shutdown") {
                     print("Connection appears to be closed - disconnecting")
                     self.disconnect()
-                    completion(.failure(SSHError.channelError("Connection closed by remote host")))
+                    completion(.failure(SSHError.channelError("Connection lost")))
                 } else {
                     completion(.failure(error))
                 }
@@ -340,10 +351,22 @@ class SSHClient: SSHClientProtocol {
     }
     
     func disconnect() {
+        print("\n=== SSHClient: Disconnecting ===")
+        // Cancel any pending promises before closing channels
+        if let session = session {
+            session.pipeline.handler(type: SSHCommandHandler.self).whenSuccess { handler in
+                if let promise = handler.pendingCommandPromise {
+                    print("Cancelling pending command promise")
+                    promise.fail(SSHError.channelError("Connection closed"))
+                }
+            }
+        }
+        
         session?.close(promise: nil)
         session = nil
         connection?.close(promise: nil)
         connection = nil
+        print("✓ Disconnected and cleaned up resources")
     }
 }
 

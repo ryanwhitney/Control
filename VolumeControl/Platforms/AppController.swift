@@ -8,6 +8,7 @@ class AppController: ObservableObject {
     private var isActive = true
     
     @Published var states: [String: AppState] = [:]
+    @Published var lastKnownStates: [String: AppState] = [:]
     @Published var currentVolume: Float?
     
     var platforms: [any AppPlatform] {
@@ -21,7 +22,9 @@ class AppController: ObservableObject {
         
         // Initialize states
         for platform in platformRegistry.platforms {
-            states[platform.id] = AppState(title: "Loading...")
+            let initialState = AppState(title: "Loading...")
+            states[platform.id] = initialState
+            lastKnownStates[platform.id] = initialState
         }
     }
     
@@ -29,13 +32,18 @@ class AppController: ObservableObject {
         print("\n=== AppController: Resetting ===")
         isActive = true
         isUpdating = false
-        states = [:]
-        currentVolume = nil
+        // Don't reset states - they'll update naturally when we get new data
     }
     
     func cleanup() {
         print("\n=== AppController: Cleaning up ===")
         isActive = false
+    }
+    
+    func updateClient(_ client: SSHClientProtocol) {
+        print("\n=== AppController: Updating SSH Client ===")
+        self.sshClient = client
+        isActive = true  // Ensure we're active for upcoming state updates
     }
     
     func updateAllStates() async {
@@ -50,6 +58,8 @@ class AppController: ObservableObject {
         
         // First check which apps are running
         for platform in platforms {
+            guard isActive else { break }  // Stop if we've become inactive
+            
             print("\nChecking platform: \(platform.name)")
             let isRunning = await checkIfRunning(platform)
             if isRunning {
@@ -57,12 +67,17 @@ class AppController: ObservableObject {
                 await updateState(for: platform)
             } else {
                 print("⚠️ \(platform.name) is not running")
-                states[platform.id] = AppState(
+                let newState = AppState(
                     title: "Not Running",
                     subtitle: nil,
                     isPlaying: nil,
                     error: nil
                 )
+                // Only update if we don't have a previous state or if the state has changed
+                if states[platform.id]?.title != newState.title {
+                    states[platform.id] = newState
+                    lastKnownStates[platform.id] = newState
+                }
             }
         }
     }
@@ -72,12 +87,17 @@ class AppController: ObservableObject {
         
         let isRunning = await checkIfRunning(platform)
         guard isRunning else {
-            states[platform.id] = AppState(
+            let newState = AppState(
                 title: "Not Running",
                 subtitle: nil,
                 isPlaying: nil,
                 error: nil
             )
+            // Only update if we don't have a previous state or if the state has changed
+            if states[platform.id]?.title != newState.title {
+                states[platform.id] = newState
+                lastKnownStates[platform.id] = newState
+            }
             return
         }
         
@@ -86,22 +106,31 @@ class AppController: ObservableObject {
         switch result {
         case .success(let output):
             if output.contains("Not authorized to send Apple events") {
-                states[platform.id] = AppState(
+                let newState = AppState(
                     title: "Permissions Required",
                     subtitle: "Grant permission in System Settings > Privacy > Automation",
                     isPlaying: nil,
                     error: nil
                 )
+                // Only update if we don't have a previous state or if the state has changed
+                if states[platform.id]?.title != newState.title {
+                    states[platform.id] = newState
+                    lastKnownStates[platform.id] = newState
+                }
             } else {
-                states[platform.id] = platform.parseState(output)
+                let newState = platform.parseState(output)
+                // Only update if we don't have a previous state or if the state has changed
+                if states[platform.id]?.title != newState.title {
+                    states[platform.id] = newState
+                    lastKnownStates[platform.id] = newState
+                }
             }
         case .failure(let error):
-            states[platform.id] = AppState(
-                title: "Error",
-                subtitle: nil,
-                isPlaying: nil,
-                error: error.localizedDescription
-            )
+            // For errors, we might want to keep the previous state and just add an error
+            var currentState = states[platform.id] ?? AppState(title: "Error")
+            currentState.error = error.localizedDescription
+            states[platform.id] = currentState
+            lastKnownStates[platform.id] = currentState
         }
     }
     
@@ -214,6 +243,11 @@ class AppController: ObservableObject {
         }
         print("Command length: \(command.count) characters")
         
+        guard isActive else {
+            print("⚠️ Controller not active, skipping command")
+            return .failure(SSHError.channelError("Controller not active"))
+        }
+        
         let wrappedCommand = """
         osascript << 'APPLESCRIPT'
         try
@@ -242,11 +276,14 @@ class AppController: ObservableObject {
                     print("❌ Command failed: \(error)")
                     // Check if this is a connection loss
                     let errorString = error.localizedDescription.lowercased()
-                    if errorString.contains("eof") || 
+                    if errorString.contains("connection lost") ||
+                       errorString.contains("eof") || 
                        errorString.contains("connection reset") ||
                        errorString.contains("broken pipe") ||
-                       errorString.contains("connection closed") {
+                       errorString.contains("connection closed") ||
+                       errorString.contains("tcp shutdown") {
                         print("Connection appears to be lost")
+                        self.isActive = false  // Prevent further commands
                         if let connectionManager = self.sshClient as? SSHConnectionManager {
                             connectionManager.handleConnectionLost()
                         }
@@ -255,12 +292,5 @@ class AppController: ObservableObject {
                 }
             }
         }
-    }
-    
-    func updateClient(_ newClient: SSHClientProtocol) {
-        print("\n=== AppController: Updating SSH Client ===")
-        cleanup()
-        sshClient = newClient
-        reset()
     }
 } 
