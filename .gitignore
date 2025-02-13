@@ -1,2 +1,14 @@
+# Ignore user-specific scheme settings
+*.xcuserdatad/
+
+# Ignore non-shared schemes (but allow shared schemes if needed)
+*.xcscheme
+!xcshareddata/xcschemes/*.xcscheme
+
+# Ignore scheme management file
+*.xcuserdatad/
+xcuserdata/
+xcuserdata/**/xcschememanagement.plist
 
 VolumeControl/About.txt
+
