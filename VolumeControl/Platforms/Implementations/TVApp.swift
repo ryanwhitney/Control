@@ -29,7 +29,7 @@ struct TVApp: AppPlatform {
     -- Try to get the current track, which might fail if truly no track is loaded.
     set currentTrack to missing value
     try
-        set currentTrack to current track
+        set currentTrack to name of current track
     end try
     try
         set frontWindow to name of front window
