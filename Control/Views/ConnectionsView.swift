@@ -8,27 +8,26 @@ struct ConnectionsView: View {
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var connections: [NetService] = []
-    @State private var isAuthenticating = false
+    @State private var networkScanner: NWBrowser?
     @State private var selectedConnection: Connection?
-    @State private var showingAddDialog = false
+    @State private var connectingComputer: Connection?
     @State private var username: String = ""
     @State private var password: String = ""
-    @State private var saveCredentials = false
     @State private var errorMessage: String?
-    @State private var navigateToControl = false
+    @State private var saveCredentials = false
     @State private var isSearching = false
-    @State private var networkScanner: NWBrowser?
-    @State private var connectingComputer: Connection?
+    @State private var isAuthenticating = false
     @State private var connectionError: (title: String, message: String)?
+    @State private var showingAddDialog = false
     @State private var showingError = false
     @State private var showingFirstTimeSetup = false
     @State private var navigateToPermissions = false
+    @State private var navigateToControl = false
     @State private var activePopover: ActivePopover?
 
     enum ActivePopover: Identifiable {
         case help
         case preferences
-
         var id: Self { self }
     }
 
@@ -53,47 +52,6 @@ struct ConnectionsView: View {
         }
     }
 
-    @ViewBuilder
-    private func destinationView(for computer: Connection) -> some View {
-        if !savedConnections.hasConnectedBefore(computer.host) {
-            ChooseAppsView(
-                hostname: computer.host,
-                displayName: computer.name,
-                username: username,
-                password: password,
-                onComplete: { selectedPlatforms in
-                    savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
-                    showingFirstTimeSetup = false
-                    navigateToPermissions = true
-                }
-            )
-        } else {
-            ControlView(
-                host: computer.host,
-                displayName: computer.name,
-                username: username,
-                password: password,
-                enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
-            )
-        }
-    }
-    
-    @ViewBuilder
-    private func permissionsDestinationView(for computer: Connection) -> some View {
-        PermissionsView(
-            hostname: computer.host,
-            displayName: computer.name,
-            username: username,
-            password: password,
-            enabledPlatforms: savedConnections.enabledPlatforms(computer.host),
-            onComplete: {
-                savedConnections.markAsConnected(computer.host)
-                navigateToPermissions = false
-                navigateToControl = true
-            }
-        )
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -103,7 +61,7 @@ struct ConnectionsView: View {
                         if isSearching {
                             ProgressView()
                                 .controlSize(.large)
-                            Text("Finding devices on your network...")
+                            Text("Looking for Computers...")
                                 .foregroundStyle(.secondary)
                         } else {
                             VStack(spacing: 16){
@@ -115,9 +73,8 @@ struct ConnectionsView: View {
                                 Text("No connections found")
                                     .font(.title2)
                                     .fontWeight(.bold)
-                                Text("Ensure your Mac is on the same WiFi network and has Remote Login enabled.")
+                                Text("Make sure your Mac is on the same network and has Remote Login enabled.")
                                     .foregroundStyle(.secondary)
-
                                 Button(action: startNetworkScan) {
                                     Text("Refresh")
                                         .foregroundStyle(.tint)
@@ -127,7 +84,6 @@ struct ConnectionsView: View {
                             .padding(.horizontal)
 
                         }
-                        
                         Spacer()
                     }
                 } else {
@@ -145,7 +101,6 @@ struct ConnectionsView: View {
                                 Text("No connections found")
                                     .foregroundColor(.secondary)
                             }
-                            
                             ForEach(networkComputers) { computer in
                                 ComputerRow(
                                     computer: computer,
@@ -157,7 +112,6 @@ struct ConnectionsView: View {
                                 .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
                                 .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
                             }
-                            
                             if !connections.isEmpty && isSearching {
                                 HStack {
                                     Text("Searching for others…")
@@ -170,7 +124,6 @@ struct ConnectionsView: View {
                             }
                         }
                         .accessibilityLabel("Network Devices")
-
                         Section(header: Text("Recent".capitalized)) {
                             if savedComputers.isEmpty {
                                 Text("No recent connections")
@@ -431,16 +384,7 @@ struct ConnectionsView: View {
         .onChange(of: scenePhase) {
             if scenePhase == .background {
                 sshManager.disconnect()
-            } else if scenePhase == .active {
-                // Optionally reconnect if needed
             }
-        }
-        .alert(connectionError?.title ?? "", isPresented: $showingError, presenting: connectionError) { _ in
-            Button("OK") {
-                showingError = false
-            }
-        } message: { error in
-            Text(error.message)
         }
         .onChange(of: navigateToControl) { _, newValue in
             if !newValue {
