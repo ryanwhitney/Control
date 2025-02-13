@@ -1,0 +1,13 @@
+{
+  "data" : [
+    {
+      "filename" : "remote-login.mp4",
+      "idiom" : "universal",
+      "universal-type-identifier" : "mp4"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

@@ -2,7 +2,10 @@ import SwiftUI
 import MultiBlur
 
 struct AuthenticationView: View {
-    let mode: Mode
+
+    let mode: Mode 
+
+    // Pass in saved info for edit mode
     let existingHost: String?
     let existingName: String?
 

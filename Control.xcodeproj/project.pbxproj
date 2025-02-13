@@ -35,6 +35,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		941BEECE2D5DF84100DBB808 /* Resources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		944328842D21F4E500496EFA /* Control */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -72,6 +77,7 @@
 			children = (
 				944328842D21F4E500496EFA /* Control */,
 				944328832D21F4E500496EFA /* Products */,
+				941BEECE2D5DF84100DBB808 /* Resources */,
 			);
 			sourceTree = "<group>";
 		};
@@ -99,6 +105,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				941BEECE2D5DF84100DBB808 /* Resources */,
 				944328842D21F4E500496EFA /* Control */,
 			);
 			name = Control;
@@ -126,6 +133,9 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
+				KnownAssetTags = (
+					New,
+				);
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 1620;
 				TargetAttributes = {

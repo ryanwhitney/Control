@@ -18,7 +18,6 @@ struct ChooseAppsView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            /// ScrollView
             ScrollView {
                 HStack{EmptyView()}.frame(height: headerHeight)
                 VStack(spacing: 8) {

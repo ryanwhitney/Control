@@ -363,16 +363,14 @@ struct ConnectionsView: View {
                 switch popover {
                 case .help:
                     NavigationView {
-                        URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
-                            .navigationBarItems(trailing: Button("Done") {
-                                activePopover = nil
-                            })
-                            .navigationBarTitleDisplayMode(.inline)
+                        RemoteLoginInstructions()
                     }
+                    .presentationDragIndicator(.visible)
                 case .preferences:
                     PreferencesView()
                 }
             }
+
             .tint(preferences.tintColorValue)
         }
         .onAppear {
