@@ -21,6 +21,8 @@ struct ControlView: View {
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var showingConnectionLostAlert = false
+    @State private var showingError = false
+    @State private var connectionError: (title: String, message: String)?
     @State private var showingThemeSettings: Bool = false
     @State private var selectedPlatformIndex: Int = 0
 
@@ -168,19 +170,9 @@ struct ControlView: View {
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            print("\n=== ControlView: Scene Phase Change ===")
-            print("Old phase: \(oldPhase)")
-            print("New phase: \(newPhase)")
-            
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
             if newPhase == .active {
-                print("Scene became active - connecting")
                 connectToSSH()
-            } else if newPhase == .background {
-                print("Scene entering background - cleaning up")
-                Task { @MainActor in
-                    appController.cleanup()
-                    connectionManager.disconnect()
-                }
             }
         }
         .onDisappear {
@@ -213,6 +205,11 @@ struct ControlView: View {
             }
         } message: {
             Text("The connection to \(displayName) was lost. Please try connecting again.")
+        }
+        .alert(connectionError?.title ?? "", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(connectionError?.message ?? "")
         }
         .sheet(isPresented: $showingThemeSettings){
             ThemeSettingsSheet()
@@ -248,7 +245,83 @@ struct ControlView: View {
                 }
             } catch {
                 print("❌ Connection failed in ControlView: \(error)")
-                errorMessage = error.localizedDescription
+                if let sshError = error as? SSHError {
+                    switch sshError {
+                    case .authenticationFailed:
+                        connectionError = (
+                            "Authentication Failed",
+                            """
+                            The username or password provided was incorrect.
+                            Please check your credentials and try again.
+                            """
+                        )
+                    case .connectionFailed(let reason):
+                        connectionError = (
+                            "Connection Failed",
+                            """
+                            \(reason)
+                            
+                            Please check that:
+                            • The computer is turned on
+                            • You're on the same network
+                            • Remote Login is enabled in System Settings
+                            """
+                        )
+                    case .timeout:
+                        connectionError = (
+                            "Connection Timeout",
+                            """
+                            The connection to \(displayName) timed out.
+                            Please check your network connection and ensure the computer is reachable.
+                            """
+                        )
+                    case .channelError(let details):
+                        connectionError = (
+                            "Connection Error",
+                            """
+                            Failed to establish a secure connection with \(displayName).
+                            Please try again in a few moments.
+                            
+                            Technical details: \(details)
+                            """
+                        )
+                    case .channelNotConnected:
+                        connectionError = (
+                            "Connection Error",
+                            """
+                            Could not establish a connection with \(displayName).
+                            Please ensure Remote Login is enabled and try again.
+                            """
+                        )
+                    case .invalidChannelType:
+                        connectionError = (
+                            "Connection Error",
+                            """
+                            An internal error occurred while connecting to \(displayName).
+                            Please try again.
+                            """
+                        )
+                    case .noSession:
+                        connectionError = (
+                            "Connection Error",
+                            """
+                            Could not establish an SSH session with \(displayName).
+                            Please ensure Remote Login is enabled and try again.
+                            """
+                        )
+                    }
+                } else {
+                    connectionError = (
+                        "Connection Error",
+                        """
+                        An unexpected error occurred while connecting to \(displayName).
+                        Please try again.
+                        
+                        Technical details: \(error.localizedDescription)
+                        """
+                    )
+                }
+                showingError = true
             }
         }
     }

@@ -4,7 +4,7 @@ import Network
 
 struct ConnectionsView: View {
     @StateObject private var savedConnections = SavedConnections()
-    @StateObject private var sshManager = SSHManager()
+    @StateObject private var connectionManager = SSHConnectionManager()
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var connections: [NetService] = []
@@ -305,9 +305,9 @@ struct ConnectionsView: View {
                                     type: computer.type,
                                     lastUsername: computer.lastUsername
                                 )
-                                tryConnect(computer: updatedComputer)
+                                verifyAndConnect(computer: updatedComputer)
                             } else {
-                                tryConnect(computer: computer)
+                                verifyAndConnect(computer: computer)
                             }
                         },
                         onCancel: {
@@ -316,6 +316,11 @@ struct ConnectionsView: View {
                     )
                     .presentationDragIndicator(.visible)
                 }
+            }
+            .alert(connectionError?.title ?? "", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(connectionError?.message ?? "")
             }
             .navigationDestination(isPresented: $showingFirstTimeSetup) {
                 if let computer = selectedConnection {
@@ -379,10 +384,8 @@ struct ConnectionsView: View {
         .onDisappear {
             networkScanner?.cancel()
         }
-        .onChange(of: scenePhase) {
-            if scenePhase == .background {
-                sshManager.disconnect()
-            }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
         .onChange(of: navigateToControl) { _, newValue in
             if !newValue {
@@ -479,9 +482,17 @@ struct ConnectionsView: View {
         if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
             username = savedConnection.username ?? ""
             password = savedConnections.password(for: computer.host) ?? ""
-            tryConnect(computer: computer)
+            
+            // If we have saved credentials, attempt to connect
+            if !username.isEmpty && !password.isEmpty {
+                verifyAndConnect(computer: computer)
+            } else {
+                // Show authentication dialog for missing credentials
+                saveCredentials = true
+                isAuthenticating = true
+            }
         } else {
-            // Show authentication dialog
+            // Show authentication dialog for new connection
             username = computer.lastUsername ?? ""
             password = ""
             saveCredentials = true
@@ -489,11 +500,147 @@ struct ConnectionsView: View {
         }
     }
     
-    private func tryConnect(computer: Connection) {
-        print("\n=== ConnectionsView: Trying to connect ===")
+    private func verifyAndConnect(computer: Connection) {
+        print("\n=== ConnectionsView: Verifying connection ===")
         print("Computer: \(computer.name) (\(computer.host))")
+        print("Username: \(username)")
+        print("Has Password: \(!password.isEmpty)")
+        print("Save Credentials: \(saveCredentials)")
         
         connectingComputer = computer
+        
+        Task {
+            do {
+                try await connectionManager.verifyConnection(
+                    host: computer.host,
+                    username: username,
+                    password: password
+                )
+                
+                await MainActor.run {
+                    print("✓ SSH connection successful")
+                    self.tryConnect(computer: computer)
+                }
+            } catch {
+                await MainActor.run {
+                    print("❌ SSH connection failed: \(error)")
+                    
+                    // Always close the auth view if it's open
+                    self.isAuthenticating = false
+                    self.connectingComputer = nil
+                    
+                    if let sshError = error as? SSHError {
+                        switch sshError {
+                        case .authenticationFailed:
+                            print("Authentication failed - showing error")
+                            self.connectionError = (
+                                "Authentication Failed",
+                                """
+                                The username or password provided was incorrect.
+                                Please check your credentials and try again.
+                                
+                                Technical details: Authentication failed
+                                """
+                            )
+                            
+                        case .connectionFailed(let reason):
+                            print("Connection failed: \(reason)")
+                            self.connectionError = (
+                                "Connection Failed",
+                                """
+                                \(reason)
+                                
+                                Please check that:
+                                • The computer is turned on
+                                • You're on the same network
+                                • Remote Login is enabled in System Settings
+                                
+                                Technical details: Connection failed
+                                """
+                            )
+                            
+                        case .timeout:
+                            print("Connection timed out")
+                            self.connectionError = (
+                                "Connection Timeout",
+                                """
+                                The connection to \(computer.name) timed out.
+                                Please check your network connection and ensure the computer is reachable.
+                                
+                                Technical details: Connection attempt timed out after 5 seconds
+                                """
+                            )
+                            
+                        case .channelError(let details):
+                            print("Channel error: \(details)")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Failed to establish a secure connection with \(computer.name).
+                                Please try again in a few moments.
+                                
+                                Technical details: \(details)
+                                """
+                            )
+                            
+                        case .channelNotConnected:
+                            print("Channel not connected")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Could not establish a connection with \(computer.name).
+                                Please ensure Remote Login is enabled and try again.
+                                
+                                Technical details: SSH channel not connected
+                                """
+                            )
+                            
+                        case .invalidChannelType:
+                            print("Invalid channel type")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                An internal error occurred while connecting to \(computer.name).
+                                Please try again.
+                                
+                                Technical details: Invalid SSH channel type
+                                """
+                            )
+                            
+                        case .noSession:
+                            print("No SSH session")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Could not establish an SSH session with \(computer.name).
+                                Please ensure Remote Login is enabled and try again.
+                                
+                                Technical details: No SSH session could be created
+                                """
+                            )
+                        }
+                    } else {
+                        print("Unknown error: \(error)")
+                        self.connectionError = (
+                            "Connection Error",
+                            """
+                            An unexpected error occurred while connecting to \(computer.name).
+                            Please try again.
+                            
+                            Technical details: \(error.localizedDescription)
+                            """
+                        )
+                    }
+                    self.showingError = true
+                }
+            }
+        }
+    }
+    
+    private func tryConnect(computer: Connection) {
+        print("\n=== ConnectionsView: Proceeding with connection ===")
+        print("Computer: \(computer.name) (\(computer.host))")
+        
         selectedConnection = computer
         
         if !savedConnections.hasConnectedBefore(computer.host) {
@@ -511,6 +658,13 @@ struct ConnectionsView: View {
                 name: computer.name,
                 username: username,
                 password: password
+            )
+        } else {
+            // Just update the username without password
+            savedConnections.updateLastUsername(
+                for: computer.host,
+                name: computer.name,
+                username: username
             )
         }
         
@@ -603,48 +757,6 @@ struct ConnectionsView: View {
                 self.isSearching = false
             }
         }
-    }
-}
-
-class SSHManager: ObservableObject {
-    private var client = SSHClient()
-    private var isConnected = false
-    
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        // cleanup  before new connection
-        disconnect()
-        
-        // new client if needed
-        if !isConnected {
-            client = SSHClient()
-        }
-        
-        client.connect(host: host, username: username, password: password) { result in
-            switch result {
-            case .success:
-                self.isConnected = true
-            case .failure:
-                self.isConnected = false
-            }
-            completion(result)
-        }
-    }
-    
-    func disconnect() {
-        client = SSHClient()  // create fresh client, old one gets deallocated
-        isConnected = false
-    }
-    
-    func executeCommand(_ command: String, completion: @escaping (Result<String, Error>) -> Void) {
-        client.executeCommandWithNewChannel(command, completion: completion)
-    }
-    
-    var currentClient: SSHClient {
-        return client
-    }
-    
-    deinit {
-        disconnect()
     }
 }
 

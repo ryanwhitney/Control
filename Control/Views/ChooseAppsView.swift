@@ -9,9 +9,11 @@ struct ChooseAppsView: View {
     let onComplete: (Set<String>) -> Void
 
     @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject private var platformRegistry = PlatformRegistry()
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
-    @State private var selectedPlatforms: Set<String> = Set(PlatformRegistry.allPlatforms.map { $0.id })
+
+    @State private var selectedPlatforms: Set<String> = []
     @State private var showingConnectionLostAlert = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -21,8 +23,8 @@ struct ChooseAppsView: View {
             ScrollView {
                 HStack{EmptyView()}.frame(height: headerHeight)
                 VStack(spacing: 8) {
-                    ForEach(PlatformRegistry.allPlatforms, id: \.id) { platform in
-                        HStack{
+                    ForEach(platformRegistry.platforms, id: \.id) { platform in
+                        HStack {
                             Toggle(isOn: Binding(
                                 get: { selectedPlatforms.contains(platform.id) },
                                 set: { isSelected in
@@ -60,7 +62,7 @@ struct ChooseAppsView: View {
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
             
-        /// Header
+            /// Header
             VStack(spacing: 8) {
                 Image(systemName: "macbook.and.iphone")
                     .resizable()
@@ -89,7 +91,7 @@ struct ChooseAppsView: View {
                 self.headerHeight = value
                 print("Header Height: \(headerHeight)")
             }
-            /// Bottom panel
+            
             VStack{
                 Spacer()
                 BottomButtonPanel{
@@ -117,6 +119,9 @@ struct ChooseAppsView: View {
         }
         .toolbarBackground(.black, for: .navigationBar)
         .onAppear {
+            // Initialize selected platforms
+            selectedPlatforms = Set(platformRegistry.platforms.map { $0.id })
+            
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
                 showingConnectionLostAlert = true
@@ -124,32 +129,10 @@ struct ChooseAppsView: View {
             connectToSSH()
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            print("\n=== ChooseAppsView: Scene Phase Change ===")
-            print("Old phase: \(oldPhase)")
-            print("New phase: \(newPhase)")
-            
-            if newPhase == .active {
-                print("Scene became active - connecting")
-                connectToSSH()
-            } else if newPhase == .background {
-                print("Scene entering background - cleaning up")
-                Task { @MainActor in
-                    connectionManager.disconnect()
-                }
-            }
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
         .onDisappear {
             print("\n=== ChooseAppsView: Disappearing ===")
-            Task { @MainActor in
-                connectionManager.disconnect()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            print("\n=== ChooseAppsView: Will Enter Foreground ===")
-            connectToSSH()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            print("\n=== ChooseAppsView: Will Resign Active ===")
             Task { @MainActor in
                 connectionManager.disconnect()
             }
@@ -181,7 +164,6 @@ struct ChooseAppsView: View {
         }
     }
 }
-
 
 struct headerSizePreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0

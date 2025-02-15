@@ -7,6 +7,7 @@ class SSHConnectionManager: ObservableObject {
     private nonisolated let sshClient: SSHClient
     private var currentCredentials: Credentials?
     private var connectionLostHandler: (@MainActor () -> Void)?
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     
     struct Credentials: Equatable {
         let host: String
@@ -123,6 +124,15 @@ class SSHConnectionManager: ObservableObject {
         }
     }
     
+    func verifyConnection(host: String, username: String, password: String) async throws {
+        print("\n=== SSHConnectionManager: Verifying Connection ===")
+        try await connect(host: host, username: username, password: password)
+        
+        // If we get here, connection was successful
+        // Immediately disconnect since this was just a verification
+        disconnect()
+    }
+    
     private func cleanupExistingConnection() async {
         print("\n=== SSHConnectionManager: Cleaning up existing connection ===")
         if case .connected = connectionState {
@@ -167,5 +177,47 @@ class SSHConnectionManager: ObservableObject {
         }
         
         return true
+    }
+    
+    // MARK: - Lifecycle Management
+    
+    func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        print("\n=== SSHConnectionManager: Scene Phase Change ===")
+        print("Old phase: \(oldPhase)")
+        print("New phase: \(newPhase)")
+        
+        switch newPhase {
+        case .active:
+            print("Scene became active")
+            endBackgroundTask()
+            // Reconnection will be handled by the view when needed
+            
+        case .inactive:
+            print("Scene became inactive")
+            // No action needed, keep connection alive
+            
+        case .background:
+            print("Scene entering background")
+            startBackgroundTask()
+            Task { @MainActor in
+                disconnect()
+            }
+            
+        @unknown default:
+            print("Unknown scene phase: \(newPhase)")
+        }
+    }
+    
+    private func startBackgroundTask() {
+        backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+    
+    private func endBackgroundTask() {
+        if backgroundTask != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
+        }
     }
 } 
