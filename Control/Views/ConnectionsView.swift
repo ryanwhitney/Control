@@ -503,9 +503,6 @@ struct ConnectionsView: View {
     private func verifyAndConnect(computer: Connection) {
         print("\n=== ConnectionsView: Verifying connection ===")
         print("Computer: \(computer.name) (\(computer.host))")
-        print("Username: \(username)")
-        print("Has Password: \(!password.isEmpty)")
-        print("Save Credentials: \(saveCredentials)")
         
         connectingComputer = computer
         
@@ -518,116 +515,93 @@ struct ConnectionsView: View {
                 )
                 
                 await MainActor.run {
-                    print("✓ SSH connection successful")
                     self.tryConnect(computer: computer)
                 }
             } catch {
                 await MainActor.run {
-                    print("❌ SSH connection failed: \(error)")
-                    
-                    // Always close the auth view if it's open
                     self.isAuthenticating = false
                     self.connectingComputer = nil
                     
                     if let sshError = error as? SSHError {
                         switch sshError {
                         case .authenticationFailed:
-                            print("Authentication failed - showing error")
                             self.connectionError = (
                                 "Authentication Failed",
                                 """
                                 The username or password provided was incorrect.
                                 Please check your credentials and try again.
-                                
-                                Technical details: Authentication failed
                                 """
                             )
                             
                         case .connectionFailed(let reason):
-                            print("Connection failed: \(reason)")
                             self.connectionError = (
                                 "Connection Failed",
                                 """
-                                \(reason)
+                                Could not connect to \(computer.name).
+                                
+                                Reason: \(reason)
                                 
                                 Please check that:
                                 • The computer is turned on
                                 • You're on the same network
-                                • Remote Login is enabled in System Settings
-                                
-                                Technical details: Connection failed
+                                • Remote Login is enabled
                                 """
                             )
                             
                         case .timeout:
-                            print("Connection timed out")
                             self.connectionError = (
                                 "Connection Timeout",
                                 """
-                                The connection to \(computer.name) timed out.
-                                Please check your network connection and ensure the computer is reachable.
+                                Could not reach \(computer.name).
                                 
-                                Technical details: Connection attempt timed out after 5 seconds
+                                Please check that:
+                                • The computer is turned on
+                                • You're on the same network
+                                • Your internet connection is stable
                                 """
                             )
                             
                         case .channelError(let details):
-                            print("Channel error: \(details)")
                             self.connectionError = (
                                 "Connection Error",
                                 """
-                                Failed to establish a secure connection with \(computer.name).
-                                Please try again in a few moments.
+                                Connection was interrupted.
                                 
-                                Technical details: \(details)
+                                Error: \(details)
+                                
+                                Please try again.
                                 """
                             )
                             
                         case .channelNotConnected:
-                            print("Channel not connected")
+                            self.connectionError = (
+                                "Connection Error",
+                                """
+                                Could not establish a secure connection.
+                                
+                                Please check that Remote Login is enabled on \(computer.name).
+                                """
+                            )
+                            
+                        case .invalidChannelType, .noSession:
                             self.connectionError = (
                                 "Connection Error",
                                 """
                                 Could not establish a connection with \(computer.name).
-                                Please ensure Remote Login is enabled and try again.
                                 
-                                Technical details: SSH channel not connected
-                                """
-                            )
-                            
-                        case .invalidChannelType:
-                            print("Invalid channel type")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                An internal error occurred while connecting to \(computer.name).
-                                Please try again.
-                                
-                                Technical details: Invalid SSH channel type
-                                """
-                            )
-                            
-                        case .noSession:
-                            print("No SSH session")
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Could not establish an SSH session with \(computer.name).
-                                Please ensure Remote Login is enabled and try again.
-                                
-                                Technical details: No SSH session could be created
+                                Please try again. If the problem persists, restart the computer.
                                 """
                             )
                         }
                     } else {
-                        print("Unknown error: \(error)")
                         self.connectionError = (
                             "Connection Error",
                             """
                             An unexpected error occurred while connecting to \(computer.name).
-                            Please try again.
                             
-                            Technical details: \(error.localizedDescription)
+                            Error: \(error.localizedDescription)
+                            
+                            Please try again.
                             """
                         )
                     }
