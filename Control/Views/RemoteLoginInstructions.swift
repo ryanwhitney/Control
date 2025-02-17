@@ -77,36 +77,20 @@ struct RemoteLoginInstructions: View {
                     }
                 }
             }
-//            .scrollDisabled(true)
-            VStack{
-                Button {
-                    print("ok")
-                } label: {
-                    Text("It still isn't working")
-                        .padding(.vertical, 5)
-                        .foregroundStyle(.tint)
-
-                }
-                .buttonStyle(.plain)
-                .tint(.accentColor)
-                .frame(maxWidth: .infinity)
-//
+//            VStack{
 //                Button {
 //                    print("ok")
 //                } label: {
-//                    Text("done")
-//                        .padding(.vertical, 11)
-//                        .fontWeight(.bold)
-//                        .foregroundStyle(.primary)
-//                        .frame(maxWidth: .infinity)
+//                    Text("It still isn't working")
+//                        .padding(.vertical, 5)
+//                        .foregroundStyle(.tint)
 //
 //                }
-//                .buttonStyle(.borderedProminent)
+//                .buttonStyle(.plain)
 //                .tint(.accentColor)
-//                .padding()
-
-            }
-            .padding()
+//                .frame(maxWidth: .infinity)
+//            }
+//            .padding()
 
         }
         .navigationTitle("Enable Remote Login")
