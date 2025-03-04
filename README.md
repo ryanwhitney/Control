@@ -14,7 +14,8 @@ Basic media controls for:
   - QuickTime Player
   - VLC
   - Spotify
-Experimental controls,disabled by default, for:
+
+Experimental controls (disabled by default) for:
   - Safari 
   - Chrome 
 
