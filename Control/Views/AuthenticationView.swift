@@ -106,13 +106,10 @@ struct AuthenticationView: View {
                         }
                         .popover(isPresented: $isPopoverPresented) {
                             NavigationView {
-                                URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
-                                    .navigationBarItems(trailing: Button("Done") {
-                                        isPopoverPresented = false
-                                    })
-                                    .navigationBarTitleDisplayMode(.inline)
+                                RemoteLoginInstructions()
                             }
                         }
+                        .presentationDragIndicator(.visible)
                     }
                 }
                 if mode != .authenticate {
@@ -244,15 +241,35 @@ struct AuthenticationView: View {
     }
 }
 
-struct AuthenticationView_Previews: PreviewProvider {
-    static var previews: some View {
-        AuthenticationView(
-            mode: .authenticate,
-            username: .constant("User"),
-            password: .constant("••••"),
-            saveCredentials: .constant(true),
-            onSuccess: { _, _ in },
-            onCancel: {}
-        )
-    }
+#Preview(".authenticate") {
+    AuthenticationView(
+        mode: .authenticate,
+        username: .constant(""),
+        password: .constant(""),
+        saveCredentials: .constant(true),
+        onSuccess: { _, _ in },
+        onCancel: {}
+    )
+}
+
+#Preview(".add") {
+    AuthenticationView(
+        mode: .add,
+        username: .constant("User"),
+        password: .constant("••••"),
+        saveCredentials: .constant(true),
+        onSuccess: { _, _ in },
+        onCancel: {}
+    )
+}
+
+#Preview(".edit") {
+    AuthenticationView(
+        mode: .edit,
+        username: .constant("User"),
+        password: .constant("••••"),
+        saveCredentials: .constant(true),
+        onSuccess: { _, _ in },
+        onCancel: {}
+    )
 }

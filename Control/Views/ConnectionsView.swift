@@ -61,8 +61,8 @@ struct ConnectionsView: View {
                         if isSearching {
                             ProgressView()
                                 .controlSize(.large)
-                            Text("Looking for Computers...")
-                                .foregroundStyle(.secondary)
+                            Text("Searching...")
+                                .foregroundStyle(.tertiary)
                         } else {
                             VStack(spacing: 16){
                                 Image(systemName: "macbook.and.iphone")
@@ -172,7 +172,7 @@ struct ConnectionsView: View {
                         Button {
                             activePopover = .help
                         } label: {
-                            Label("How to enable Remote Login", systemImage: "questionmark.circle.fill")
+                            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
                                 .padding()
                                 .frame(maxWidth: .infinity)
                                 .background(.thickMaterial)
@@ -182,8 +182,6 @@ struct ConnectionsView: View {
                         }
                         .buttonStyle(.bordered)
                         .tint(.gray)
-                        .padding(.horizontal)
-                        .padding(.bottom, 8)
                     } else {
                         Button {
                             activePopover = .help
@@ -195,10 +193,10 @@ struct ConnectionsView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
-                        .padding(.horizontal)
-                        .padding(.bottom, 20)
                     }
                 }
+                .padding(.horizontal)
+                .padding(.bottom, connections.isEmpty && savedConnections.items.isEmpty ? 8 : 20)
             }
             .refreshable {
                 await withCheckedContinuation { continuation in
@@ -370,12 +368,12 @@ struct ConnectionsView: View {
                     NavigationView {
                         RemoteLoginInstructions()
                     }
+                    .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                 case .preferences:
                     PreferencesView()
                 }
             }
-
             .tint(preferences.tintColorValue)
         }
         .onAppear {
@@ -567,8 +565,6 @@ struct ConnectionsView: View {
                                 """
                                 Connection was interrupted.
                                 
-                                Error: \(details)
-                                
                                 Please try again.
                                 """
                             )
@@ -598,10 +594,6 @@ struct ConnectionsView: View {
                             "Connection Error",
                             """
                             An unexpected error occurred while connecting to \(computer.name).
-                            
-                            Error: \(error.localizedDescription)
-                            
-                            Please try again.
                             """
                         )
                     }

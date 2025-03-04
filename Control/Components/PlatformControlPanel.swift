@@ -73,7 +73,7 @@ struct PlatformControl: View {
     return PlatformControl(
         platform: MusicApp(),
         state: .constant(.init(
-            title: "Nothing's Gonna Stop Us Now - Starship",
+            title: "Skin - Wild Powwers",
             isPlaying: true
         ))
     )
