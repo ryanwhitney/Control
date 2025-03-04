@@ -8,13 +8,14 @@ It works by connecting directly to the Mac via SSH and uses AppleScript for comm
 
 
 ### Supported MacOS Apps
-Control supports basic media controls for:
+Basic media controls for:
   - Music.app
   - TV.app
   - QuickTime Player
   - VLC
   - Spotify
-  - Safari (experimental, disabled)
-  - Chrome (experimental, disabled)
+Experimental controls,disabled by default, for:
+  - Safari 
+  - Chrome 
 
 To request support for additional apps, [file an Issue](https://github.com/ryanwhitney/Control/issues).
