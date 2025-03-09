@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ThemeSettingsView: View {
+struct ThemePreferenceView: View {
     @StateObject private var preferences = UserPreferences.shared
     @StateObject private var savedConnections = SavedConnections()
 //    @State private var previewComputer: (name: String, host: String)?
@@ -124,5 +124,5 @@ struct ThemeSettingsView: View {
 }
 
 #Preview {
-    ThemeSettingsView()
+    ThemePreferenceView()
 }

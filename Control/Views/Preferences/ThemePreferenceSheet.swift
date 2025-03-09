@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ThemeSettingsSheet: View {
+struct ThemePreferenceSheet: View {
     @StateObject private var preferences = UserPreferences.shared
 
     @State private var selectedIndex: Int = 0
@@ -50,5 +50,5 @@ struct ThemeSettingsSheet: View {
 }
 
 #Preview {
-    ThemeSettingsSheet()
+    ThemePreferenceSheet()
 }

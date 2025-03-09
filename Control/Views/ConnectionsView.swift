@@ -239,7 +239,7 @@ struct ConnectionsView: View {
                     Button {
                         activePopover = .preferences
                     } label: {
-                        Image(systemName: "gear")
+                        Image(systemName: "gearshape")
                     }
                     .accessibilityLabel("Settings")
                 }
@@ -559,7 +559,7 @@ struct ConnectionsView: View {
                                 """
                             )
                             
-                        case .channelError(let details):
+                        case .channelError:
                             self.connectionError = (
                                 "Connection Error",
                                 """

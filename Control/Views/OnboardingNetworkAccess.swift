@@ -23,10 +23,6 @@ struct OnboardingNetworkAccess: View {
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
 
-
-
-
-
             Spacer()
             Button{
                 print("ok")

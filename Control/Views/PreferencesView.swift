@@ -7,20 +7,18 @@ struct PreferencesView: View {
         NavigationStack {
             List {
                 Section {
-                    NavigationLink {
-                        ThemeSettingsView()
-                    } label: {
-                        HStack {
-                            Image(systemName: "paintpalette")
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.primary, .secondary)
-                                .frame(width: 28, height: 28)
-                                .background(UserPreferences.shared.tintColorValue)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                            
-                            Text("Theme")
-                        }
-                    }
+                    PreferencesRow(
+                        destination: ThemePreferenceView(),
+                        iconName: "paintbrush.fill",
+                        title: "Theme",
+                        color: UserPreferences.shared.tintColorValue
+                    )
+                    PreferencesRow(
+                        destination: SupportPreferenceView(),
+                        iconName: "questionmark.diamond.fill",
+                        title: "Support",
+                        color: .orange
+                    )
                 }
             }
             .padding(.top, 30)
@@ -36,6 +34,35 @@ struct PreferencesView: View {
         }.background(.ultraThinMaterial)
     }
 }
+
+
+
+struct PreferencesRow<Destination: View>: View {
+    let destination: Destination
+    let iconName: String
+    let title: String
+    let color: Color
+
+    var body: some View {
+        NavigationLink {
+            destination
+        } label: {
+            HStack {
+                Image(systemName: iconName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.primary)
+                    .frame(width: 20, height: 20)
+                    .padding(4)
+                    .background(color)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                Text(title)
+            }
+        }
+    }
+}
+
+
 
 #Preview {
     PreferencesView()

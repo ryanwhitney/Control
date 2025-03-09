@@ -215,7 +215,7 @@ struct ControlView: View {
             Text("The connection to \(displayName) was lost. Please try connecting again.")
         }
         .sheet(isPresented: $showingThemeSettings){
-            ThemeSettingsSheet()
+            ThemePreferenceSheet()
                 .presentationDetents([.height(200)])
                 .presentationDragIndicator(.visible)
         }

@@ -1,6 +1,5 @@
 import SwiftUI
 import AVKit
-import MultiBlur
 
 struct RemoteLoginInstructions: View {
     @State private var player: AVPlayer? = {
