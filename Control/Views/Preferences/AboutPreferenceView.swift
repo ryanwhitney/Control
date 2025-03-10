@@ -17,7 +17,6 @@ struct AboutPreferenceView: View {
                         .font(.title3)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
-                    VersionView()
                 }
 
                 Spacer()
@@ -62,21 +61,6 @@ struct AboutPreferenceView: View {
 
 }
 
-private struct VersionView: View {
-    var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-    }
-
-    var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
-    }
-
-    var body: some View {
-        Text("Version \(appVersion) (\(buildNumber))")
-            .font(.footnote)
-            .foregroundColor(.gray)
-    }
-}
 
 #Preview {
     AboutPreferenceView()

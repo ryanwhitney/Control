@@ -76,23 +76,42 @@ struct SupportPreferenceView: View {
             .padding()
             .background(Color.black.opacity(0.25))
             .cornerRadius(10)
-            .sheet(isPresented: $showMailComposer) {
-                MailComposer(
-                    isPresented: $showMailComposer,
-                    subject: "📱 Support Request: Control",
-                    recipient: "ryan.whitney@me.com",
-                    body: "\n\n---------\nAbove, please describe the issue you're having or any other feedback you'd like to share. Thanks!"
-                )
+            HStack{
+                Spacer()
+                VersionView()
+                Spacer()
             }
             Spacer()
+        }
+        .sheet(isPresented: $showMailComposer) {
+            MailComposer(
+                isPresented: $showMailComposer,
+                subject: "📱 Support Request: Control",
+                recipient: "ryan.whitney@me.com",
+                body: "\n\n---------\nAbove, please describe the issue you're having or any other feedback you'd like to share. Thanks!"
+            )
         }
         .padding()
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarTitle("Support")
 
     }
+}
 
+private struct VersionView: View {
+    var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+    }
 
+    var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+    }
+
+    var body: some View {
+        Text("Version \(appVersion) (\(buildNumber))")
+            .font(.footnote)
+            .foregroundStyle(.tertiary)
+    }
 }
 
 #Preview {
