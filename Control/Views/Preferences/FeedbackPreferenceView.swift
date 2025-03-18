@@ -3,7 +3,6 @@ import MultiBlur
 
 struct FeedbackPreferenceView: View {
     @State private var showMailComposer = false
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(spacing:16){
