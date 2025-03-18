@@ -11,13 +11,13 @@ struct SupportPreferenceView: View {
                 VStack(alignment: .leading, spacing: 8){
                     Text("Found an issue?")
                         .font(.headline)
-                    Text("This app includes zero analytics or tracking. If you run into a bug, please let me know and I'll do my best to address it!")
+                    Text("This app includes zero analytics or tracking. If you run into any bug or issues, please let me know and I'll do my best to fix it.")
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 8){
-                    Text("Feature requests?")
+                    Text("App or feature requests")
                         .font(.headline)
-                    Text("Control has the ability to support any app with AppleScript support. Feel free to request additional app support or other improvements.")
+                    Text("Control comes with support for few popular Mac apps, but more can be added. Feel free to request additional apps or features.")
                         .foregroundStyle(.secondary)
                 }
                 Button {
@@ -25,7 +25,7 @@ struct SupportPreferenceView: View {
                 } label: {
                     HStack {
                         Text("Contact Support")
-                            .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
+                            .multiblur([(10,0.25), (50,0.35)])
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
@@ -57,7 +57,7 @@ struct SupportPreferenceView: View {
                 } label: {
                     HStack {
                         Text("View Control On GitHub")
-                            .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
+                            .multiblur([(10,0.25), (50,0.35)])
 
 
                     }

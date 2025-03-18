@@ -19,6 +19,12 @@ struct PreferencesView: View {
                         title: "Support",
                         color: .orange
                     )
+                    PreferencesRow(
+                        destination: FeedbackPreferenceView(),
+                        iconName: "paperplane.fill",
+                        title: "Send Feedback",
+                        color: .green
+                    )
                 }
             }
             .padding(.top, 30)
