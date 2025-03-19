@@ -9,13 +9,12 @@ struct FeedbackPreferenceView: View {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 16){
                     Text("Hi there, I'm [Ryan](https://rw.is).")
-                        .foregroundStyle(.secondary)
-                    Text("I made this because I wanted a remote control for watching movies on my Mac and existing options required paying fees or installing extra applications on it.")
-                        .foregroundStyle(.secondary)
-                    Text("Please share any feedback you have. I’d love to make Control as useful and accessible as possible.")
-                        .foregroundStyle(.secondary)
+                    Text("I made Control after getting tired of constantly getting up to adjust the volume when watching movies on my computer.")
+                    Text("(And I didn't love the existing options, which required installing separate Mac apps and maintaining subscriptions.)")
+                    Text("I’d love to make Control as useful and accessible as possible. Please share any feedback you have!")
                 }
-                
+                .foregroundStyle(.secondary)
+
                 Button {
                     showMailComposer = true
                 } label: {

@@ -23,7 +23,7 @@ struct PlatformControl: View {
                 .animation(.spring(), value: platform.name)
                 
                 Text(state.title)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .id(state.title)

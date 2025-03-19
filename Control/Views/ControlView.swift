@@ -288,7 +288,7 @@ struct ControlView_Previews: PreviewProvider {
     }
 }
 
-// Add a safe subscript extension for Array
+// safe subscript extension for Array
 extension Array {
     subscript(safe index: Int) -> Element? {
         guard index >= 0, index < endIndex else { return nil }

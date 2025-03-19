@@ -11,7 +11,7 @@ struct PreferencesView: View {
                         destination: ThemePreferenceView(),
                         iconName: "paintbrush.fill",
                         title: "Theme",
-                        color: UserPreferences.shared.tintColorValue
+                        color: .indigo
                     )
                     PreferencesRow(
                         destination: SupportPreferenceView(),
