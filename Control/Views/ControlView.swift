@@ -72,14 +72,14 @@ struct ControlView: View {
                     Spacer()
                 }
                 Spacer(minLength: 40)
-                VStack(spacing: 16) {
+                VStack(alignment: .center, spacing: 16) {
                     HStack{
                         Button{
                             adjustVolume(by: -5)
                         } label: {
                             Image(systemName: "speaker.minus.fill")
                                 .foregroundStyle(Color.accentColor)
-                                .padding(.top, 8)
+                                .padding(.top, 3)
                         }
                         .frame(width: 30, height: 30)
                         .disabled(!volumeInitialized)
@@ -107,12 +107,13 @@ struct ControlView: View {
                         } label: {
                             Image(systemName: "speaker.plus.fill")
                                 .foregroundStyle(Color.accentColor)
-                                .padding(.top, 8)
+                                .padding(.top, 3)
                         }
                         .frame(width: 30, height: 30)
                         .disabled(!volumeInitialized)
                     }
                 }
+                .frame(maxWidth: 500)
                 Spacer(minLength: 40)
             }
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)

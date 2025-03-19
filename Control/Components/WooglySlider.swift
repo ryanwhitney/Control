@@ -157,7 +157,7 @@ struct WooglySlider: View {
                         alignment: .leading
                     )
                 }
-                .frame(width: geometry.size.width, height: isExpanded ? 28 : 12, alignment: .leading)
+                .frame(width: geometry.size.width, height: isExpanded ? 28 : 10, alignment: .leading)
                 .background(.quaternary)
                 .gesture(sliderGesture)
                 .clipShape(.capsule)
