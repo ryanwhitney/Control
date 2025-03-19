@@ -178,6 +178,12 @@ struct WooglySlider: View {
             dragStartValue = value
             lastUpdateTime = Date()
         }
+        .onChange(of: value) { _, newValue in
+            // Update dragStartValue when the remote volume changes
+            if !isAnimating && !isExpanded {  // Only update when we're not interacting
+                dragStartValue = newValue
+            }
+        }
         .onDisappear {
             animationTimer?.cancel()
         }
