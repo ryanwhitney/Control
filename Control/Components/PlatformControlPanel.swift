@@ -13,22 +13,34 @@ struct PlatformControl: View {
                     Text(platform.name)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
+                        .padding(.bottom, 50)
                         .id(platform.name)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     if platform.name.contains("Safari") {
                         Label("Experimental", systemImage: "exclamationmark.triangle.fill")
                             .labelStyle(.iconOnly)
                     }
                 }
-                .animation(.spring(), value: platform.name)
-                
-                Text(state.title)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .id(state.title)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                    .animation(.spring(), value: state.title)
+                VStack(alignment: .center) {
+                    if !state.title.isEmpty {
+                        Text(state.title)
+                            .font(.callout)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    if !state.subtitle.isEmpty {
+                        Text(state.subtitle)
+                            .font(.callout)
+                            .lineLimit(1)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.3), value: state.title)
+                .animation(.easeInOut(duration: 0.3), value: state.subtitle)
+                .frame(minHeight: 40)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 60)
             }
             
             HStack(spacing: 16) {
@@ -42,17 +54,26 @@ struct PlatformControl: View {
                             Image(systemName: dynamicIcon(isPlaying))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(width: 34, height: 34)
+                                .frame(width: 40, height: 45)
                         } else {
-                            Image(systemName: config.staticIcon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 34, height: 34)
+                            if config.staticIcon == "forward.end.fill" || config.staticIcon == "backward.end.fill" {
+                                Image(systemName: config.staticIcon)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 25, height: 28)
+                            }
+                            else {
+                                Image(systemName: config.staticIcon)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: 40, height: 45)
+                            }
                         }
                     }
                     .buttonStyle(IconButtonStyle())
                 }
             }
+            .padding(.bottom, 60)
         }
         .onAppear {
             Task {
@@ -71,9 +92,10 @@ struct PlatformControl: View {
     ) { _ in }
     
     return PlatformControl(
-        platform: MusicApp(),
+        platform: VLCApp(),
         state: .constant(.init(
-            title: "Skin - Wild Powwers",
+            title: "Skin",
+            subtitle: "Wild Powwers",
             isPlaying: true
         ))
     )

@@ -76,7 +76,7 @@ struct VLCApp: AppPlatform {
         }
         return AppState(
             title: "",
-            subtitle: "VLC is not running",
+            subtitle: "",
             isPlaying: nil,
             error: nil
         )

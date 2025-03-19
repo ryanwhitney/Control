@@ -6,9 +6,8 @@ struct WooglySlider: View {
     var range: ClosedRange<Double>
     var step: Double?
     var onEditingChanged: ((Bool) -> Void)?
-    var color: Color? = .blue
     @State private var sliderWidth: CGFloat = 50.0
-    @State private var isEditing = false
+    @State private var isExpanded = false
     @State private var isAnimating = false
     @State private var dragStartValue: Double = 0
     
@@ -25,56 +24,62 @@ struct WooglySlider: View {
         self.onEditingChanged = onEditingChanged
     }
     
-    var dragGesture: some Gesture {
-        DragGesture()
-            .onChanged { gesture in
-                isEditing = true
-                isAnimating = true
-                
-                let currentTime = Date()
-                let timeDelta = currentTime.timeIntervalSince(lastUpdateTime)
-                
-                if timeDelta > 0 {
-                    let translationDelta = gesture.translation.width - previousTranslation
-                    velocity = Double(translationDelta / CGFloat(timeDelta))
+    var sliderGesture: some Gesture {
+        SequenceGesture(
+            LongPressGesture(minimumDuration: 0.0)
+                .onEnded { _ in
+                    isExpanded = true
+                    isAnimating = true
+                    onEditingChanged?(true)
+                },
+            DragGesture(minimumDistance: 0)  // Allow drag detection without movement
+                .onChanged { gesture in
+                    let currentTime = Date()
+                    let timeDelta = currentTime.timeIntervalSince(lastUpdateTime)
+                    
+                    if timeDelta > 0 {
+                        let translationDelta = gesture.translation.width - previousTranslation
+                        velocity = Double(translationDelta / CGFloat(timeDelta))
+                    }
+                    
+                    previousTranslation = gesture.translation.width
+                    lastUpdateTime = currentTime
+                    
+                    let translationPercentage = gesture.translation.width / sliderWidth
+                    let rangeSize = range.upperBound - range.lowerBound
+                    let valueChange = translationPercentage * rangeSize
+                    
+                    var newValue = dragStartValue + valueChange
+                    newValue = max(range.lowerBound, min(range.upperBound, newValue))
+                    
+                    if let step = step {
+                        newValue = (newValue / step).rounded() * step
+                    }
+                    
+                    value = newValue
+                    onEditingChanged?(true)
+                    animationTimer?.cancel()
                 }
-                
-                previousTranslation = gesture.translation.width
-                lastUpdateTime = currentTime
-                
-                let translationPercentage = gesture.translation.width / sliderWidth
-                let rangeSize = range.upperBound - range.lowerBound
-                let valueChange = translationPercentage * rangeSize
-                
-                var newValue = dragStartValue + valueChange
-                newValue = max(range.lowerBound, min(range.upperBound, newValue))
-                
-                if let step = step {
-                    newValue = (newValue / step).rounded() * step
+                .onEnded { _ in
+                    dragStartValue = value
+                    onEditingChanged?(false)
+                    
+                    if abs(velocity) > 300 {
+                        startInertiaAnimation()
+                    } else {
+                        isExpanded = false
+                        isAnimating = false
+                    }
+                    
+                    previousTranslation = 0
                 }
-                
-                value = newValue
-                onEditingChanged?(true)
-                animationTimer?.cancel()
-            }
-            .onEnded { _ in
-                isEditing = false
-                dragStartValue = value
-                onEditingChanged?(false)
-                
-                if abs(velocity) > 300 {
-                    startInertiaAnimation()
-                } else {
-                    isAnimating = false
-                }
-                
-                previousTranslation = 0
-            }
+        )
     }
 
     func startInertiaAnimation() {
         animationTimer?.cancel()
         isAnimating = true
+        isExpanded = true
         
         var currentVelocity = velocity
         let maxVelocity: Double = 1000
@@ -106,7 +111,10 @@ struct WooglySlider: View {
                 if abs(scaledVelocity) < 0.5 {
                     animationTimer?.cancel()
                     onEditingChanged?(false)
-                    isAnimating = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isExpanded = false
+                        isAnimating = false
+                    }
                 }
             }
     }
@@ -125,36 +133,36 @@ struct WooglySlider: View {
                     in: range,
                     step: step ?? (range.upperBound - range.lowerBound) / 100
                 ) { 
-                    Text("Slider")
+                    Text("Volume \(value, specifier: "%.2f")")
                 } onEditingChanged: { editing in
-                    isEditing = editing
                     onEditingChanged?(editing)
                     if editing {
                         animationTimer?.cancel()
                     }
                 }
                 .opacity(0.02)
-                
+                .blendMode(.darken)
+
                 // Custom slider visualization
                 VStack {
                     HStack {
                         Color.clear
                     }
                     .cornerRadius(100)
-                    .background(color)
+                    .background(Color.accentColor)
                     .frame(
                         width: geometry.size.width * 
                             ((value - range.lowerBound) / (range.upperBound - range.lowerBound)),
-                        height: 23,
+                        height: 28,
                         alignment: .leading
                     )
                 }
-                .frame(width: geometry.size.width, height: isAnimating ? 23 : 15, alignment: .leading)
+                .frame(width: geometry.size.width, height: isExpanded ? 28 : 12, alignment: .leading)
                 .background(.quaternary)
-                .gesture(dragGesture)
+                .gesture(sliderGesture)
                 .clipShape(.capsule)
                 .animation(.interpolatingSpring(stiffness: 100, damping: 20), value: value)
-                .animation(.spring, value: isAnimating)
+                .animation(.spring(response: 0.4, dampingFraction: 0.5), value: isAnimating)
             }
             .background(
                 GeometryReader { geometryProxy in
@@ -162,7 +170,7 @@ struct WooglySlider: View {
                 }
             )
         }
-        .frame(height: 23)
+        .frame(height: 28)
         .onPreferenceChange(SizePreferenceKey.self) { newSize in
             sliderWidth = newSize.width
         }

@@ -14,7 +14,7 @@ struct ControlView: View {
     @StateObject private var preferences = UserPreferences.shared
     @StateObject private var savedConnections = SavedConnections()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var volume: Float = 0.5  // Default value instead of optional
+    @State private var volume: Float = 0.5
     @State private var volumeInitialized: Bool = false  // Track if we've received real volume
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
@@ -47,76 +47,77 @@ struct ControlView: View {
     
     var body: some View {
         ZStack {
-            GeometryReader { geometry in
-                let totalHeight = geometry.size.height
-                let mediaHeight = totalHeight * 6 / 10
-                VStack(spacing: 0) {
-                    VStack {
-                        TabView(selection: $selectedPlatformIndex) {
-                            ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
-                                PlatformControl(
-                                    platform: platform,
-                                    state: Binding(
-                                        get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: " ") },
-                                        set: { appController.states[platform.id] = $0 }
-                                    )
+            VStack() {
+                VStack {
+                    Spacer()
+                    TabView(selection: $selectedPlatformIndex) {
+                        ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
+                            PlatformControl(
+                                platform: platform,
+                                state: Binding(
+                                    get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: "", subtitle: "") },
+                                    set: { appController.states[platform.id] = $0 }
                                 )
-                                .environmentObject(appController)
-                                .tag(index)
-                            }
-                        }
-                        .tabViewStyle(.page)
-                        .onChange(of: selectedPlatformIndex) { _, newValue in
-                            if let platform = appController.platforms[safe: newValue] {
-                                savedConnections.updateLastViewedPlatform(host, platform: platform.id)
-                            }
+                            )
+                            .environmentObject(appController)
+                            .tag(index)
                         }
                     }
-                    .frame(height: mediaHeight)
-                    
-                    VStack(spacing: 20) {
-                        Spacer()
-                        
-                        Text("Volume: \(displayVolume)")
-                            .fontWeight(.bold)
-                            .fontWidth(.expanded)
-                            .accessibilityLabel("System Volume")
-                            .accessibilityValue(displayVolume)
-                        
-                        Slider(value: Binding(
-                            get: { volume },
-                            set: { newValue in
-                                if volumeInitialized {
-                                    volume = newValue
-                                    debounceVolumeChange()
-                                }
-                            }
-                        ), in: 0...1, step: 0.01)
-                            .padding(.horizontal)
-                            .accessibilityLabel("Volume Slider")
-                            .accessibilityValue("\(Int(volume * 100))%")
-                            .accessibilityHint("Adjust to change system volume")
-                            .disabled(!volumeInitialized)
-                        
-                        HStack(spacing: 16) {
-                            ForEach([-5, -1, 1, 5], id: \.self) { adjustment in
-                                Button {
-                                    adjustVolume(by: adjustment)
-                                } label: {
-                                    Text(adjustment > 0 ? "+\(adjustment)" : "\(adjustment)")
-                                }
-                                .buttonStyle(CircularButtonStyle())
-                                .disabled(!volumeInitialized)
-                                .accessibilityLabel("Adjust volume by \(adjustment)")
-                                .accessibilityHint("Tap to \(adjustment > 0 ? "increase" : "decrease") volume by \(abs(adjustment))%")
-                            }
+                    .tabViewStyle(.page)
+                    .onChange(of: selectedPlatformIndex) { _, newValue in
+                        if let platform = appController.platforms[safe: newValue] {
+                            savedConnections.updateLastViewedPlatform(host, platform: platform.id)
                         }
-                        Spacer()
+                    }
+                    Spacer()
+                }
+                Spacer(minLength: 40)
+                VStack(spacing: 16) {
+                    HStack{
+                        Button{
+                            adjustVolume(by: -5)
+                        } label: {
+                            Image(systemName: "speaker.minus.fill")
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.top, 8)
+                        }
+                        .frame(width: 30, height: 30)
+                        .disabled(!volumeInitialized)
+                        WooglySlider(
+                            value: Binding(
+                                get: { Double(volume) },
+                                set: { newValue in
+                                    if volumeInitialized {
+                                        volume = Float(newValue)
+                                        debounceVolumeChange()
+                                    }
+                                }
+                            ),
+                            in: 0...1,
+                            step: 0.01,
+                            onEditingChanged: { _ in }
+                        )
+                        .accessibilityLabel("Volume Slider")
+                        .accessibilityValue("\(Int(volume * 100))%")
+                        .accessibilityHint("Adjust to change system volume")
+                        .disabled(!volumeInitialized)
+
+                        Button{
+                            adjustVolume(by: 5)
+                        } label: {
+                            Image(systemName: "speaker.plus.fill")
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.top, 8)
+                        }
+                        .frame(width: 30, height: 30)
+                        .disabled(!volumeInitialized)
                     }
                 }
-                .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
-                .animation(.spring(), value: connectionManager.connectionState)
+                Spacer(minLength: 40)
             }
+            .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
+            .animation(.spring(), value: connectionManager.connectionState)
+
             Rectangle()
                 .foregroundStyle(.black)
                 .blendMode(.saturation)

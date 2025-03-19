@@ -453,7 +453,7 @@ struct ConnectionsView: View {
             
             return Connection(
                 id: service.name,
-                name: service.name.replacingOccurrences(of: "\\032", with: " "),
+                name: service.name.replacingOccurrences(of: "\\032", with: ""),
                 host: cleanHostname,
                 type: .bonjour(service),
                 lastUsername: savedConnections.lastUsername(for: cleanHostname)

@@ -51,8 +51,8 @@ struct QuickTimeApp: AppPlatform {
             )
         }
         return AppState(
-            title: "Error",
-            subtitle: nil,
+            title: "",
+            subtitle: "",
             isPlaying: nil,
             error: "Failed to parse QuickTime state"
         )

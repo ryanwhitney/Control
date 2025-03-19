@@ -50,7 +50,7 @@ struct SpotifyApp: AppPlatform {
         }
         return AppState(
             title: "",
-            subtitle: "Spotify is not running",
+            subtitle: "",
             isPlaying: nil,
             error: nil
         )

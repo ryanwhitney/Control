@@ -22,7 +22,7 @@ class AppController: ObservableObject {
         
         // Initialize states
         for platform in platformRegistry.platforms {
-            let initialState = AppState(title: "Loading...")
+            let initialState = AppState(title: "Loading...", subtitle: "")
             states[platform.id] = initialState
             lastKnownStates[platform.id] = initialState
         }
@@ -68,8 +68,8 @@ class AppController: ObservableObject {
             } else {
                 print("⚠️ \(platform.name) is not running")
                 let newState = AppState(
-                    title: "Not Running",
-                    subtitle: nil,
+                    title: "",
+                    subtitle: "Not Running",
                     isPlaying: nil,
                     error: nil
                 )
@@ -88,8 +88,8 @@ class AppController: ObservableObject {
         let isRunning = await checkIfRunning(platform)
         guard isRunning else {
             let newState = AppState(
-                title: "Not Running",
-                subtitle: nil,
+                title: "",
+                subtitle: "Not Running",
                 isPlaying: nil,
                 error: nil
             )
@@ -127,7 +127,7 @@ class AppController: ObservableObject {
             }
         case .failure(let error):
             // For errors, we might want to keep the previous state and just add an error
-            var currentState = states[platform.id] ?? AppState(title: "Error")
+            var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
             currentState.error = error.localizedDescription
             states[platform.id] = currentState
             lastKnownStates[platform.id] = currentState

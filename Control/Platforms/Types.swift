@@ -63,7 +63,7 @@ extension ActionConfig: Equatable {
 
 struct AppState: Equatable {
     var title: String
-    var subtitle: String?
+    var subtitle: String
     var isPlaying: Bool?
     var error: String?
 }
