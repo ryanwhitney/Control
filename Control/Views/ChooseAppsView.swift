@@ -53,8 +53,6 @@ struct ChooseAppsView: View {
                         .opacity(selectedPlatforms.contains(platform.id) ? 1 : 0.5)
                         .animation(.spring(), value: selectedPlatforms)
                         .accessibilityAddTraits(.isToggle)
-                        .accessibilityLabel("\(platform.name), \(selectedPlatforms.contains(platform.id) ? "enabled" : "disabled")")
-                        .accessibilityHint("Tap to \(selectedPlatforms.contains(platform.id) ? "disable" : "enable") this platform.")
                     }
                 }
                 .padding()
@@ -71,6 +69,7 @@ struct ChooseAppsView: View {
                     .padding(0)
                     .foregroundStyle(.tint, .quaternary)
                     .padding(.bottom, -20)
+                    .accessibilityHidden(true)
                 Text("Which apps would you like to control?")
                     .font(.title2)
                     .bold()
@@ -172,14 +171,7 @@ struct headerSizePreferenceKey: PreferenceKey {
     }
 }
 
-#Preview {
-    let client = SSHClient()
-    client.connect(
-        host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
-        username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
-        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
-    ) { _ in }
-    
+#Preview {    
     return NavigationStack {
         ChooseAppsView(
             hostname: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",

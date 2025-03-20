@@ -133,7 +133,7 @@ struct WooglySlider: View {
                     in: range,
                     step: step ?? (range.upperBound - range.lowerBound) / 100
                 ) { 
-                    Text("Volume \(value, specifier: "%.2f")")
+                    Text("Volume \(value)")
                 } onEditingChanged: { editing in
                     onEditingChanged?(editing)
                     if editing {

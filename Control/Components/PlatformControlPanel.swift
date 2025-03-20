@@ -46,29 +46,31 @@ struct PlatformControl: View {
             }
             
             HStack(spacing: 16) {
-                ForEach(platform.supportedActions) { config in
-                    Button(action: {
+                ForEach(platform.supportedActions) { appAction in
+                    Button {
                         Task {
-                            await controller.executeAction(platform: platform, action: config.action)
+                            await controller.executeAction(platform: platform, action: appAction.action)
                         }
-                    }) {
-                        if let dynamicIcon = config.dynamicIcon, let isPlaying = state.isPlaying {
+                    } label: {
+                        if let dynamicIcon = appAction.dynamicIcon, let isPlaying = state.isPlaying {
                             Image(systemName: dynamicIcon(isPlaying))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 40, height: 45)
+                                .accessibilityLabel(isPlaying ? "Pause" : "Play")
                         } else {
-                            if config.staticIcon == "forward.end.fill" || config.staticIcon == "backward.end.fill" {
-                                Image(systemName: config.staticIcon)
+                            if appAction.staticIcon == "forward.end.fill" || appAction.staticIcon == "backward.end.fill" {
+                                Image(systemName: appAction.staticIcon)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 25, height: 28)
-                            }
-                            else {
-                                Image(systemName: config.staticIcon)
+                                    .accessibilityLabel(appAction.label)
+                            } else {
+                                Image(systemName: appAction.staticIcon)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 40, height: 45)
+                                    .accessibilityLabel(appAction.label)
                             }
                         }
                     }

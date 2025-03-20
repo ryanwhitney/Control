@@ -36,6 +36,7 @@ struct ThemePreferenceSheet: View {
                                 .background(Circle().fill(color))
                                 .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel("Select \(value)")
 
                     }
                     .foregroundStyle(.primary)

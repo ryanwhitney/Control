@@ -36,6 +36,7 @@ enum AppAction: Identifiable, Equatable {
 
 struct ActionConfig: Identifiable {
     let action: AppAction
+    let label: String
     let staticIcon: String
     let dynamicIcon: ((Bool) -> String)?
     
@@ -43,12 +44,14 @@ struct ActionConfig: Identifiable {
     
     init(action: AppAction, icon: String) {
         self.action = action
+        self.label = action.label
         self.staticIcon = icon
         self.dynamicIcon = nil
     }
     
     init(action: AppAction, dynamicIcon: @escaping (Bool) -> String) {
         self.action = action
+        self.label = action.label
         self.staticIcon = dynamicIcon(false) // Default to not playing
         self.dynamicIcon = dynamicIcon
     }

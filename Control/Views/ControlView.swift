@@ -75,16 +75,18 @@ struct ControlView: View {
                     Spacer()
                 }
                 Spacer(minLength: 40)
-                VStack(alignment: .center, spacing: 16) {
-                    HStack{
+                VStack(alignment: .center) {
+                    HStack(spacing: 0){
                         Button{
                             adjustVolume(by: -5)
                         } label: {
-                            Image(systemName: "speaker.minus.fill")
+                            Label("Decrease volume 5%", systemImage: "speaker.plus.fill")
+                                .labelStyle(.iconOnly)
                                 .foregroundStyle(Color.accentColor)
+                                .padding(10)
                                 .padding(.top, 3)
                         }
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                         .disabled(!volumeInitialized)
                         WooglySlider(
                             value: Binding(
@@ -101,18 +103,18 @@ struct ControlView: View {
                             onEditingChanged: { _ in }
                         )
                         .accessibilityLabel("Volume Slider")
-                        .accessibilityValue("\(Int(volume * 100))%")
-                        .accessibilityHint("Adjust to change system volume")
+                        .accessibilityValue("system volume \(Int(volume * 100))%")
                         .disabled(!volumeInitialized)
-
                         Button{
                             adjustVolume(by: 5)
                         } label: {
-                            Image(systemName: "speaker.plus.fill")
+                            Label("Increase volume 5%", systemImage: "speaker.plus.fill")
+                                .labelStyle(.iconOnly)
                                 .foregroundStyle(Color.accentColor)
+                                .padding(10)
                                 .padding(.top, 3)
                         }
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
                         .disabled(!volumeInitialized)
                     }
                 }
@@ -122,6 +124,7 @@ struct ControlView: View {
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
 
+            //Overlay and Desaturate view when disconnected
             Rectangle()
                 .foregroundStyle(.black)
                 .blendMode(.saturation)
@@ -130,8 +133,6 @@ struct ControlView: View {
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
         .padding()
-        .tint(preferences.tintColorValue)
-        .accentColor(preferences.tintColorValue)
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
@@ -155,7 +156,7 @@ struct ControlView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Label("More", systemImage: "ellipsis")
                 }
             }
         }

@@ -108,7 +108,6 @@ struct ConnectionsView: View {
                                 ) {
                                     selectComputer(computer)
                                 }
-                                .accessibilityLabel("\(computer.name) on \(computer.host)")
                                 .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
                                 .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
                             }
@@ -120,10 +119,9 @@ struct ConnectionsView: View {
                                     Spacer()
                                     ProgressView()
                                 }
-                                .accessibilityLabel("Searching for additional devices")
+                                .accessibilityLabel("Scanning for additional devices")
                             }
                         }
-                        .accessibilityLabel("Network Devices")
                         Section(header: Text("Recent".capitalized)) {
                             if savedComputers.isEmpty {
                                 Text("No recent connections")
@@ -136,7 +134,6 @@ struct ConnectionsView: View {
                                     ) {
                                         selectComputer(computer)
                                     }
-                                    .accessibilityLabel("\(computer.name) - Recent connection")
                                     .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
                                     .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -151,7 +148,7 @@ struct ConnectionsView: View {
                                         Button {
                                             selectedConnection = computer
                                             username = computer.lastUsername ?? ""
-                                            password = "•••••"  // keep pass empty
+                                            password = "•••••"
                                             saveCredentials = false
                                             showingAddDialog = true
                                         } label: {
@@ -163,7 +160,7 @@ struct ConnectionsView: View {
                                 }
                             }
                         }
-                        .accessibilityLabel("Recent Connections")
+                        .accessibilityLabel("Recent connections")
                     }
                 }
                 VStack {
@@ -221,8 +218,8 @@ struct ConnectionsView: View {
                         Button(action: startNetworkScan) {
                             Image(systemName: "arrow.clockwise")
                         }
-                        .accessibilityLabel("Refresh device list")
-                        
+                        .accessibilityLabel("Rescan for devices")
+
                         Button(action: {
                             selectedConnection = nil
                             username = ""
@@ -441,6 +438,8 @@ struct ConnectionsView: View {
                     }
                 }
             }
+            .accessibilityLabel("Device")
+            .accessibilityValue("\(computer.name) at host  \(computer.host); \(computer.lastUsername != nil ? "saved user: \(computer.lastUsername!)" : "")")
             .disabled(isConnecting)
         }
     }
