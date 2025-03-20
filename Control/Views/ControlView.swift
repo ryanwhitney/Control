@@ -289,6 +289,7 @@ struct ControlView_Previews: PreviewProvider {
                 username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
                 password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
             )
+            .environmentObject(SavedConnections())
         }
     }
 }
