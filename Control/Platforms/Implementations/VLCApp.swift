@@ -28,7 +28,7 @@ struct VLCApp: AppPlatform {
         try
             -- Check if VLC is currently running
             if not running then
-                return "VLC is not running|||stopped|||false"
+                return " ||| Not running |||stopped|||false"
             end if
             
             -- Check playback status
@@ -39,13 +39,13 @@ struct VLCApp: AppPlatform {
                 on error
                     set mediaName to "Unknown media"
                 end try
-                return mediaName & "|||playing|||true"
+                return  " " & "|||" & mediaName & "||| true ||| true"
             else
                 try
                     set mediaName to name of current item
-                    return mediaName & "|||stopped|||false"
+                    return " " & "|||" & mediaName & "||| false ||| false "
                 on error
-                    return "No media|||stopped|||false"
+                    return " ||| Nothing playing ||| false ||| false"
                 end try
             end if
             
@@ -54,7 +54,7 @@ struct VLCApp: AppPlatform {
             if errMsg contains "Not authorized to send Apple events" then
                 error errMsg
             else
-                return "Error: " & errMsg & "|||stopped|||false"
+                return "Error: " & errMsg & "||| false |||false"
             end if
         end try
     end tell

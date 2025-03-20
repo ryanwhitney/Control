@@ -25,7 +25,7 @@ struct SafariApp: AppPlatform {
     tell application "Safari"
         set windowCount to count of windows
         if windowCount is 0 then
-            return "No windows open|||No media playing|||false"
+            return " |||No media playing ||| stopped |||false"
         end if
         
         repeat with w in windows
@@ -39,7 +39,7 @@ struct SafariApp: AppPlatform {
             end repeat
         end repeat
         
-        return "No media playing|||No media found|||false"
+        return " ||| No media playing ||| stopped |||false"
     end tell
     """
 

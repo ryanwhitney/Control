@@ -24,13 +24,16 @@ struct SpotifyApp: AppPlatform {
     private let statusScript = """
     tell application "Spotify"
         if not running then
-            return "Spotify is not running|||stopped|||false"
+            return " ||| Not running |||stopped|||false"
         end if
-        set trackName to name of current track
-        set artistName to artist of current track
-        set playerState to player state as text
-        set isPlaying to player state is playing
-        return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
+        try
+            set trackName to name of current track
+            set artistName to artist of current track
+            set playerState to player state as text
+            set isPlaying to player state is playing
+            return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
+        end try
+        return " " & "|||" & "Nothing playing" & "|||" & false & "|||" & false
     end tell
     """
     

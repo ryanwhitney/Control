@@ -37,7 +37,7 @@ struct TVApp: AppPlatform {
     
     if currentTrack is not missing value then
         set trackName to currentTrack
-        set showName to "No show"
+        set showName to ""
         if rawState is "playing" then
             -- Standard playing scenario
             return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
@@ -53,7 +53,7 @@ struct TVApp: AppPlatform {
         end if
     else
         -- If we can't retrieve a track, there's truly no video playing.
-        return "No video playing|||No show|||stopped|||false"
+        return " ||| Nothing playing  |||stopped|||false"
     end if
     end tell
     """
