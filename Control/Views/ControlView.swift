@@ -80,7 +80,7 @@ struct ControlView: View {
                         Button{
                             adjustVolume(by: -5)
                         } label: {
-                            Label("Decrease volume 5%", systemImage: "speaker.plus.fill")
+                            Label("Decrease volume 5%", systemImage: "speaker.minus.fill")
                                 .labelStyle(.iconOnly)
                                 .foregroundStyle(Color.accentColor)
                                 .padding(10)
