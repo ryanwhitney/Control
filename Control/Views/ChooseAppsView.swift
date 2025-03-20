@@ -149,26 +149,13 @@ struct ChooseAppsView: View {
     }
     
     private func connectToSSH() {
-        print("\n=== ControlView: Initiating SSH Connection ===")
-        Task {
-            // Check if we need to reconnect
-            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
-                print("✓ Using existing connection")
-                return
-            }
-
-            do {
-                try await connectionManager.connect(host: host, username: username, password: password)
-                print("✓ Connection established, updating app controller")
-//
-//                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
-//                    isReady = true
-//                }
-            } catch {
-                print("❌ Connection failed in ControlView: \(error)")
-//                errorMessage = error.localizedDescription
-            }
-        }
+        connectionManager.handleConnection(
+            host: host,
+            username: username,
+            password: password,
+            onSuccess: { },
+            onError: { _ in }
+        )
     }
 
 }

@@ -219,4 +219,30 @@ class SSHConnectionManager: ObservableObject {
             backgroundTask = .invalid
         }
     }
+    
+    /// Shared connection handler that manages common connection logic
+    func handleConnection(
+        host: String,
+        username: String,
+        password: String,
+        onSuccess: @escaping () async -> Void,
+        onError: @escaping (Error) -> Void
+    ) {
+        print("\n=== SSHConnectionManager: Handling Connection ===")
+        Task {
+            if !shouldReconnect(host: host, username: username, password: password) {
+                print("✓ Using existing connection")
+                await onSuccess()
+                return
+            }
+            do {
+                try await connect(host: host, username: username, password: password)
+                print("✓ Connection established")
+                await onSuccess()
+            } catch {
+                print("❌ Connection failed: \(error)")
+                onError(error)
+            }
+        }
+    }
 } 

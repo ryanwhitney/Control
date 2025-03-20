@@ -117,98 +117,23 @@ struct PermissionsView: View {
     }
 
     private func connectToSSH() {
-        print("\n=== PermissionsView: Initiating SSH Connection ===")
-        Task {
-            // Check if we need to reconnect
-            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
-                print("✓ Using existing connection")
-                return
-            }
-            
-            do {
-                try await connectionManager.connect(host: host, username: username, password: password)
-                print("✓ Connection established")
-            } catch {
-                print("❌ Connection failed in PermissionsView: \(error)")
+        connectionManager.handleConnection(
+            host: host,
+            username: username,
+            password: password,
+            onSuccess: { },  
+            onError: { error in
                 if let sshError = error as? SSHError {
-                    switch sshError {
-                    case .authenticationFailed:
-                        connectionError = (
-                            "Authentication Failed",
-                            """
-                            The username or password provided was incorrect.
-                            Please check your credentials and try again.
-                            """
-                        )
-                    case .connectionFailed(let reason):
-                        connectionError = (
-                            "Connection Failed",
-                            """
-                            \(reason)
-                            
-                            Please check that:
-                            • The computer is turned on
-                            • You're on the same network
-                            • Remote Login is enabled in System Settings
-                            """
-                        )
-                    case .timeout:
-                        connectionError = (
-                            "Connection Timeout",
-                            """
-                            The connection to \(displayName) timed out.
-                            Please check your network connection and ensure the computer is reachable.
-                            """
-                        )
-                    case .channelError(let details):
-                        connectionError = (
-                            "Connection Error",
-                            """
-                            Failed to establish a secure connection with \(displayName).
-                            Please try again in a few moments.
-                            
-                            Technical details: \(details)
-                            """
-                        )
-                    case .channelNotConnected:
-                        connectionError = (
-                            "Connection Error",
-                            """
-                            Could not establish a connection with \(displayName).
-                            Please ensure Remote Login is enabled and try again.
-                            """
-                        )
-                    case .invalidChannelType:
-                        connectionError = (
-                            "Connection Error",
-                            """
-                            An internal error occurred while connecting to \(displayName).
-                            Please try again.
-                            """
-                        )
-                    case .noSession:
-                        connectionError = (
-                            "Connection Error",
-                            """
-                            Could not establish an SSH session with \(displayName).
-                            Please ensure Remote Login is enabled and try again.
-                            """
-                        )
-                    }
+                    connectionError = sshError.formatError(displayName: displayName)
                 } else {
                     connectionError = (
                         "Connection Error",
-                        """
-                        An unexpected error occurred while connecting to \(displayName).
-                        Please try again.
-                        
-                        Technical details: \(error.localizedDescription)
-                        """
+                        "An unexpected error occurred: \(error.localizedDescription)"
                     )
                 }
                 showingError = true
             }
-        }
+        )
     }
     
     private var successView: some View {

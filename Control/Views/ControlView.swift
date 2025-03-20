@@ -206,35 +206,22 @@ struct ControlView: View {
     }
 
     private func connectToSSH() {
-        print("\n=== ControlView: Initiating SSH Connection ===")
-        Task {
-            // Check if we need to reconnect
-            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
-                print("✓ Using existing connection")
-                // Update app controller with current client
-                appController.updateClient(connectionManager.client)
-                await appController.updateAllStates()
-                return
-            }
-
-            do {
-                try await connectionManager.connect(host: host, username: username, password: password)
-                print("✓ Connection established, updating app controller")
-
-                // Update app controller with new client
-                appController.updateClient(connectionManager.client)
-
-                // Update states
-                await appController.updateAllStates()
-
+        connectionManager.handleConnection(
+            host: host,
+            username: username,
+            password: password,
+            onSuccess: { [weak appController] in
+                appController?.updateClient(connectionManager.client)
+                await appController?.updateAllStates()
+                
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
                     isReady = true
                 }
-            } catch {
-                print("❌ Connection failed in ControlView: \(error)")
+            },
+            onError: { error in
                 errorMessage = error.localizedDescription
             }
-        }
+        )
     }
 
     private func adjustVolume(by amount: Int) {
