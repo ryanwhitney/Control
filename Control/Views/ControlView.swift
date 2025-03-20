@@ -166,27 +166,16 @@ struct ControlView: View {
                 showingConnectionLostAlert = true
             }
             connectToSSH()
-            
-            // Set initial platform if one was previously selected
+            // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
                let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
                 selectedPlatformIndex = index
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            print("\n=== ControlView: Scene Phase Change ===")
-            print("Old phase: \(oldPhase)")
-            print("New phase: \(newPhase)")
-            
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
             if newPhase == .active {
-                print("Scene became active - connecting")
                 connectToSSH()
-            } else if newPhase == .background {
-                print("Scene entering background - cleaning up")
-                Task { @MainActor in
-                    appController.cleanup()
-                    connectionManager.disconnect()
-                }
             }
         }
         .onDisappear {
@@ -196,21 +185,10 @@ struct ControlView: View {
                 connectionManager.disconnect()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            print("\n=== ControlView: Will Enter Foreground ===")
-            connectToSSH()
-        }
         .onReceive(appController.$currentVolume) { newVolume in
             if let newVolume = newVolume {
                 volumeInitialized = true
                 volume = newVolume
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            print("\n=== ControlView: Will Resign Active ===")
-            Task { @MainActor in
-                appController.cleanup()
-                connectionManager.disconnect()
             }
         }
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
@@ -226,7 +204,7 @@ struct ControlView: View {
                 .presentationDragIndicator(.visible)
         }
     }
-    
+
     private func connectToSSH() {
         print("\n=== ControlView: Initiating SSH Connection ===")
         Task {
@@ -238,17 +216,17 @@ struct ControlView: View {
                 await appController.updateAllStates()
                 return
             }
-            
+
             do {
                 try await connectionManager.connect(host: host, username: username, password: password)
                 print("✓ Connection established, updating app controller")
-                
+
                 // Update app controller with new client
                 appController.updateClient(connectionManager.client)
-                
+
                 // Update states
                 await appController.updateAllStates()
-                
+
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
                     isReady = true
                 }
@@ -258,7 +236,7 @@ struct ControlView: View {
             }
         }
     }
-    
+
     private func adjustVolume(by amount: Int) {
         guard volumeInitialized else { return }
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)

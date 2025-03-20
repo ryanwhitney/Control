@@ -320,7 +320,7 @@ struct ConnectionsView: View {
             .navigationDestination(isPresented: $showingFirstTimeSetup) {
                 if let computer = selectedConnection {
                     ChooseAppsView(
-                        hostname: computer.host,
+                        host: computer.host,
                         displayName: computer.name,
                         username: username,
                         password: password,
@@ -335,7 +335,7 @@ struct ConnectionsView: View {
             .navigationDestination(isPresented: $navigateToPermissions) {
                 if let computer = selectedConnection {
                     PermissionsView(
-                        hostname: computer.host,
+                        host: computer.host,
                         displayName: computer.name,
                         username: username,
                         password: password,

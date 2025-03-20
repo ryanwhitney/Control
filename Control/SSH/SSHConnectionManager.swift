@@ -195,7 +195,6 @@ class SSHConnectionManager: ObservableObject {
         case .inactive:
             print("Scene became inactive")
             // No action needed, keep connection alive
-            
         case .background:
             print("Scene entering background")
             startBackgroundTask()

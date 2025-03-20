@@ -2,7 +2,7 @@ import SwiftUI
 import MultiBlur
 
 struct ChooseAppsView: View {
-    let hostname: String
+    let host: String
     let displayName: String
     let username: String
     let password: String
@@ -129,6 +129,9 @@ struct ChooseAppsView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+            if newPhase == .active {
+                connectToSSH()
+            }
         }
         .onDisappear {
             print("\n=== ChooseAppsView: Disappearing ===")
@@ -146,22 +149,28 @@ struct ChooseAppsView: View {
     }
     
     private func connectToSSH() {
-        print("\n=== ChooseAppsView: Initiating SSH Connection ===")
+        print("\n=== ControlView: Initiating SSH Connection ===")
         Task {
             // Check if we need to reconnect
-            if !connectionManager.shouldReconnect(host: hostname, username: username, password: password) {
+            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
                 print("✓ Using existing connection")
                 return
             }
-            
+
             do {
-                try await connectionManager.connect(host: hostname, username: username, password: password)
-                print("✓ Connection established")
+                try await connectionManager.connect(host: host, username: username, password: password)
+                print("✓ Connection established, updating app controller")
+//
+//                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+//                    isReady = true
+//                }
             } catch {
-                print("❌ Connection failed in ChooseAppsView: \(error)")
+                print("❌ Connection failed in ControlView: \(error)")
+//                errorMessage = error.localizedDescription
             }
         }
     }
+
 }
 
 struct headerSizePreferenceKey: PreferenceKey {
@@ -171,10 +180,10 @@ struct headerSizePreferenceKey: PreferenceKey {
     }
 }
 
-#Preview {    
+#Preview {
     return NavigationStack {
         ChooseAppsView(
-            hostname: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
+            host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
             displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
             username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
             password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",

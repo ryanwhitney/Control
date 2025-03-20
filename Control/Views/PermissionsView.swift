@@ -22,7 +22,7 @@ enum PlatformPermissionState: Equatable {
 }
 
 struct PermissionsView: View {
-    let hostname: String
+    let host: String
     let displayName: String
     let username: String
     let password: String
@@ -76,21 +76,8 @@ struct PermissionsView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-        }
-        .onDisappear {
-            print("\n=== PermissionsView: Disappearing ===")
-            Task { @MainActor in
-                connectionManager.disconnect()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
-            print("\n=== PermissionsView: Will Enter Foreground ===")
-            connectToSSH()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
-            print("\n=== PermissionsView: Will Resign Active ===")
-            Task { @MainActor in
-                connectionManager.disconnect()
+            if newPhase == .active {
+                connectToSSH()
             }
         }
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
@@ -133,13 +120,13 @@ struct PermissionsView: View {
         print("\n=== PermissionsView: Initiating SSH Connection ===")
         Task {
             // Check if we need to reconnect
-            if !connectionManager.shouldReconnect(host: hostname, username: username, password: password) {
+            if !connectionManager.shouldReconnect(host: host, username: username, password: password) {
                 print("✓ Using existing connection")
                 return
             }
             
             do {
-                try await connectionManager.connect(host: hostname, username: username, password: password)
+                try await connectionManager.connect(host: host, username: username, password: password)
                 print("✓ Connection established")
             } catch {
                 print("❌ Connection failed in PermissionsView: \(error)")
@@ -380,7 +367,7 @@ struct PermissionsView: View {
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
 
-            Text("This may open Permissions Dialogs on \(hostname).")
+            Text("This may open Permissions Dialogs on \(host).")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -527,7 +514,7 @@ struct PermissionsView: View {
     ) { _ in }
 
     return PermissionsView(
-        hostname: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
+        host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
         displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
         username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
         password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
