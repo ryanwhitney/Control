@@ -284,6 +284,7 @@ struct PermissionsView: View {
                         .padding(0)
                         .foregroundStyle(.primary, .tint)
                         .padding(.bottom, -20)
+                        .accessibilityHidden(true)
                     Text("Accept Permissions On Your Mac")
                         .font(.title2)
                         .bold()
@@ -379,7 +380,7 @@ struct PermissionsView: View {
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
 
-            Text("This may open Permissions Dialogs on \(hostname). [Learn More…](systempreferences://) ")
+            Text("This may open Permissions Dialogs on \(hostname).")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
