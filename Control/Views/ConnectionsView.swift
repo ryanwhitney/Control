@@ -360,6 +360,7 @@ struct ConnectionsView: View {
                         password: password,
                         enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
                     )
+                    .environmentObject(savedConnections)
                 }
             }
             .sheet(item: $activePopover) { popover in

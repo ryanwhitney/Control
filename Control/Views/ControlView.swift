@@ -12,7 +12,7 @@ struct ControlView: View {
     @StateObject private var connectionManager = SSHConnectionManager()
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
-    @StateObject private var savedConnections = SavedConnections()
+    @EnvironmentObject private var savedConnections: SavedConnections
     @Environment(\.scenePhase) private var scenePhase
     @State private var volume: Float = 0.5
     @State private var volumeInitialized: Bool = false  // Track if we've received real volume
@@ -61,6 +61,9 @@ struct ControlView: View {
                             )
                             .environmentObject(appController)
                             .tag(index)
+                            .onAppear {
+                                savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+                            }
                         }
                     }
                     .tabViewStyle(.page)
