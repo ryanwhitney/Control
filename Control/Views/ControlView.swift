@@ -15,7 +15,7 @@ struct ControlView: View {
     @EnvironmentObject private var savedConnections: SavedConnections
     @Environment(\.scenePhase) private var scenePhase
     @State private var volume: Float = 0.5
-    @State private var volumeInitialized: Bool = false  // Track if we've received real volume
+    @State private var volumeInitialized: Bool = false 
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
@@ -24,6 +24,7 @@ struct ControlView: View {
     @State private var showingThemeSettings: Bool = false
     @State private var selectedPlatformIndex: Int = 0
     @State private var showingError = false
+    @State private var connectionError: (title: String, message: String)?
 
     init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
         self.host = host
@@ -199,12 +200,10 @@ struct ControlView: View {
         } message: {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
-        .alert("Connection Error", isPresented: $showingError) {
+        .alert(connectionError?.title ?? "", isPresented: $showingError) {
             Button("OK", role: .cancel) { }
         } message: {
-            if let errorMessage = errorMessage {
-                Text(errorMessage)
-            }
+            Text(connectionError?.message ?? "")
         }
         .sheet(isPresented: $showingThemeSettings){
             ThemePreferenceSheet()
@@ -228,9 +227,12 @@ struct ControlView: View {
             },
             onError: { error in
                 if let sshError = error as? SSHError {
-                    errorMessage = sshError.formatError(displayName: displayName).message
+                    connectionError = sshError.formatError(displayName: displayName)
                 } else {
-                    errorMessage = error.localizedDescription
+                    connectionError = (
+                        "Connection Error",
+                        "An unexpected error occurred: \(error.localizedDescription)"
+                    )
                 }
                 showingError = true
             }

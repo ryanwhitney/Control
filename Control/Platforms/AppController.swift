@@ -53,12 +53,15 @@ class AppController: ObservableObject {
             return
         }
         
-        // Update system volume
+        // Update system volume first
         await updateSystemVolume()
         
-        // First check which apps are running
+        // Then check which apps are running
         for platform in platforms {
-            guard isActive else { break }  // Stop if we've become inactive
+            guard isActive else { 
+                print("⚠️ Controller became inactive, stopping updates")
+                break 
+            }
             
             print("\nChecking platform: \(platform.name)")
             let isRunning = await checkIfRunning(platform)
@@ -73,11 +76,7 @@ class AppController: ObservableObject {
                     isPlaying: nil,
                     error: nil
                 )
-                // Only update if we don't have a previous state or if the state has changed
-                if states[platform.id]?.title != newState.title {
-                    states[platform.id] = newState
-                    lastKnownStates[platform.id] = newState
-                }
+                updateStateIfChanged(platform.id, newState)
             }
         }
     }
@@ -274,23 +273,26 @@ class AppController: ObservableObject {
                     continuation.resume(returning: result)
                 case .failure(let error):
                     print("❌ Command failed: \(error)")
+                    
                     // Check if this is a connection loss
-                    let errorString = error.localizedDescription.lowercased()
-                    if errorString.contains("connection lost") ||
-                       errorString.contains("eof") || 
-                       errorString.contains("connection reset") ||
-                       errorString.contains("broken pipe") ||
-                       errorString.contains("connection closed") ||
-                       errorString.contains("tcp shutdown") {
+                    if let connectionManager = self.sshClient as? SSHConnectionManager,
+                       connectionManager.isConnectionLossError(error) {
                         print("Connection appears to be lost")
                         self.isActive = false  // Prevent further commands
-                        if let connectionManager = self.sshClient as? SSHConnectionManager {
-                            connectionManager.handleConnectionLost()
-                        }
+                        connectionManager.handleConnectionLost()
                     }
+                    
                     continuation.resume(returning: result)
                 }
             }
+        }
+    }
+    
+    private func updateStateIfChanged(_ platformId: String, _ newState: AppState) {
+        // Only update if we don't have a previous state or if the state has changed
+        if states[platformId]?.title != newState.title {
+            states[platformId] = newState
+            lastKnownStates[platformId] = newState
         }
     }
 } 

@@ -181,6 +181,7 @@ class SSHConnectionManager: ObservableObject {
             print("Scene entering background")
             startBackgroundTask()
             Task { @MainActor in
+                // Always disconnect in background to prevent stale connections
                 disconnect()
             }
             
@@ -212,12 +213,13 @@ class SSHConnectionManager: ObservableObject {
     ) {
         print("\n=== SSHConnectionManager: Handling Connection ===")
         Task {
-            if !shouldReconnect(host: host, username: username, password: password) {
-                print("✓ Using existing connection")
-                await onSuccess()
-                return
-            }
             do {
+                if !shouldReconnect(host: host, username: username, password: password) {
+                    print("✓ Using existing connection")
+                    await onSuccess()
+                    return
+                }
+                
                 try await connect(host: host, username: username, password: password)
                 print("✓ Connection established")
                 await onSuccess()
@@ -228,18 +230,24 @@ class SSHConnectionManager: ObservableObject {
         }
     }
     
+    // Centralized connection loss detection
+    nonisolated func isConnectionLossError(_ error: Error) -> Bool {
+        let errorString = error.localizedDescription.lowercased()
+        return errorString.contains("connection lost") ||
+               errorString.contains("eof") ||
+               errorString.contains("connection reset") ||
+               errorString.contains("broken pipe") ||
+               errorString.contains("connection closed") ||
+               errorString.contains("tcp shutdown")
+    }
+    
     // Add connection loss detection to command execution
     nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
             if case .failure(let error) = result {
-                // Check if this is a connection loss
-                let errorString = error.localizedDescription.lowercased()
-                if errorString.contains("connection lost") ||
-                   errorString.contains("eof") || 
-                   errorString.contains("connection reset") ||
-                   errorString.contains("broken pipe") ||
-                   errorString.contains("connection closed") {
-                    Task { @MainActor in
+                if self?.isConnectionLossError(error) == true {
+                    print("Connection loss detected during command execution")
+                    Task { @MainActor [weak self] in
                         self?.handleConnectionLost()
                     }
                 }

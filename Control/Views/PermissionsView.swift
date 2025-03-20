@@ -314,6 +314,8 @@ struct PermissionsView: View {
     }
     
     private func checkAllPermissions() async {
+        print("\n=== PermissionsView: Checking All Permissions ===")
+        
         // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
@@ -333,63 +335,29 @@ struct PermissionsView: View {
         }
     }
     
-    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(command)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
-        
-        return await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
-                continuation.resume(returning: result)
-            }
-        }
-    }
-    
     private func checkPermission(for platformId: String) async {
         guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { return }
         
         permissionStates[platformId] = .checking
         
         // First activate the app
-        let activateCommand = """
-        osascript << 'APPLESCRIPT'
-        tell application "\(platform.name)"
-            activate
-        end tell
-        APPLESCRIPT
-        """
-        
-        _ = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
-                continuation.resume(returning: result)
-            }
+        let activateResult = await executeCommand("""
+            tell application "\(platform.name)"
+                activate
+            end tell
+            """, description: "\(platform.name): activate")
+            
+        // Check if activation failed
+        if case .failure = activateResult {
+            permissionStates[platformId] = .failed("Failed to activate app")
+            return
         }
         
         // Add a small delay to allow the app to fully activate
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         
         // Then check permissions by fetching state
-        let stateCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(platform.fetchState())
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
-        
-        let stateResult = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
-                continuation.resume(returning: result)
-            }
-        }
+        let stateResult = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
         
         switch stateResult {
         case .success(let output):
@@ -402,14 +370,15 @@ struct PermissionsView: View {
             // Keep checking - no response likely means waiting for user to accept permissions
             // Keep the checking state and start a retry loop
             var attempts = 0
-            while attempts < 60 { // Try for up to 30 seconds
+            let maxAttempts = 10 // Try for up to 5 seconds
+
+            while attempts < maxAttempts {
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
                 
-                let retryResult = await withCheckedContinuation { continuation in
-                    connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
-                        continuation.resume(returning: result)
-                    }
-                }
+                let retryResult = await executeCommand(
+                    platform.fetchState(),
+                    description: "\(platform.name): fetch status (retry \(attempts + 1))"
+                )
                 
                 switch retryResult {
                 case .success(let output):
@@ -426,6 +395,24 @@ struct PermissionsView: View {
             
             // If we get here, we've timed out waiting for a response
             permissionStates[platformId] = .failed("Permission dialog timed out")
+        }
+    }
+    
+    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+        let wrappedCommand = """
+        osascript << 'APPLESCRIPT'
+        try
+            \(command)
+        on error errMsg
+            return errMsg
+        end try
+        APPLESCRIPT
+        """
+        
+        return await withCheckedContinuation { continuation in
+            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+                continuation.resume(returning: result)
+            }
         }
     }
 }
