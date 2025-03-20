@@ -48,27 +48,9 @@ class SSHConnectionManager: ObservableObject {
     func handleConnectionLost() {
         print("\n=== SSHConnectionManager: Connection Lost ===")
         Task { @MainActor in
-            // Clean up existing connection
+            connectionState = .disconnected
             disconnect()
-            
-            // If we have credentials, try to reconnect once
-            if let credentials = currentCredentials {
-                print("Attempting to reconnect...")
-                do {
-                    try await connect(
-                        host: credentials.host,
-                        username: credentials.username,
-                        password: credentials.password
-                    )
-                    print("✓ Reconnection successful")
-                } catch {
-                    print("❌ Reconnection failed, notifying handler")
-                    connectionLostHandler?()
-                }
-            } else {
-                print("No credentials available for reconnection")
-                connectionLostHandler?()
-            }
+            connectionLostHandler?()
         }
     }
     
@@ -190,11 +172,11 @@ class SSHConnectionManager: ObservableObject {
         case .active:
             print("Scene became active")
             endBackgroundTask()
-            // Reconnection will be handled by the view when needed
             
         case .inactive:
             print("Scene became inactive")
             // No action needed, keep connection alive
+            
         case .background:
             print("Scene entering background")
             startBackgroundTask()
@@ -243,6 +225,26 @@ class SSHConnectionManager: ObservableObject {
                 print("❌ Connection failed: \(error)")
                 onError(error)
             }
+        }
+    }
+    
+    // Add connection loss detection to command execution
+    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
+            if case .failure(let error) = result {
+                // Check if this is a connection loss
+                let errorString = error.localizedDescription.lowercased()
+                if errorString.contains("connection lost") ||
+                   errorString.contains("eof") || 
+                   errorString.contains("connection reset") ||
+                   errorString.contains("broken pipe") ||
+                   errorString.contains("connection closed") {
+                    Task { @MainActor in
+                        self?.handleConnectionLost()
+                    }
+                }
+            }
+            completion(result)
         }
     }
 } 

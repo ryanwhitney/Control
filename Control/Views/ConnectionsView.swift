@@ -521,74 +521,8 @@ struct ConnectionsView: View {
                     self.connectingComputer = nil
                     
                     if let sshError = error as? SSHError {
-                        switch sshError {
-                        case .authenticationFailed:
-                            self.connectionError = (
-                                "Authentication Failed",
-                                """
-                                The username or password provided was incorrect.
-                                Please check your credentials and try again.
-                                """
-                            )
-                            
-                        case .connectionFailed(let reason):
-                            self.connectionError = (
-                                "Connection Failed",
-                                """
-                                Could not connect to \(computer.name).
-                                
-                                Reason: \(reason)
-                                
-                                Please check that:
-                                • The computer is turned on
-                                • You're on the same network
-                                • Remote Login is enabled
-                                """
-                            )
-                            
-                        case .timeout:
-                            self.connectionError = (
-                                "Connection Timeout",
-                                """
-                                Could not reach \(computer.name).
-                                
-                                Please check that:
-                                • The computer is turned on
-                                • You're on the same network
-                                • Your internet connection is stable
-                                """
-                            )
-                            
-                        case .channelError:
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Connection was interrupted.
-                                
-                                Please try again.
-                                """
-                            )
-                            
-                        case .channelNotConnected:
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Could not establish a secure connection.
-                                
-                                Please check that Remote Login is enabled on \(computer.name).
-                                """
-                            )
-                            
-                        case .invalidChannelType, .noSession:
-                            self.connectionError = (
-                                "Connection Error",
-                                """
-                                Could not establish a connection with \(computer.name).
-                                
-                                Please try again. If the problem persists, restart the computer.
-                                """
-                            )
-                        }
+                        let formattedError = sshError.formatError(displayName: computer.name)
+                        self.connectionError = (formattedError.title, formattedError.message)
                     } else {
                         self.connectionError = (
                             "Connection Error",

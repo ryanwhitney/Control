@@ -74,18 +74,18 @@ struct PermissionsView: View {
                 permissionsGranted = true
             }
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        .onChange(of: scenePhase, { oldPhase, newPhase in
             if newPhase == .active {
                 connectToSSH()
             }
-        }
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        })
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
             Button("OK") {
                 dismiss()
             }
         } message: {
-            Text("The connection to \(displayName) was lost. Please try connecting again.")
+            Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
         .alert(connectionError?.title ?? "", isPresented: $showingError) {
             Button("OK", role: .cancel) { }

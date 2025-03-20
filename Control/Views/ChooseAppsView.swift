@@ -127,12 +127,12 @@ struct ChooseAppsView: View {
             }
             connectToSSH()
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        .onChange(of: scenePhase, { oldPhase, newPhase in
             if newPhase == .active {
                 connectToSSH()
             }
-        }
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        })
         .onDisappear {
             print("\n=== ChooseAppsView: Disappearing ===")
             Task { @MainActor in
@@ -144,7 +144,7 @@ struct ChooseAppsView: View {
                 dismiss()
             }
         } message: {
-            Text("The connection to \(displayName) was lost. Please try connecting again.")
+            Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
     }
     

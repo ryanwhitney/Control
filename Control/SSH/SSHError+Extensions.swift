@@ -5,7 +5,7 @@ extension SSHError {
             return (
                 "Authentication Failed",
                 """
-                The username or password provided was incorrect.
+                The username or password provided was incorrect.\n
                 Please check your credentials and try again.
                 """
             )
@@ -15,18 +15,16 @@ extension SSHError {
                 """
                 \(reason)
                 
-                Please check that:
-                • The computer is turned on
-                • You're on the same network
-                • Remote Login is enabled in System Settings
+                Please check that:\n
+                • Both devices are on the same network\n
+                • Remote Login is enabled in your Mac's System Settings 
                 """
             )
         case .timeout:
             return (
-                "Connection Timeout",
+                "Couldn't connect to \(displayName)",
                 """
-                The connection to \(displayName) timed out.
-                Please check your network connection and ensure the computer is reachable.
+                Please check your network connection and ensure both devices are on the same network.
                 """
             )
         case .channelError(let details):
@@ -47,15 +45,7 @@ extension SSHError {
                 Please ensure Remote Login is enabled and try again.
                 """
             )
-        case .invalidChannelType:
-            return (
-                "Connection Error",
-                """
-                An internal error occurred while connecting to \(displayName).
-                Please try again.
-                """
-            )
-        case .noSession:
+        case .invalidChannelType, .noSession:
             return (
                 "Connection Error",
                 """

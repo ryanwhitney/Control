@@ -23,6 +23,7 @@ struct ControlView: View {
     @State private var showingConnectionLostAlert = false
     @State private var showingThemeSettings: Bool = false
     @State private var selectedPlatformIndex: Int = 0
+    @State private var showingError = false
 
     init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
         self.host = host
@@ -196,7 +197,14 @@ struct ControlView: View {
                 dismiss()
             }
         } message: {
-            Text("The connection to \(displayName) was lost. Please try connecting again.")
+            Text(SSHError.timeout.formatError(displayName: displayName).message)
+        }
+        .alert("Connection Error", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+            }
         }
         .sheet(isPresented: $showingThemeSettings){
             ThemePreferenceSheet()
@@ -219,7 +227,12 @@ struct ControlView: View {
                 }
             },
             onError: { error in
-                errorMessage = error.localizedDescription
+                if let sshError = error as? SSHError {
+                    errorMessage = sshError.formatError(displayName: displayName).message
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+                showingError = true
             }
         )
     }
