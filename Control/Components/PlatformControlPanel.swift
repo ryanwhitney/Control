@@ -26,18 +26,20 @@ struct PlatformControl: View {
                             .font(.callout)
                             .fontWeight(.semibold)
                             .lineLimit(1)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .id("\(platform.name)_\(state.title)")
+                            .transition(.opacity)
+                            .animation(.spring(), value: state.title)
                     }
 
                     if !state.subtitle.isEmpty {
                         Text(state.subtitle)
                             .font(.callout)
                             .lineLimit(1)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            .id("\(platform.name)_\(state.subtitle)")
+                            .transition(.opacity)
+                            .animation(.easeInOut(duration: 0.3), value: state.subtitle)
                     }
                 }
-                .animation(.easeInOut(duration: 0.3), value: state.title)
-                .animation(.easeInOut(duration: 0.3), value: state.subtitle)
                 .frame(minHeight: 40)
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 60)
