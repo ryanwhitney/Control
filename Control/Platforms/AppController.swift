@@ -69,9 +69,9 @@ class AppController: ObservableObject {
                 print("✓ \(platform.name) is running, updating state")
                 await updateState(for: platform)
             } else {
-                print("⚠️ \(platform.name) is not running")
+                print("\(platform.name) is not running")
                 let newState = AppState(
-                    title: "Not Running",
+                    title: "Not running",
                     subtitle: "",
                     isPlaying: nil,
                     error: nil
@@ -240,8 +240,7 @@ class AppController: ObservableObject {
         if let description = description {
             print("Description: \(description)")
         }
-        print("Command length: \(command.count) characters")
-        
+
         guard isActive else {
             print("⚠️ Controller not active, skipping command")
             return .failure(SSHError.channelError("Controller not active"))
