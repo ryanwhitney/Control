@@ -87,7 +87,7 @@ class AppController: ObservableObject {
         let isRunning = await checkIfRunning(platform)
         guard isRunning else {
             let newState = AppState(
-                title: "loading…",
+                title: "Not running",
                 subtitle: "",
                 isPlaying: nil,
                 error: nil
