@@ -24,18 +24,18 @@ struct PlatformControl: View {
                     if !state.title.isEmpty {
                         Text(state.title)
                             .lineLimit(1)
-                            .id("\(platform.name)_\(state.title)")
-                            .transition(.opacity)
-                            .animation(.spring(), value: state.title)
+                            .id("\(platform.name)_title")
+                            .contentTransition(.opacity)
+                            .animation(.spring(), value: state.subtitle)
                     }
 
                     if !state.subtitle.isEmpty {
                         Text(state.subtitle)
                             .fontWeight(.semibold)
                             .lineLimit(1)
-                            .id("\(platform.name)_\(state.subtitle)")
-                            .transition(.opacity)
-                            .animation(.easeInOut(duration: 0.3), value: state.subtitle)
+                            .id("\(platform.name)_subtitle")
+                            .contentTransition(.opacity)
+                            .animation(.spring(), value: state.subtitle)
                     }
                 }
                 .font(.callout)
