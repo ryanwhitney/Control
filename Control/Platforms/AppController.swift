@@ -71,8 +71,8 @@ class AppController: ObservableObject {
             } else {
                 print("⚠️ \(platform.name) is not running")
                 let newState = AppState(
-                    title: "",
-                    subtitle: "Not Running",
+                    title: "Not Running",
+                    subtitle: "",
                     isPlaying: nil,
                     error: nil
                 )
@@ -87,8 +87,8 @@ class AppController: ObservableObject {
         let isRunning = await checkIfRunning(platform)
         guard isRunning else {
             let newState = AppState(
-                title: "",
-                subtitle: "Not Running",
+                title: "loading…",
+                subtitle: "",
                 isPlaying: nil,
                 error: nil
             )

@@ -24,7 +24,7 @@ struct QuickTimeApp: AppPlatform {
     private let statusScript = """
     tell application "QuickTime Player"
         if not (exists document 1) then
-            return " ||| Nothing playing |||false"
+            return "Nothing playing |||   |||false"
         end if
         set docName to name of document 1
         if playing of document 1 then
@@ -32,7 +32,7 @@ struct QuickTimeApp: AppPlatform {
         else
             set playState to "paused"
         end if
-        return docName & "|||" & "" & "|||" & (playing of document 1 as text)
+        return docName & "|||   |||" & (playing of document 1 as text)
     end tell
     """
     

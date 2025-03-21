@@ -28,7 +28,7 @@ struct VLCApp: AppPlatform {
         try
             -- Check if VLC is currently running
             if not running then
-                return " ||| Not running |||stopped|||false"
+                return "Not running |||  |||  stopped  |||false"
             end if
             
             -- Check playback status
@@ -39,13 +39,13 @@ struct VLCApp: AppPlatform {
                 on error
                     set mediaName to "Unknown media"
                 end try
-                return  " " & "|||" & mediaName & "||| true ||| true"
+                return  mediaName & "|||   ||| true ||| true"
             else
                 try
                     set mediaName to name of current item
-                    return " " & "|||" & mediaName & "||| false ||| false "
+                    return mediaName & "|||   ||| false ||| false "
                 on error
-                    return " ||| Nothing playing ||| false ||| false"
+                    return "Nothing playing |||   ||| false ||| false"
                 end try
             end if
             

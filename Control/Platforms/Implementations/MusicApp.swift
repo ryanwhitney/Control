@@ -24,7 +24,7 @@ struct MusicApp: AppPlatform {
     private let statusScript = """
     tell application "Music"
         if player state is stopped then
-            return " ||| Nothing playing |||stopped|||false"
+            return "Nothing playing |||    ||| stopped ||| false"
         end if
         set trackName to name of current track
         set artistName to artist of current track

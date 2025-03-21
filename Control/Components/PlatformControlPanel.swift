@@ -23,8 +23,6 @@ struct PlatformControl: View {
                 VStack(alignment: .center) {
                     if !state.title.isEmpty {
                         Text(state.title)
-                            .font(.callout)
-                            .fontWeight(.semibold)
                             .lineLimit(1)
                             .id("\(platform.name)_\(state.title)")
                             .transition(.opacity)
@@ -33,15 +31,16 @@ struct PlatformControl: View {
 
                     if !state.subtitle.isEmpty {
                         Text(state.subtitle)
-                            .font(.callout)
+                            .fontWeight(.semibold)
                             .lineLimit(1)
                             .id("\(platform.name)_\(state.subtitle)")
                             .transition(.opacity)
                             .animation(.easeInOut(duration: 0.3), value: state.subtitle)
                     }
                 }
-                .frame(minHeight: 40)
+                .font(.callout)
                 .foregroundStyle(.secondary)
+                .frame(minHeight: 40)
                 .padding(.bottom, 60)
             }
             
