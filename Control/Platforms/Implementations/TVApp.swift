@@ -54,9 +54,9 @@ struct TVApp: AppPlatform {
             end if
         else if frontWindow is not "TV" then
             if rawState is "playing" then
-                return frontWindow & "|||" & frontWindow & "|||" & "playing" & "|||" & "true"
+                return frontWindow & "|||  |||" & "playing" & "|||" & "true"
             else
-                return frontWindow & "|||" & frontWindow & "|||" & "paused" & "|||" & "false"
+                return frontWindow & "|||  |||" & "paused" & "|||" & "false"
             end if
         else
             -- If we can't retrieve a track, there's truly no video playing.
