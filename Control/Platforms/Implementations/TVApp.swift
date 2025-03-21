@@ -23,38 +23,45 @@ struct TVApp: AppPlatform {
     
     private let statusScript = """
     tell application "TV"
-    -- Grab the raw player state: can be "playing", "paused", or "stopped".
-    set rawState to player state as text
-    
-    -- Try to get the current track, which might fail if truly no track is loaded.
-    set currentTrack to missing value
-    try
-        set currentTrack to name of current track
-    end try
-    try
-        set frontWindow to name of front window
-    end try
-    
-    if currentTrack is not missing value then
-        set trackName to currentTrack
-        set showName to ""
-        if rawState is "playing" then
-            -- Standard playing scenario
-            return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
-        else if rawState is "paused" or rawState is "stopped" then
-            -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
-            return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
-        end if
-    else if frontWindow is not "TV" then
-        if rawState is "playing" then
-            return frontWindow & "|||" & frontWindow & "|||" & "playing" & "|||" & "true"
+        -- Grab the raw player state: can be "playing", "paused", or "stopped".
+        set rawState to player state as text
+        
+        -- Try to get the current track, which might fail if truly no track is loaded.
+        set currentTrack to missing value
+        try
+            set currentTrack to name of current track
+            set currentProperties to properties of current track
+        end try
+        try
+            set frontWindow to name of front window
+        end try
+        
+        if currentTrack is not missing value then
+            set trackName to currentTrack
+            
+            if media kind of currentProperties is TV show then
+                set showName to show of current track
+            else
+                set showName to ""
+            end if
+            
+            if rawState is "playing" then
+                -- Standard playing scenario
+                return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
+            else if rawState is "paused" or rawState is "stopped" then
+                -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
+                return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
+            end if
+        else if frontWindow is not "TV" then
+            if rawState is "playing" then
+                return frontWindow & "|||" & frontWindow & "|||" & "playing" & "|||" & "true"
+            else
+                return frontWindow & "|||" & frontWindow & "|||" & "paused" & "|||" & "false"
+            end if
         else
-            return frontWindow & "|||" & frontWindow & "|||" & "paused" & "|||" & "false"
+            -- If we can't retrieve a track, there's truly no video playing.
+            return "Nothing playing |||   ||| stopped ||| false"
         end if
-    else
-        -- If we can't retrieve a track, there's truly no video playing.
-        return " ||| Nothing playing  |||stopped|||false"
-    end if
     end tell
     """
     
