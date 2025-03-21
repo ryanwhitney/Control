@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ryanwhitney/MultiBlur",
       "state" : {
-        "branch" : "main",
-        "revision" : "f07a1f24d3a364822c4ac5431364d801ab05eaec"
+        "revision" : "f07a1f24d3a364822c4ac5431364d801ab05eaec",
+        "version" : "1.0.0"
       }
     },
     {
