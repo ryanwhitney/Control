@@ -6,7 +6,7 @@ enum PlatformPermissionState: Equatable {
     case checking
     case granted
     case failed(String)
-    
+
     static func == (lhs: PlatformPermissionState, rhs: PlatformPermissionState) -> Bool {
         switch (lhs, rhs) {
         case (.initial, .initial),
@@ -28,7 +28,7 @@ struct PermissionsView: View {
     let password: String
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
-    
+
     @StateObject private var connectionManager = SSHConnectionManager()
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
@@ -47,7 +47,7 @@ struct PermissionsView: View {
             successView
                 .opacity(showSuccess ? 1 : 0)
                 .accessibilityHidden(!showSuccess)
-            
+
             // MAIN PERMISSIONS VIEW
             mainPermissionsView
                 .opacity(permissionsGranted ? 0 : 1)
@@ -60,15 +60,15 @@ struct PermissionsView: View {
                     permissionStates[platformId] = .initial
                 }
             }
-            
+
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
                 showingConnectionLostAlert = true
             }
-            
+
             // Connect to SSH
             connectToSSH()
-            
+
             // If permissions are already granted, show success right away
             if allPermissionsGranted {
                 permissionsGranted = true
@@ -121,7 +121,7 @@ struct PermissionsView: View {
             host: host,
             username: username,
             password: password,
-            onSuccess: { },  
+            onSuccess: { },
             onError: { error in
                 if let sshError = error as? SSHError {
                     connectionError = sshError.formatError(displayName: displayName)
@@ -135,7 +135,7 @@ struct PermissionsView: View {
             }
         )
     }
-    
+
     private var successView: some View {
         VStack {
             Image(systemName: "checkmark.circle.fill")
@@ -149,7 +149,7 @@ struct PermissionsView: View {
         }
         .padding()
     }
-    
+
     /// The "Main Permissions" UI that appears until the user grants permissions
     private var mainPermissionsView: some View {
         VStack(spacing: 20) {
@@ -212,7 +212,7 @@ struct PermissionsView: View {
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                         .padding(.bottom, -30)
-                            .preference(key: headerSizePreferenceKey.self, value: $0.size.height)
+                        .preference(key: headerSizePreferenceKey.self, value: $0.size.height)
                 })
                 .onPreferenceChange(headerSizePreferenceKey.self) { value in
                     self.headerHeight = value
@@ -257,7 +257,7 @@ struct PermissionsView: View {
             }
         }
     }
-    
+
     private var actionButtons: some View {
         VStack(spacing: 10){
             Button(action: onComplete) {
@@ -271,7 +271,7 @@ struct PermissionsView: View {
             .disabled(connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint("Skip permission checks and continue")
-            
+
             Button {
                 Task { await checkAllPermissions() }
             } label: {
@@ -300,29 +300,29 @@ struct PermissionsView: View {
         }
         .toolbarBackground(.hidden, for: .navigationBar)
     }
-    
+
     private var allPermissionsGranted: Bool {
         enabledPlatforms.allSatisfy { platformId in
             permissionStates[platformId] == .granted
         }
     }
-    
+
     private var isChecking: Bool {
         enabledPlatforms.contains { platformId in
             permissionStates[platformId] == .checking
         }
     }
-    
+
     private func checkAllPermissions() async {
-        print("\n=== PermissionsView: Checking All Permissions ===")
-        
+
+
         // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
                 permissionStates[platformId] = .initial
             }
         }
-        
+
         // Check each platform
         await withTaskGroup(of: Void.self) { group in
             for platformId in enabledPlatforms {
@@ -334,31 +334,65 @@ struct PermissionsView: View {
             }
         }
     }
-    
+
+    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+        let wrappedCommand = """
+        osascript << 'APPLESCRIPT'
+        try
+            \(command)
+        on error errMsg
+            return errMsg
+        end try
+        APPLESCRIPT
+        """
+
+        return await withCheckedContinuation { continuation in
+            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     private func checkPermission(for platformId: String) async {
         guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { return }
-        
+
         permissionStates[platformId] = .checking
-        
+
         // First activate the app
-        let activateResult = await executeCommand("""
-            tell application "\(platform.name)"
-                activate
-            end tell
-            """, description: "\(platform.name): activate")
-            
-        // Check if activation failed
-        if case .failure = activateResult {
-            permissionStates[platformId] = .failed("Failed to activate app")
-            return
+        let activateCommand = """
+        osascript << 'APPLESCRIPT'
+        tell application "\(platform.name)"
+            activate
+        end tell
+        APPLESCRIPT
+        """
+
+        _ = await withCheckedContinuation { continuation in
+            connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+                continuation.resume(returning: result)
+            }
         }
-        
+
         // Add a small delay to allow the app to fully activate
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-        
+
         // Then check permissions by fetching state
-        let stateResult = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
-        
+        let stateCommand = """
+        osascript << 'APPLESCRIPT'
+        try
+            \(platform.fetchState())
+        on error errMsg
+            return errMsg
+        end try
+        APPLESCRIPT
+        """
+
+        let stateResult = await withCheckedContinuation { continuation in
+            connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+                continuation.resume(returning: result)
+            }
+        }
+
         switch stateResult {
         case .success(let output):
             if output.contains("Not authorized to send Apple events") {
@@ -370,16 +404,17 @@ struct PermissionsView: View {
             // Keep checking - no response likely means waiting for user to accept permissions
             // Keep the checking state and start a retry loop
             var attempts = 0
-            let maxAttempts = 10 // Try for up to 5 seconds
+            while attempts < 60 { // Try for up to 30 seconds
 
-            while attempts < maxAttempts {
+
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
-                
-                let retryResult = await executeCommand(
-                    platform.fetchState(),
-                    description: "\(platform.name): fetch status (retry \(attempts + 1))"
-                )
-                
+
+                let retryResult = await withCheckedContinuation { continuation in
+                    connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                        continuation.resume(returning: result)
+                    }
+                }
+
                 switch retryResult {
                 case .success(let output):
                     if output.contains("Not authorized to send Apple events") {
@@ -392,29 +427,29 @@ struct PermissionsView: View {
                     attempts += 1
                 }
             }
-            
+
             // If we get here, we've timed out waiting for a response
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
-    
-    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(command)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
-        
-        return await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
-                continuation.resume(returning: result)
-            }
-        }
-    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }
 
 #Preview {
@@ -434,4 +469,3 @@ struct PermissionsView: View {
         onComplete: {}
     )
 }
-
