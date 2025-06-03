@@ -9,6 +9,7 @@ class PlatformRegistry: ObservableObject {
         VLCApp(),
         MusicApp(),
         TVApp(),
+        IINAApp(),
 //        SafariApp(),
         SpotifyApp(),
 //        ChromeApp()
