@@ -25,41 +25,55 @@ struct IINAApp: AppPlatform {
     }
     
     private let statusScript = """
-    tell application "System Events"
-        set isRunning to exists (processes where name is "IINA")
-        if not isRunning then
+        tell application "System Events"
+            set isRunning to exists (processes where name is "IINA")
+            if not isRunning then
             return "Not running |||  |||  stopped  |||false"
-        end if
-        
-        tell process "IINA"
+            end if
+            
+            -- Try to get window title via System Events only
+            set windowTitle to ""
             try
-                -- Get the current window title which contains the media name
-                set windowTitle to name of front window
-                set AppleScript's text item delimiters to "  —  /"
-                set cleanTitle to first text item of windowTitle
-                set AppleScript's text item delimiters to ""
-                
-                -- Check if playing by looking at the play/pause menu item
-                set isPlaying to false
-                try
-                    tell application "System Events"
-                        tell process "IINA"
-                            set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
-                            set menuName to name of playPauseMenu
-                            set isPlaying to (menuName contains "Pause")
-                        end tell
-                    end tell
-                on error
-                    set isPlaying to false
-                end try
-                
-                return cleanTitle & "|||   ||| " & isPlaying & " ||| " & isPlaying
-            on error
-                return "Nothing playing |||   ||| false ||| false"
+            tell process "IINA"
+                if (count of windows) > 0 then
+                    set windowTitle to name of front window
+                end if
+            end tell
             end try
+            
+            if windowTitle is "" then
+            return "Nothing playing |||   ||| false ||| false"
+            end if
+            
+            -- Check if window title indicates non-media windows
+            set nonMediaWindows to {"Window", "Preferences", "Log Viewer", "Choose Media Files", "Playback History"}
+            repeat with nonMediaWindow in nonMediaWindows
+            if windowTitle is nonMediaWindow then
+                return "Nothing playing |||   ||| false ||| false"
+            end if
+            end repeat
+            
+            -- Try to parse title, fall back to full title if parsing fails
+            set cleanTitle to windowTitle
+            try
+            set AppleScript's text item delimiters to "  —  /"
+            set cleanTitle to first text item of windowTitle
+            set AppleScript's text item delimiters to ""
+            end try
+            
+            -- Now that we know media is loaded, check play/pause state
+            set isPlaying to false
+            try
+            tell application "IINA" to activate
+            tell process "IINA"
+                set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
+                set isPlaying to (name of playPauseMenu contains "Pause")
+            end tell
+            end try
+            
+            return cleanTitle & "|||   ||| " & isPlaying & " ||| " & isPlaying
         end tell
-    end tell
-    """
+        """
     
     func fetchState() -> String {
         return statusScript
