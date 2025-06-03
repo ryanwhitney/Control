@@ -6,12 +6,12 @@ class PlatformRegistry: ObservableObject {
     
     static let allPlatforms: [any AppPlatform] = [
         QuickTimeApp(),
-        VLCApp(),
-        MusicApp(),
         TVApp(),
+        MusicApp(),
+        VLCApp(),
         IINAApp(),
-//        SafariApp(),
         SpotifyApp(),
+//        SafariApp(),
 //        ChromeApp()
     ]
     

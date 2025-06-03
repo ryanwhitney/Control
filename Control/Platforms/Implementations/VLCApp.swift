@@ -3,6 +3,7 @@ import Foundation
 struct VLCApp: AppPlatform {
     let id = "vlc"
     let name = "VLC"
+    let defaultEnabled = false
     
     var supportedActions: [ActionConfig] {
         [

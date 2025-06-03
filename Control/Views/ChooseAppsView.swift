@@ -118,8 +118,8 @@ struct ChooseAppsView: View {
         }
         .toolbarBackground(.black, for: .navigationBar)
         .onAppear {
-            // Initialize selected platforms
-            selectedPlatforms = Set(platformRegistry.platforms.map { $0.id })
+            // Initialize selected platforms based on their defaultEnabled property
+            selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
             
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in

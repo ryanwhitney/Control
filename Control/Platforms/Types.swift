@@ -74,6 +74,7 @@ struct AppState: Equatable {
 protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
+    var defaultEnabled: Bool { get }
     var supportedActions: [ActionConfig] { get }
     
     func fetchState() -> String

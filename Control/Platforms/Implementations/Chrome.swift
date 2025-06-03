@@ -3,6 +3,7 @@ import Foundation
 struct ChromeApp: AppPlatform {
     let id = "chrome"
     let name = "Google Chrome Canary"
+    let defaultEnabled = false
 
     var supportedActions: [ActionConfig] {
         [

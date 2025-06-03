@@ -3,7 +3,8 @@ import Foundation
 struct MusicApp: AppPlatform {
     let id = "music"
     let name = "Music"
-    
+    let defaultEnabled = true
+
     var supportedActions: [ActionConfig] {
         [
             ActionConfig(action: .previousTrack, icon: "backward.end.fill"),

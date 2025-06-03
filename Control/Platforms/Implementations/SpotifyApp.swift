@@ -3,6 +3,7 @@ import Foundation
 struct SpotifyApp: AppPlatform {
     let id = "spotify"
     let name = "Spotify"
+    let defaultEnabled = false
     
     var supportedActions: [ActionConfig] {
         [

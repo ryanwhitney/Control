@@ -3,7 +3,8 @@ import Foundation
 struct TVApp: AppPlatform {
     let id = "tv"
     let name = "TV"
-    
+    let defaultEnabled = true
+
     var supportedActions: [ActionConfig] {
         [
             ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),

@@ -3,6 +3,7 @@ import Foundation
 struct IINAApp: AppPlatform {
     let id = "iina"
     let name = "IINA"
+    let defaultEnabled = false
     
     var supportedActions: [ActionConfig] {
         [

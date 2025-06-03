@@ -3,7 +3,8 @@ import Foundation
 struct QuickTimeApp: AppPlatform {
     let id = "quicktime"
     let name = "QuickTime Player"
-    
+    let defaultEnabled = true
+
     var supportedActions: [ActionConfig] {
         [
             ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
