@@ -1,4 +1,5 @@
-<img src="https://github.com/user-attachments/assets/617bd99a-a1c3-43c6-92d6-4f81ce1bb5b7" width="200" />
+
+<img src="https://github.com/user-attachments/assets/4217522e-379d-40c6-a56b-878c54335f59" width="200" style="margin:auto"/>
 
 # Control
 
