@@ -28,7 +28,7 @@ struct IINAApp: AppPlatform {
         tell application "System Events"
             set isRunning to exists (processes where name is "IINA")
             if not isRunning then
-            return "Not running |||  |||  stopped  |||false"
+                return "Not running |||  |||  stopped  |||false"
             end if
             
             -- Try to get window title via System Events only
@@ -42,33 +42,33 @@ struct IINAApp: AppPlatform {
             end try
             
             if windowTitle is "" then
-            return "Nothing playing |||   ||| false ||| false"
+                return "Nothing playing |||   ||| false ||| false"
             end if
             
             -- Check if window title indicates non-media windows
             set nonMediaWindows to {"Window", "Preferences", "Log Viewer", "Choose Media Files", "Playback History"}
             repeat with nonMediaWindow in nonMediaWindows
-            if windowTitle is nonMediaWindow then
-                return "Nothing playing |||   ||| false ||| false"
-            end if
+                if windowTitle is nonMediaWindow then
+                    return "Nothing playing |||   ||| false ||| false"
+                end if
             end repeat
             
             -- Try to parse title, fall back to full title if parsing fails
             set cleanTitle to windowTitle
             try
-            set AppleScript's text item delimiters to "  —  /"
-            set cleanTitle to first text item of windowTitle
-            set AppleScript's text item delimiters to ""
+                set AppleScript's text item delimiters to "  —  /"
+                set cleanTitle to first text item of windowTitle
+                set AppleScript's text item delimiters to ""
             end try
             
             -- Now that we know media is loaded, check play/pause state
             set isPlaying to false
             try
-            tell application "IINA" to activate
-            tell process "IINA"
-                set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
-                set isPlaying to (name of playPauseMenu contains "Pause")
-            end tell
+                tell application "IINA" to activate
+                tell process "IINA"
+                    set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
+                    set isPlaying to (name of playPauseMenu contains "Pause")
+                end tell
             end try
             
             return cleanTitle & "|||   ||| " & isPlaying & " ||| " & isPlaying
