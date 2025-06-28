@@ -16,7 +16,6 @@ struct MailComposer: UIViewControllerRepresentable {
 
         func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
             parent.isPresented = false
-            controller.dismiss(animated: true)
         }
     }
 
