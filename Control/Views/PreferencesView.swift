@@ -25,6 +25,12 @@ struct PreferencesView: View {
                         title: "Send Feedback",
                         color: .green
                     )
+                    PreferencesRow(
+                        destination: DebugLogsView(),
+                        iconName: "apple.terminal.fill",
+                        title: "Debug Logs",
+                        color: .red
+                    )
                 }
             }
             .padding(.top, 30)

@@ -32,7 +32,8 @@ struct PlatformControl: View {
                     if !state.subtitle.isEmpty {
                         Text(state.subtitle)
                             .fontWeight(.semibold)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
                             .id("\(platform.name)_subtitle")
                             .contentTransition(.opacity)
                             .animation(.spring(), value: state.subtitle)

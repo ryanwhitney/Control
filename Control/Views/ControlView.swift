@@ -22,6 +22,7 @@ struct ControlView: View {
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var showingConnectionLostAlert = false
     @State private var showingThemeSettings: Bool = false
+    @State private var showingDebugLogs: Bool = false
     @State private var selectedPlatformIndex: Int = 0
     @State private var showingError = false
     @State private var connectionError: (title: String, message: String)?
@@ -156,6 +157,18 @@ struct ControlView: View {
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
                     }
+                    Button {
+                        showingDebugLogs = true
+                    } label: {
+                        HStack {
+                            Text("Debug Logs")
+                            if DebugLogger.shared.isLoggingEnabled {
+                                Image(systemName: "apple.terminal")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                        }
+                    }
                 } label: {
                     Label("More", systemImage: "ellipsis")
                 }
@@ -207,6 +220,9 @@ struct ControlView: View {
             ThemePreferenceSheet()
                 .presentationDetents([.height(200)])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showingDebugLogs) {
+            DebugLogsView()
         }
     }
 

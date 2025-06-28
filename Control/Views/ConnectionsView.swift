@@ -499,8 +499,8 @@ struct ConnectionsView: View {
     }
     
     private func verifyAndConnect(computer: Connection) {
-        print("\n=== ConnectionsView: Verifying connection ===")
-        print("Computer: \(computer.name) (\(computer.host))")
+        viewLog("ConnectionsView: Verifying connection", view: "ConnectionsView")
+        viewLog("Computer: \(computer.name) (\(computer.host))", view: "ConnectionsView")
         
         connectingComputer = computer
         
@@ -538,16 +538,16 @@ struct ConnectionsView: View {
     }
     
     private func tryConnect(computer: Connection) {
-        print("\n=== ConnectionsView: Proceeding with connection ===")
-        print("Computer: \(computer.name) (\(computer.host))")
+        viewLog("ConnectionsView: Proceeding with connection", view: "ConnectionsView")
+        viewLog("Computer: \(computer.name) (\(computer.host))", view: "ConnectionsView")
         
         selectedConnection = computer
         
         if !savedConnections.hasConnectedBefore(computer.host) {
-            print("First time setup needed")
+            viewLog("First time setup needed", view: "ConnectionsView")
             showingFirstTimeSetup = true
         } else {
-            print("Regular connection")
+            viewLog("Regular connection", view: "ConnectionsView")
             navigateToControl = true
         }
         

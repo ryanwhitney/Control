@@ -6,6 +6,7 @@ class AppController: ObservableObject {
     private let platformRegistry: PlatformRegistry
     private var isUpdating = false
     private var isActive = true
+    static var debugMode = true // Add debug flag for troubleshooting
     
     @Published var states: [String: AppState] = [:]
     @Published var lastKnownStates: [String: AppState] = [:]
@@ -16,7 +17,7 @@ class AppController: ObservableObject {
     }
     
     init(sshClient: SSHClientProtocol, platformRegistry: PlatformRegistry) {
-        print("\n=== AppController: Initializing ===")
+        appControllerLog("AppController: Initializing")
         self.sshClient = sshClient
         self.platformRegistry = platformRegistry
         
@@ -236,13 +237,14 @@ class AppController: ObservableObject {
     
     // Keep this simpler version for single commands (permissions checks, etc)
     private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        print("\n=== AppController: Executing Command ===")
         if let description = description {
-            print("Description: \(description)")
+            appControllerLog("Executing command: \(description)")
+        } else {
+            appControllerLog("Executing command")
         }
 
         guard isActive else {
-            print("⚠️ Controller not active, skipping command")
+            appControllerLog("⚠️ Controller not active, skipping command")
             return .failure(SSHError.channelError("Controller not active"))
         }
         
@@ -262,21 +264,25 @@ class AppController: ObservableObject {
                 return
             }
             
+            // Always use new channel for reliability - revert the session reuse optimization
             self.sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
                 switch result {
                 case .success(let output):
-                    print("✓ Command executed successfully")
+                    appControllerLog("✓ Command executed successfully")
                     if !output.isEmpty {
-                        print("Output length: \(output.count) characters")
+                        appControllerLog("Output length: \(output.count) characters")
+                        if Self.debugMode {
+                            appControllerLog("Full output: \(output)")
+                        }
                     }
                     continuation.resume(returning: result)
                 case .failure(let error):
-                    print("❌ Command failed: \(error)")
+                    appControllerLog("❌ Command failed: \(error)")
                     
                     // Check if this is a connection loss
                     if let connectionManager = self.sshClient as? SSHConnectionManager,
                        connectionManager.isConnectionLossError(error) {
-                        print("Connection appears to be lost")
+                        appControllerLog("Connection appears to be lost")
                         self.isActive = false  // Prevent further commands
                         connectionManager.handleConnectionLost()
                     }

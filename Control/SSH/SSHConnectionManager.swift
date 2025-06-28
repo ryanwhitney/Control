@@ -34,7 +34,7 @@ class SSHConnectionManager: ObservableObject {
     }
     
     init() {
-        print("\n=== SSHConnectionManager: Initializing ===")
+        connectionLog("SSHConnectionManager: Initializing")
         self.sshClient = SSHClient()
     }
     
@@ -57,11 +57,11 @@ class SSHConnectionManager: ObservableObject {
     }
     
     func connect(host: String, username: String, password: String) async throws {
-        print("\n=== SSHConnectionManager: Connection Request ===")
-        print("Host: \(host)")
-        print("Username: \(username)")
-        print("Password length: \(password.count)")
-        print("Current state: \(connectionState.description)")
+        connectionLog("SSHConnectionManager: Connection Request")
+        connectionLog("Host: \(host.prefix(10))***") // Only log first 10 chars
+        connectionLog("Username: \(username.prefix(3))***") // Only log first 3 chars
+        connectionLog("Password length: \(password.count)")
+        connectionLog("Current state: \(connectionState.description)")
         
         // If we're already connected with same credentials, no need to reconnect
         if case .connected = connectionState,
@@ -69,13 +69,13 @@ class SSHConnectionManager: ObservableObject {
            existing.host == host,
            existing.username == username,
            existing.password == password {
-            print("✓ Already connected with same credentials")
+            connectionLog("✓ Already connected with same credentials")
             return
         }
         
         // If we're in the process of connecting, don't start another connection
         if case .connecting = connectionState {
-            print("⚠️ Connection already in progress")
+            connectionLog("⚠️ Connection already in progress")
             throw SSHError.connectionFailed("Connection already in progress")
         }
         
@@ -86,18 +86,18 @@ class SSHConnectionManager: ObservableObject {
         currentCredentials = Credentials(host: host, username: username, password: password)
         
         return try await withCheckedThrowingContinuation { continuation in
-            print("\nAttempting connection...")
+            connectionLog("Attempting connection...")
             let client = self.client // Capture nonisolated client
             Task {
                 client.connect(host: host, username: username, password: password) { result in
                     Task { @MainActor in
                         switch result {
                         case .success:
-                            print("✓ Connection successful")
+                            connectionLog("✓ Connection successful")
                             self.connectionState = .connected
                             continuation.resume()
                         case .failure(let error):
-                            print("❌ Connection failed: \(error)")
+                            connectionLog("❌ Connection failed: \(error)")
                             self.connectionState = .failed(error.localizedDescription)
                             self.currentCredentials = nil
                             continuation.resume(throwing: error)
@@ -109,11 +109,12 @@ class SSHConnectionManager: ObservableObject {
     }
     
     func verifyConnection(host: String, username: String, password: String) async throws {
-        print("\n=== SSHConnectionManager: Verifying Connection ===")
+        connectionLog("Verifying connection")
         try await connect(host: host, username: username, password: password)
         
         // If we get here, connection was successful
-        print("✓ Connection verified and maintained")
+        // Keep connection alive for subsequent use instead of disconnecting
+        connectionLog("✓ Connection verified and maintained")
     }
     
     private func cleanupExistingConnection() async {
@@ -213,20 +214,20 @@ class SSHConnectionManager: ObservableObject {
         onSuccess: @escaping () async -> Void,
         onError: @escaping (Error) -> Void
     ) {
-        print("\n=== SSHConnectionManager: Handling Connection ===")
+        connectionLog("Handling connection")
         Task {
             do {
                 if !shouldReconnect(host: host, username: username, password: password) {
-                    print("✓ Using existing connection")
+                    connectionLog("✓ Using existing connection")
                     await onSuccess()
                     return
                 }
                 
                 try await connect(host: host, username: username, password: password)
-                print("✓ Connection established")
+                connectionLog("✓ Connection established")
                 await onSuccess()
             } catch {
-                print("❌ Connection failed: \(error)")
+                connectionLog("❌ Connection failed: \(error)")
                 onError(error)
             }
         }
