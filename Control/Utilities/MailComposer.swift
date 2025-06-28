@@ -24,14 +24,31 @@ struct MailComposer: UIViewControllerRepresentable {
         Coordinator(self)
     }
 
-    func makeUIViewController(context: Context) -> MFMailComposeViewController {
-        let mailVC = MFMailComposeViewController()
-        mailVC.mailComposeDelegate = context.coordinator
-        mailVC.setSubject(subject)
-        mailVC.setToRecipients([recipient])
-        mailVC.setMessageBody(body, isHTML: false)
-        return mailVC
+    func makeUIViewController(context: Context) -> UIViewController {
+        if MFMailComposeViewController.canSendMail() {
+            let mailVC = MFMailComposeViewController()
+            mailVC.mailComposeDelegate = context.coordinator
+            mailVC.setSubject(subject)
+            mailVC.setToRecipients([recipient])
+            mailVC.setMessageBody(body, isHTML: false)
+            return mailVC
+        } else {
+            // Fallback to mailto
+            let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let mailtoString = "mailto:\(recipient)?subject=\(encodedSubject)&body=\(encodedBody)"
+
+            if let mailtoURL = URL(string: mailtoString) {
+                UIApplication.shared.open(mailtoURL)
+            }
+
+            DispatchQueue.main.async {
+                self.isPresented = false
+            }
+
+            return UIViewController()
+        }
     }
 
-    func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
 }
