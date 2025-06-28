@@ -29,7 +29,7 @@ struct PermissionsView: View {
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
 
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject private var connectionManager = SSHConnectionManager.shared
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false

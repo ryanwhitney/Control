@@ -9,6 +9,8 @@ class SSHConnectionManager: ObservableObject {
     private var connectionLostHandler: (@MainActor () -> Void)?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     
+    static let shared = SSHConnectionManager()
+    
     struct Credentials: Equatable {
         let host: String
         let username: String
@@ -111,8 +113,7 @@ class SSHConnectionManager: ObservableObject {
         try await connect(host: host, username: username, password: password)
         
         // If we get here, connection was successful
-        // Immediately disconnect since this was just a verification
-        disconnect()
+        print("✓ Connection verified and maintained")
     }
     
     private func cleanupExistingConnection() async {
@@ -180,10 +181,8 @@ class SSHConnectionManager: ObservableObject {
         case .background:
             print("Scene entering background")
             startBackgroundTask()
-            Task { @MainActor in
-                // Always disconnect in background to prevent stale connections
-                disconnect()
-            }
+            // Only disconnect if background task expires (after ~30 seconds)
+            print("Maintaining connection in background")
             
         @unknown default:
             print("Unknown scene phase: \(newPhase)")
@@ -192,6 +191,9 @@ class SSHConnectionManager: ObservableObject {
     
     private func startBackgroundTask() {
         backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
+            // Background task is about to expire, disconnect to clean up resources
+            print("Background task expiring, disconnecting SSH")
+            self?.disconnect()
             self?.endBackgroundTask()
         }
     }

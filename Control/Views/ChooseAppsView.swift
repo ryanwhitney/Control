@@ -8,7 +8,7 @@ struct ChooseAppsView: View {
     let password: String
     let onComplete: (Set<String>) -> Void
 
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject private var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
@@ -135,9 +135,6 @@ struct ChooseAppsView: View {
         })
         .onDisappear {
             print("\n=== ChooseAppsView: Disappearing ===")
-            Task { @MainActor in
-                connectionManager.disconnect()
-            }
         }
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
             Button("OK") {

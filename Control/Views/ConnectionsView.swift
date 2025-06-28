@@ -4,7 +4,7 @@ import Network
 
 struct ConnectionsView: View {
     @StateObject private var savedConnections = SavedConnections()
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject private var connectionManager = SSHConnectionManager.shared
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.scenePhase) private var scenePhase
     @State private var connections: [NetService] = []

@@ -9,7 +9,7 @@ struct ControlView: View {
     let enabledPlatforms: Set<String>
     
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject private var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
     @EnvironmentObject private var savedConnections: SavedConnections
@@ -39,8 +39,7 @@ struct ControlView: View {
         }
         let registry = PlatformRegistry(platforms: filteredPlatforms)
         
-        // Initialize with a temporary client - it will be replaced when we connect
-        _appController = StateObject(wrappedValue: AppController(sshClient: SSHClient(), platformRegistry: registry))
+        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared.client, platformRegistry: registry))
     }
     
     private var displayVolume: String {
@@ -184,7 +183,6 @@ struct ControlView: View {
             print("\n=== ControlView: Disappearing ===")
             Task { @MainActor in
                 appController.cleanup()
-                connectionManager.disconnect()
             }
         }
         .onReceive(appController.$currentVolume) { newVolume in
@@ -218,7 +216,6 @@ struct ControlView: View {
             username: username,
             password: password,
             onSuccess: { [weak appController] in
-                appController?.updateClient(connectionManager.client)
                 await appController?.updateAllStates()
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
