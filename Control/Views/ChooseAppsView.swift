@@ -95,6 +95,7 @@ struct ChooseAppsView: View {
                 Spacer()
                 BottomButtonPanel{
                     Button(action: {
+                        viewLog("Selected platforms: \(selectedPlatforms)", view: "ChooseAppsView")
                         onComplete(selectedPlatforms)
                     }) {
                         Text("Continue")
@@ -118,23 +119,36 @@ struct ChooseAppsView: View {
         }
         .toolbarBackground(.black, for: .navigationBar)
         .onAppear {
+            viewLog("ChooseAppsView: View appeared", view: "ChooseAppsView")
+            
+            // Show connection metadata without exposing sensitive info
+            let isLocal = host.contains(".local")
+            let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
+            let hostRedacted = String(host.prefix(3)) + "***"
+            
+            viewLog("Target: \(hostRedacted)", view: "ChooseAppsView")
+            viewLog("Protocol: \(connectionType)", view: "ChooseAppsView")
+            viewLog("Display name: \(String(displayName.prefix(3)))***", view: "ChooseAppsView")
+
             // Initialize selected platforms based on their defaultEnabled property
             selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
             
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
+                viewLog("⚠️ ChooseAppsView: Connection lost handler triggered", view: "ChooseAppsView")
                 showingConnectionLostAlert = true
             }
             connectToSSH()
         }
         .onChange(of: scenePhase, { oldPhase, newPhase in
+            viewLog("ChooseAppsView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ChooseAppsView")
             if newPhase == .active {
                 connectToSSH()
             }
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         })
         .onDisappear {
-            print("\n=== ChooseAppsView: Disappearing ===")
+            viewLog("ChooseAppsView: View disappeared", view: "ChooseAppsView")
         }
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
             Button("OK") {
@@ -146,12 +160,19 @@ struct ChooseAppsView: View {
     }
     
     private func connectToSSH() {
+        viewLog("ChooseAppsView: Connecting to SSH", view: "ChooseAppsView")
+        viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ChooseAppsView")
+        
         connectionManager.handleConnection(
             host: host,
             username: username,
             password: password,
-            onSuccess: { },
-            onError: { _ in }
+            onSuccess: { 
+                viewLog("✓ ChooseAppsView: SSH connection successful", view: "ChooseAppsView")
+            },
+            onError: { error in
+                viewLog("❌ ChooseAppsView: SSH connection failed: \(error)", view: "ChooseAppsView")
+            }
         )
     }
 

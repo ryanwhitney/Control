@@ -175,33 +175,75 @@ struct ControlView: View {
             }
         }
         .onAppear {
+            viewLog("ControlView: View appeared", view: "ControlView")
+            
+            // Show connection metadata without exposing sensitive info
+            let isLocal = host.contains(".local")
+            let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
+            let hostRedacted = String(host.prefix(3)) + "***"
+            
+            viewLog("Target: \(hostRedacted)", view: "ControlView")
+            viewLog("Protocol: \(connectionType)", view: "ControlView")
+            viewLog("Display name: \(String(displayName.prefix(3)))***", view: "ControlView")
+            viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
+            viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
+            
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
+                viewLog("⚠️ ControlView: Connection lost handler triggered", view: "ControlView")
                 showingConnectionLostAlert = true
             }
             connectToSSH()
+            
             // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
                let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
+                viewLog("Restoring last viewed platform: \(lastPlatform) (index \(index))", view: "ControlView")
                 selectedPlatformIndex = index
+            } else {
+                viewLog("No previous platform preference, using default index 0", view: "ControlView")
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
+            viewLog("ControlView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ControlView")
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
             if newPhase == .active {
+                viewLog("Scene became active - reconnecting SSH", view: "ControlView")
                 connectToSSH()
             }
         }
         .onDisappear {
-            print("\n=== ControlView: Disappearing ===")
+            viewLog("ControlView: View disappeared", view: "ControlView")
             Task { @MainActor in
                 appController.cleanup()
             }
         }
         .onReceive(appController.$currentVolume) { newVolume in
             if let newVolume = newVolume {
+                viewLog("ControlView: Volume updated to \(Int(newVolume * 100))%", view: "ControlView")
                 volumeInitialized = true
                 volume = newVolume
+            } else {
+                viewLog("ControlView: Volume became nil - controls will be disabled", view: "ControlView")
+            }
+        }
+        .onReceive(appController.$isActive) { isActive in
+            viewLog("ControlView: AppController active state changed to \(isActive)", view: "ControlView")
+            if !isActive {
+                viewLog("🚨 ControlView: AppController became inactive - connection likely lost", view: "ControlView")
+            }
+        }
+        .onReceive(connectionManager.$connectionState) { connectionState in
+            viewLog("ControlView: Connection state changed to \(connectionState)", view: "ControlView")
+            switch connectionState {
+            case .disconnected:
+                viewLog("🚨 ControlView: Connection is disconnected", view: "ControlView")
+            case .connecting:
+                viewLog("ControlView: Currently connecting...", view: "ControlView")
+            case .connected:
+                viewLog("✓ ControlView: Connection established", view: "ControlView")
+            case .failed(let error):
+                viewLog("❌ ControlView: Connection failed: \(error)", view: "ControlView")
             }
         }
         .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
@@ -227,18 +269,26 @@ struct ControlView: View {
     }
 
     private func connectToSSH() {
+        viewLog("ControlView: Starting SSH connection", view: "ControlView")
+        viewLog("Current connection state: \(connectionManager.connectionState)", view: "ControlView")
+        
         connectionManager.handleConnection(
             host: host,
             username: username,
             password: password,
             onSuccess: { [weak appController] in
+                viewLog("✓ ControlView: SSH connection successful", view: "ControlView")
                 await appController?.updateAllStates()
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
                     isReady = true
+                    viewLog("ControlView: Ready state activated", view: "ControlView")
                 }
             },
             onError: { error in
+                viewLog("❌ ControlView: SSH connection failed", view: "ControlView")
+                viewLog("Error: \(error)", view: "ControlView")
+                
                 if let sshError = error as? SSHError {
                     connectionError = sshError.formatError(displayName: displayName)
                 } else {
@@ -253,8 +303,16 @@ struct ControlView: View {
     }
 
     private func adjustVolume(by amount: Int) {
-        guard volumeInitialized else { return }
+        guard volumeInitialized else { 
+            viewLog("⚠️ ControlView: Volume adjustment attempted before initialization", view: "ControlView")
+            return 
+        }
+        
+        let oldVolume = Int(volume * 100)
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
+        
+        viewLog("ControlView: Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
+        
         volume = Float(newVolume) / 100.0
         Task {
             await appController.setVolume(volume)
@@ -262,7 +320,11 @@ struct ControlView: View {
     }
     
     private func debounceVolumeChange() {
-        guard volumeInitialized else { return }
+        guard volumeInitialized else { 
+            viewLog("⚠️ ControlView: Volume change attempted before initialization", view: "ControlView")
+            return 
+        }
+        
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
             Task {

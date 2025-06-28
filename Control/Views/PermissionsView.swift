@@ -314,11 +314,13 @@ struct PermissionsView: View {
     }
 
     private func checkAllPermissions() async {
-
-
+        viewLog("PermissionsView: Starting permission check for all platforms", view: "PermissionsView")
+        viewLog("Enabled platforms: \(enabledPlatforms)", view: "PermissionsView")
+        
         // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
+                viewLog("Resetting failed state for \(platformId)", view: "PermissionsView")
                 permissionStates[platformId] = .initial
             }
         }
@@ -332,6 +334,11 @@ struct PermissionsView: View {
                     }
                 }
             }
+        }
+        
+        viewLog("Permission check complete. Results:", view: "PermissionsView")
+        for platformId in enabledPlatforms {
+            viewLog("  \(platformId): \(permissionStates[platformId] ?? .initial)", view: "PermissionsView")
         }
     }
 
@@ -354,8 +361,12 @@ struct PermissionsView: View {
     }
 
     private func checkPermission(for platformId: String) async {
-        guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { return }
+        guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { 
+            viewLog("❌ Platform not found: \(platformId)", view: "PermissionsView")
+            return 
+        }
 
+        viewLog("Starting permission check for \(platform.name)", view: "PermissionsView")
         permissionStates[platformId] = .checking
 
         // First activate the app
@@ -367,10 +378,18 @@ struct PermissionsView: View {
         APPLESCRIPT
         """
 
-        _ = await withCheckedContinuation { continuation in
+        viewLog("Activating \(platform.name)...", view: "PermissionsView")
+        let activateResult = await withCheckedContinuation { continuation in
             connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
+        }
+        
+        switch activateResult {
+        case .success:
+            viewLog("✓ \(platform.name) activated successfully", view: "PermissionsView")
+        case .failure(let error):
+            viewLog("⚠️ \(platform.name) activation failed: \(error)", view: "PermissionsView")
         }
 
         // Add a small delay to allow the app to fully activate
@@ -387,6 +406,7 @@ struct PermissionsView: View {
         APPLESCRIPT
         """
 
+        viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in
             connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
@@ -395,20 +415,26 @@ struct PermissionsView: View {
 
         switch stateResult {
         case .success(let output):
+            viewLog("Permission check result for \(platform.name):", view: "PermissionsView")
+            viewLog("Output: \(output)", view: "PermissionsView")
+            
             if output.contains("Not authorized to send Apple events") {
+                viewLog("❌ \(platform.name): Permission denied", view: "PermissionsView")
                 permissionStates[platformId] = .failed("Permission needed")
             } else {
+                viewLog("✓ \(platform.name): Permission granted", view: "PermissionsView")
                 permissionStates[platformId] = .granted
             }
-        case .failure:
+        case .failure(let error):
+            viewLog("Initial permission check failed for \(platform.name): \(error)", view: "PermissionsView")
             // Keep checking - no response likely means waiting for user to accept permissions
             // Keep the checking state and start a retry loop
             var attempts = 0
             while attempts < 60 { // Try for up to 30 seconds
 
-
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
 
+                viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
                 let retryResult = await withCheckedContinuation { continuation in
                     connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
                         continuation.resume(returning: result)
@@ -417,39 +443,28 @@ struct PermissionsView: View {
 
                 switch retryResult {
                 case .success(let output):
+                    viewLog("Retry successful for \(platform.name)", view: "PermissionsView")
+                    viewLog("Output: \(output)", view: "PermissionsView")
+                    
                     if output.contains("Not authorized to send Apple events") {
+                        viewLog("❌ \(platform.name): Permission still denied after retry", view: "PermissionsView")
                         permissionStates[platformId] = .failed("Permission needed")
                     } else {
+                        viewLog("✓ \(platform.name): Permission granted after retry", view: "PermissionsView")
                         permissionStates[platformId] = .granted
                     }
                     return
-                case .failure:
+                case .failure(let error):
+                    viewLog("Retry \(attempts + 1) failed for \(platform.name): \(error)", view: "PermissionsView")
                     attempts += 1
                 }
             }
 
             // If we get here, we've timed out waiting for a response
+            viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts", view: "PermissionsView")
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
 
 #Preview {

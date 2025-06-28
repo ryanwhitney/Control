@@ -499,8 +499,15 @@ struct ConnectionsView: View {
     }
     
     private func verifyAndConnect(computer: Connection) {
-        viewLog("ConnectionsView: Verifying connection", view: "ConnectionsView")
-        viewLog("Computer: \(computer.name) (\(computer.host))", view: "ConnectionsView")
+        viewLog("ConnectionsView: Starting connection verification", view: "ConnectionsView")
+        
+        // Show connection metadata without exposing sensitive info
+        let isLocal = computer.host.contains(".local")
+        let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
+        viewLog("Connection type: \(connectionType)", view: "ConnectionsView")
+        viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
+        viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
+        viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ConnectionsView")
         
         connectingComputer = computer
         
@@ -513,10 +520,14 @@ struct ConnectionsView: View {
                 )
                 
                 await MainActor.run {
+                    viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
                     self.tryConnect(computer: computer)
                 }
             } catch {
                 await MainActor.run {
+                    viewLog("❌ ConnectionsView: Connection verification failed", view: "ConnectionsView")
+                    viewLog("Error: \(error)", view: "ConnectionsView")
+                    
                     self.isAuthenticating = false
                     self.connectingComputer = nil
                     
@@ -538,21 +549,29 @@ struct ConnectionsView: View {
     }
     
     private func tryConnect(computer: Connection) {
-        viewLog("ConnectionsView: Proceeding with connection", view: "ConnectionsView")
-        viewLog("Computer: \(computer.name) (\(computer.host))", view: "ConnectionsView")
+        viewLog("ConnectionsView: Proceeding with connection flow", view: "ConnectionsView")
+        
+        // Show connection metadata without exposing sensitive info
+        let isLocal = computer.host.contains(".local")
+        let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
+        viewLog("Connection type: \(connectionType)", view: "ConnectionsView")
+        viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
+        viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
+        viewLog("Has connected before: \(savedConnections.hasConnectedBefore(computer.host))", view: "ConnectionsView")
         
         selectedConnection = computer
         
         if !savedConnections.hasConnectedBefore(computer.host) {
-            viewLog("First time setup needed", view: "ConnectionsView")
+            viewLog("First time setup needed - navigating to ChooseAppsView", view: "ConnectionsView")
             showingFirstTimeSetup = true
         } else {
-            viewLog("Regular connection", view: "ConnectionsView")
+            viewLog("Regular connection - navigating to ControlView", view: "ConnectionsView")
             navigateToControl = true
         }
         
         // Save credentials if requested
         if saveCredentials {
+            viewLog("Saving credentials for future connections", view: "ConnectionsView")
             savedConnections.add(
                 hostname: computer.host,
                 name: computer.name,
@@ -561,6 +580,7 @@ struct ConnectionsView: View {
             )
         } else {
             // Just update the username without password
+            viewLog("Updating username without saving password", view: "ConnectionsView")
             savedConnections.updateLastUsername(
                 for: computer.host,
                 name: computer.name,
@@ -576,7 +596,7 @@ struct ConnectionsView: View {
     }
 
     private func startNetworkScan() {
-        print("\n=== Starting Network Scan ===")
+        viewLog("ConnectionsView: Starting network scan", view: "ConnectionsView")
         connections.removeAll()
         errorMessage = nil
         isSearching = true
@@ -591,67 +611,55 @@ struct ConnectionsView: View {
         self.networkScanner = scanner
         
         scanner.stateUpdateHandler = { state in
-            print("Scanner state: \(state)")
+            viewLog("Network scanner state: \(state)", view: "ConnectionsView")
             DispatchQueue.main.async {
                 switch state {
                 case .failed(let error):
-                    print("Scanner failed: \(error)")
+                    viewLog("❌ Network scanner failed: \(error)", view: "ConnectionsView")
                     self.errorMessage = error.localizedDescription
                     self.isSearching = false
                 case .ready:
-                    print("Scanner ready")
+                    viewLog("✓ Network scanner ready", view: "ConnectionsView")
                 case .cancelled:
-                    print("Scanner cancelled")
+                    viewLog("Network scanner cancelled", view: "ConnectionsView")
                     self.isSearching = false
                 case .setup:
-                    print("Scanner setting up")
+                    viewLog("Network scanner setting up", view: "ConnectionsView")
                 case .waiting:
-                    print("Scanner waiting")
+                    viewLog("Network scanner waiting", view: "ConnectionsView")
                 @unknown default:
-                    print("Scanner in unknown state: \(state)")
+                    viewLog("Network scanner in unknown state: \(state)", view: "ConnectionsView")
                 }
             }
         }
         
         scanner.browseResultsChangedHandler = { results, changes in
-            print("Found \(results.count) services")
+            viewLog("Network scan found \(results.count) services", view: "ConnectionsView")
             DispatchQueue.main.async {
                 self.connections = results.compactMap { result in
                     guard case .service(let name, let type, let domain, _) = result.endpoint else {
-                        print("Invalid endpoint format")
+                        viewLog("Invalid endpoint format in scan result", view: "ConnectionsView")
                         return nil
                     }
-                    print("Found service: \(name)")
+                    
+                    // Log connection metadata without exposing service name
+                    viewLog("Found SSH service: type=\(type), domain=\(domain), name=\(String(name.prefix(3)))***", view: "ConnectionsView")
                     
                     let service = NetService(domain: domain, type: type, name: name)
                     service.resolve(withTimeout: 5.0)
-                    
-                    // Print detailed service information
-                    print("Service details:")
-                    print("  - Name: \(service.name)")
-                    print("  - Type: \(service.type)")
-                    print("  - Domain: \(service.domain)")
-                    print("  - HostName: \(service.hostName ?? "unknown")")
-                    if let addresses = service.addresses {
-                        print("  - Addresses: \(addresses.count) found")
-                        for (index, address) in addresses.enumerated() {
-                            print("    [\(index)] \(address.description)")
-                        }
-                    }
-                    print("  - Port: \(service.port)")
                     
                     return service
                 }
             }
         }
         
-        print("Starting network scan...")
+        viewLog("Starting network scan with 8 second timeout", view: "ConnectionsView")
         scanner.start(queue: .main)
         
         // Add timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            print("\n=== Scan Complete ===")
-            print("Final computer count: \(self.connections.count)")
+            viewLog("Network scan timeout reached", view: "ConnectionsView")
+            viewLog("Final service count: \(self.connections.count)", view: "ConnectionsView")
             scanner.cancel()
             DispatchQueue.main.async {
                 self.isSearching = false
