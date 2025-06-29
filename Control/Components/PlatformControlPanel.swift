@@ -21,11 +21,9 @@ struct PlatformControl: View {
                         } label: {
                             Label("Experimental", systemImage: "flask.fill")
                                 .labelStyle(.iconOnly)
-                                .foregroundStyle(.tint)
                                 .rotationEffect(Angle(degrees: 20.0))
                         }
-                        .buttonStyle(PlainButtonStyle())
-
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.bottom, 50)
@@ -53,7 +51,7 @@ struct PlatformControl: View {
                 .frame(minHeight: 40)
                 .padding(.bottom, 60)
             }
-            
+
             HStack(spacing: 16) {
                 ForEach(platform.supportedActions) { appAction in
                     Button {
@@ -93,13 +91,13 @@ struct PlatformControl: View {
                 await controller.updateState(for: platform)
             }
         }
-        .alert("Experimental", isPresented: $showingExperimentalAlert) {
+        .alert("Experimental Feature", isPresented: $showingExperimentalAlert) {
             Button("OK") { }
         } message: {
-            Text("Safari support is experimental. It will not work on sites that embed videos in iFrames.")
+            Text("Safari support is currently experimental and may not work as expected. Some features might be limited or unstable.")
         }
     }
-} 
+}
 
 #Preview {
     let client = SSHClient()
@@ -108,7 +106,7 @@ struct PlatformControl: View {
         username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
         password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
     ) { _ in }
-    
+
     return PlatformControl(
         platform: SafariApp(),
         state: .constant(.init(
@@ -120,4 +118,4 @@ struct PlatformControl: View {
     .environmentObject(AppController(sshClient: client, platformRegistry: PlatformRegistry()))
     .padding()
     .preferredColorScheme(.dark)
-} 
+}
