@@ -39,7 +39,13 @@ struct DebugLogsView: View {
                         } else {
                             Text("Control never logs passwords, sensitive connection data, or info about what you're playing.")
                         }
-
+                        
+                        if debugLogger.isLoggingEnabled && !debugLogger.logs.isEmpty {
+                            Text("\(debugLogger.logs.count) log entries • Auto-cleanup every 20min or after 24 hours")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 2)
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -99,15 +105,15 @@ struct DebugLogsView: View {
                         } label: {
                             Image(systemName: "square.and.arrow.up")
                         }
-                        .disabled(!debugLogger.isLoggingEnabled || debugLogger.logs.isEmpty)
+                        .disabled(debugLogger.logs.isEmpty)
                         
                         Menu {
                             Button(role: .destructive) {
                                 debugLogger.clearLogs()
                             } label: {
-                                Label("Clear Logs", systemImage: "trash")
+                                Label("Clear All Logs", systemImage: "trash")
                             }
-                            .disabled(!debugLogger.isLoggingEnabled || debugLogger.logs.isEmpty)
+                            .disabled(debugLogger.logs.isEmpty)
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }

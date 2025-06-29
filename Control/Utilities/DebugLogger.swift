@@ -7,7 +7,9 @@ class DebugLogger: ObservableObject {
     
     @Published private(set) var logs: [DebugLogEntry] = []
     @Published var isLoggingEnabled: Bool = false
-    private let maxLogs = 1000 // Keep last 1000 entries
+    private let maxLogs = 1000
+    private let maxAgeHours: Double = 24 
+    private var lastCleanupTime = Date()
     
     struct DebugLogEntry: Identifiable {
         let id = UUID()
@@ -27,7 +29,12 @@ class DebugLogger: ObservableObject {
         }
     }
     
-    private init() {}
+    private init() {
+        // Perform initial cleanup on app start
+        Task { @MainActor in
+            self.performCleanup()
+        }
+    }
     
     func log(_ message: String, category: String = "General") {
         // Always print to console for development, but sanitize sensitive data
@@ -45,9 +52,16 @@ class DebugLogger: ObservableObject {
         
         logs.append(entry)
         
-        // Keep only the most recent logs
+        // Enforce max line count when adding
         if logs.count > maxLogs {
             logs.removeFirst(logs.count - maxLogs)
+        }
+        
+        // Periodic cleanup based on log age
+        let now = Date()
+        if now.timeIntervalSince(lastCleanupTime) > 1200 { // 20min
+            performCleanup()
+            lastCleanupTime = now
         }
     }
     
@@ -193,8 +207,29 @@ class DebugLogger: ObservableObject {
         return sanitized
     }
     
+    private func performCleanup() {
+        let cutoffDate = Date().addingTimeInterval(-maxAgeHours * 3600)
+        let originalCount = logs.count
+        
+        // Remove logs older than 24 hours
+        logs.removeAll { log in
+            log.timestamp < cutoffDate
+        }
+        
+        let removedCount = originalCount - logs.count
+        if removedCount > 0 {
+            print("Debug log cleanup: removed \(removedCount) old entries, \(logs.count) logs remaining")
+        }
+    }
+    
     func clearLogs() {
         logs.removeAll()
+        lastCleanupTime = Date()
+    }
+    
+    func forceCleanup() {
+        performCleanup()
+        lastCleanupTime = Date()
     }
     
     var allLogsText: String {
