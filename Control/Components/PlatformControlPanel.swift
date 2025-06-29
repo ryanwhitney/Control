@@ -5,7 +5,8 @@ struct PlatformControl: View {
     @Binding var state: AppState
     @EnvironmentObject var controller: AppController
     @StateObject private var preferences = UserPreferences.shared
-    
+    @State private var showingExperimentalAlert = false
+
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
@@ -13,13 +14,21 @@ struct PlatformControl: View {
                     Text(platform.name)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
-                        .padding(.bottom, 50)
                         .id(platform.name)
                     if platform.name.contains("Safari") {
-                        Label("Experimental", systemImage: "exclamationmark.triangle.fill")
-                            .labelStyle(.iconOnly)
+                        Button {
+                            showingExperimentalAlert = true
+                        } label: {
+                            Label("Experimental", systemImage: "flask.fill")
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.tint)
+                                .rotationEffect(Angle(degrees: 20.0))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
                     }
                 }
+                .padding(.bottom, 50)
                 VStack(alignment: .center) {
                     if !state.title.isEmpty {
                         Text(state.title)
@@ -84,6 +93,11 @@ struct PlatformControl: View {
                 await controller.updateState(for: platform)
             }
         }
+        .alert("Experimental", isPresented: $showingExperimentalAlert) {
+            Button("OK") { }
+        } message: {
+            Text("Safari support is experimental. It will not work on sites that embed videos in iFrames.")
+        }
     }
 } 
 
@@ -96,7 +110,7 @@ struct PlatformControl: View {
     ) { _ in }
     
     return PlatformControl(
-        platform: VLCApp(),
+        platform: SafariApp(),
         state: .constant(.init(
             title: "Skin",
             subtitle: "Wild Powwers",

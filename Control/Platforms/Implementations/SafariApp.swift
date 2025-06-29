@@ -2,7 +2,7 @@ import Foundation
 
 struct SafariApp: AppPlatform {
     let id = "safari"
-    let name = "Safari"
+    let name = "Safari (experimental)"
     let defaultEnabled = false
 
     var supportedActions: [ActionConfig] {
