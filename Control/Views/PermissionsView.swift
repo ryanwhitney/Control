@@ -343,15 +343,7 @@ struct PermissionsView: View {
     }
 
     func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(command)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
+        let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
 
         return await withCheckedContinuation { continuation in
             connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
@@ -370,13 +362,12 @@ struct PermissionsView: View {
         permissionStates[platformId] = .checking
 
         // First activate the app
-        let activateCommand = """
-        osascript << 'APPLESCRIPT'
+        let activateScript = """
         tell application "\(platform.name)"
             activate
         end tell
-        APPLESCRIPT
         """
+        let activateCommand = ShellCommandUtilities.wrapAppleScriptForBash(activateScript)
 
         viewLog("Activating \(platform.name)...", view: "PermissionsView")
         let activateResult = await withCheckedContinuation { continuation in
@@ -396,15 +387,7 @@ struct PermissionsView: View {
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
         // Then check permissions by fetching state
-        let stateCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(platform.fetchState())
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
+        let stateCommand = ShellCommandUtilities.wrapAppleScriptForBash(platform.fetchState())
 
         viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in

@@ -298,15 +298,7 @@ class AppController: ObservableObject {
             return .failure(SSHError.channelError("Controller not active"))
         }
         
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(command)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
+        let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
         
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
