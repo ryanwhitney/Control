@@ -65,13 +65,13 @@ class SSHConnectionManager: ObservableObject {
         // Show connection metadata without exposing sensitive info
         let isLocal = host.contains(".local")
         let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
-        let hostRedacted = String(host.prefix(3)) + "***"
+        let hostRedacted = String(host.prefix(1)) + "***"
         
         connectionLog("Protocol: \(connectionType)")
         connectionLog("Target: \(hostRedacted)")
         connectionLog("Port: 22 (SSH)")
-        connectionLog("Username: \(String(username.prefix(3)))***")
-        connectionLog("Password length: \(password.count)")
+        connectionLog("Username: \(String(username.prefix(1)))***")
+//        connectionLog("Password length: \(password.count)")
         connectionLog("Current state: \(connectionState.description)")
         
         // If we're already connected with same credentials, no need to reconnect

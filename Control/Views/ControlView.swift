@@ -157,12 +157,12 @@ struct ControlView: View {
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
                     }
-                    Button {
-                        showingDebugLogs = true
-                    } label: {
-                        HStack {
-                            Text("Debug Logs")
-                            if DebugLogger.shared.isLoggingEnabled {
+                    if DebugLogger.shared.isLoggingEnabled {
+                        Button {
+                            showingDebugLogs = true
+                        } label: {
+                            HStack {
+                                Text("Debug Logs")
                                 Image(systemName: "apple.terminal")
                                     .foregroundStyle(.red)
                                     .font(.caption)
@@ -264,7 +264,7 @@ struct ControlView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingDebugLogs) {
-            DebugLogsView()
+            DebugLogsView(isReadOnly: true)
         }
     }
 

@@ -1,10 +1,14 @@
 import SwiftUI
 
 struct DebugLogsView: View {
+    let isReadOnly: Bool
     @StateObject private var debugLogger = DebugLogger.shared
     @State private var showingShareSheet = false
-    @State private var showingPrivacyAlert = false
     @State private var searchText = ""
+    
+    init(isReadOnly: Bool = false) {
+        self.isReadOnly = isReadOnly
+    }
     
     var filteredLogs: [DebugLogger.DebugLogEntry] {
         if searchText.isEmpty {
@@ -20,39 +24,34 @@ struct DebugLogsView: View {
     var body: some View {
         NavigationStack {
             VStack {
-                // Privacy controls section
                 VStack(spacing: 12) {
                     Toggle("Enable Debug Logging", isOn: Binding(
                         get: { debugLogger.isLoggingEnabled },
                         set: { newValue in
-                            if newValue && !debugLogger.isLoggingEnabled {
-                                showingPrivacyAlert = true
-                            } else {
-                                debugLogger.isLoggingEnabled = newValue
-                            }
+                            debugLogger.isLoggingEnabled = newValue
                         }
                     ))
                     .toggleStyle(SwitchToggleStyle(tint: .red))
-                    
-                    if !debugLogger.isLoggingEnabled {
-                        Text("Enable logging to capture debug information. No sensitive data like passwords will be saved.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                    .disabled(isReadOnly)
+                    Group{
+                        if isReadOnly {
+                            Text("To disable logging, go to  Preferences > Support.")
+                        } else {
+                            Text("Control never logs passwords, sensitive connection data, or info about what you're playing.")
+                        }
+
                     }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
                 }
                 .padding()
                 .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal)
                 
-                if !debugLogger.isLoggingEnabled {
-                    ContentUnavailableView(
-                        "Debug Logging Disabled",
-                        systemImage: "eye.slash",
-                        description: Text("Enable debug logging above to capture troubleshooting information")
-                    )
-                } else if debugLogger.logs.isEmpty {
+                if debugLogger.logs.isEmpty {
                     ContentUnavailableView(
                         "No Debug Logs",
                         systemImage: "doc.text",
@@ -119,14 +118,6 @@ struct DebugLogsView: View {
         .sheet(isPresented: $showingShareSheet) {
             ShareSheet(items: [debugLogger.allLogsText])
         }
-        .alert("Enable Debug Logging?", isPresented: $showingPrivacyAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Enable") {
-                debugLogger.isLoggingEnabled = true
-            }
-        } message: {
-            Text("Debug logs help troubleshoot connection issues. Control protects your privacy by:\n\n• Only logging if enabled\n• Never logging sensitive data like passwords & movie/song titles\n• Keeping logs local on your device\n• Allowing you to clear logs anytime")
-        }
     }
     
 
@@ -153,5 +144,5 @@ struct ShareSheet: UIViewControllerRepresentable {
         logger.log("Sample view message", category: "ControlView")
     }
     
-    return DebugLogsView()
+    return DebugLogsView(isReadOnly: false)
 } 
