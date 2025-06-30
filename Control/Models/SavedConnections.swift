@@ -34,8 +34,10 @@ class SavedConnections: ObservableObject {
     }
     
     func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
-        // Update existing connection if it exists
+
+        // Update existing connection if it exists, else create new
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            let oldPreference = items[index].saveCredentialsPreference
             items[index].username = username
             if let name = name {
                 items[index].name = name
@@ -43,7 +45,7 @@ class SavedConnections: ObservableObject {
             items[index].saveCredentialsPreference = saveCredentials
             save()
         } else {
-            // Create new connection
+            // Create ne connection
             var connection = SavedConnection(hostname: hostname, name: name, username: username)
             connection.saveCredentialsPreference = saveCredentials
             items.append(connection)
@@ -60,7 +62,9 @@ class SavedConnections: ObservableObject {
     }
     
     func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil, saveCredentials: Bool) {
+
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            let oldPreference = items[index].saveCredentialsPreference
             items[index].username = username
             if let name = name {
                 items[index].name = name
@@ -73,6 +77,8 @@ class SavedConnections: ObservableObject {
                 savePassword(password, for: hostname)
             } else if !saveCredentials {
                 removePassword(for: hostname)
+            } else {
+                debugLog("⏭️ saveCredentials=true but no password provided - skipping keychain operation", category: "SavedConnections")
             }
         } else {
             add(hostname: hostname, name: name, username: username, password: password, saveCredentials: saveCredentials)
@@ -84,6 +90,7 @@ class SavedConnections: ObservableObject {
     }
     
     func password(for hostname: String) -> String? {
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
@@ -104,28 +111,47 @@ class SavedConnections: ObservableObject {
     }
     
     private func savePassword(_ password: String, for hostname: String) {
-        // First try to delete any existing password
-        let deleteQuery: [String: Any] = [
+
+        guard let passwordData = password.data(using: .utf8) else {
+            return
+        }
+        
+        // First try to update existing password
+        let updateQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
             kSecAttrAccount as String: hostname
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
         
-        // Now save the new password
-        guard let passwordData = password.data(using: .utf8) else { return }
-        
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: hostname,
-            kSecValueData as String: passwordData,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        let updateAttributes: [String: Any] = [
+            kSecValueData as String: passwordData
         ]
         
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status != errSecSuccess {
-            print("Failed to save password to keychain: \(status)")
+        let updateStatus = SecItemUpdate(updateQuery as CFDictionary, updateAttributes as CFDictionary)
+
+        if updateStatus == errSecSuccess {
+            debugLog("💾 Password successfully updated in keychain", category: "SavedConnections")
+        } else if updateStatus == errSecItemNotFound {
+            debugLog("💾 No existing password found, creating new entry", category: "SavedConnections")
+            
+            // Create new entry since none exists
+            let addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: "VolumeControl",
+                kSecAttrAccount as String: hostname,
+                kSecValueData as String: passwordData,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+            ]
+            
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+
+            if addStatus != errSecSuccess {
+                debugLog("💾 Failed to add new password to keychain.", category: "SavedConnections")
+            } else {
+                debugLog("💾 Password successfully added to keychain", category: "SavedConnections")
+            }
+        } else {
+            debugLog("💾 Failed to update password in keychain: \(updateStatus)", category: "SavedConnections")
         }
     }
     
@@ -135,13 +161,22 @@ class SavedConnections: ObservableObject {
             kSecAttrService as String: "VolumeControl",
             kSecAttrAccount as String: hostname
         ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        let status = SecItemDelete(deleteQuery as CFDictionary)
     }
     
     func getSaveCredentialsPreference(for hostname: String) -> Bool {
-        // Return the user's preference, defaulting to false for legacy connections, true for new ones
+
+        // Return the user's preference, with smart defaults for legacy connections
         if let connection = items.first(where: { $0.hostname == hostname }) {
-            return connection.saveCredentialsPreference ?? false  // Legacy connections default to false (safer)
+
+            if let preference = connection.saveCredentialsPreference {
+                // User has explicitly set a preference
+                return preference
+            } else {
+                // Legacy connection - check if password actually exists
+                let passwordExists = password(for: hostname) != nil
+                return passwordExists  // Default to true if password exists, false if not
+            }
         } else {
             return true  // New connections default to true
         }

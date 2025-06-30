@@ -149,7 +149,8 @@ struct ConnectionsView: View {
                                             selectedConnection = computer
                                             username = computer.lastUsername ?? ""
                                             // Show bullets if password exists, empty if not
-                                            password = savedConnections.password(for: computer.host) != nil ? "•••••" : ""
+                                            let existingPassword = savedConnections.password(for: computer.host)
+                                            password = existingPassword != nil ? "•••••" : ""
                                             saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
                                             showingAddDialog = true
                                         } label: {
@@ -307,6 +308,14 @@ struct ConnectionsView: View {
                         password: $password,
                         saveCredentials: $saveCredentials,
                         onSuccess: { _, nickname in
+                            savedConnections.add(
+                                hostname: computer.host,
+                                name: nickname ?? computer.name,
+                                username: username,
+                                password: saveCredentials ? password : nil,
+                                saveCredentials: saveCredentials
+                            )
+                            
                             if let nickname = nickname {
                                 // Create new computer with updated name
                                 let updatedComputer = Connection(
@@ -316,9 +325,9 @@ struct ConnectionsView: View {
                                     type: computer.type,
                                     lastUsername: computer.lastUsername
                                 )
-                                verifyAndConnect(computer: updatedComputer)
+                                verifyAndConnect(computer: updatedComputer, alreadySaved: true)
                             } else {
-                                verifyAndConnect(computer: computer)
+                                verifyAndConnect(computer: computer, alreadySaved: true)
                             }
                         },
                         onCancel: {
@@ -387,6 +396,7 @@ struct ConnectionsView: View {
         .onAppear {
             // Disconnect any existing connections when returning to connections view
             connectionManager.disconnect()
+            
             startNetworkScan()
 
             // Show what's new screen if user hasn't seen it for this version
@@ -491,7 +501,6 @@ struct ConnectionsView: View {
     private func selectComputer(_ computer: Connection) {
         // Prevent multiple simultaneous connection attempts
         guard connectingComputer == nil else {
-            viewLog("⚠️ Connection already in progress, ignoring tap", view: "ConnectionsView")
             return
         }
 
@@ -500,7 +509,8 @@ struct ConnectionsView: View {
         // Check if we have saved credentials
         if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
             username = savedConnection.username ?? ""
-            password = savedConnections.password(for: computer.host) ?? ""
+            let retrievedPassword = savedConnections.password(for: computer.host)
+            password = retrievedPassword ?? ""
 
             // If we have saved credentials, attempt to connect
             if !username.isEmpty && !password.isEmpty {
@@ -509,6 +519,7 @@ struct ConnectionsView: View {
                 // Show authentication dialog for missing credentials
                 // Use the saved preference for this host
                 saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
+                
                 isAuthenticating = true
             }
         } else {
@@ -521,7 +532,7 @@ struct ConnectionsView: View {
         }
     }
 
-    private func verifyAndConnect(computer: Connection) {
+    private func verifyAndConnect(computer: Connection, alreadySaved: Bool = false) {
         viewLog("ConnectionsView: Starting connection verification", view: "ConnectionsView")
 
         // Show connection metadata without exposing sensitive info
@@ -574,7 +585,7 @@ struct ConnectionsView: View {
                 await MainActor.run {
                     viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
                     self.connectingComputer = nil  // Clear connecting state on success
-                    self.tryConnect(computer: computer)
+                    self.tryConnect(computer: computer, alreadySaved: alreadySaved)
                 }
 
             } catch {
@@ -608,7 +619,7 @@ struct ConnectionsView: View {
         }
     }
 
-    private func tryConnect(computer: Connection) {
+    private func tryConnect(computer: Connection, alreadySaved: Bool = false) {
         viewLog("ConnectionsView: Proceeding with connection flow", view: "ConnectionsView")
 
         // Show connection metadata without exposing sensitive info
@@ -629,15 +640,19 @@ struct ConnectionsView: View {
             navigateToControl = true
         }
 
-        // Save connection info and preference
-        viewLog("Saving connection info with saveCredentials: \(saveCredentials)", view: "ConnectionsView")
-        savedConnections.add(
-            hostname: computer.host,
-            name: computer.name,
-            username: username,
-            password: saveCredentials ? password : nil,
-            saveCredentials: saveCredentials
-        )
+        // Save connection info and preference (if not already saved)
+        if !alreadySaved {
+            viewLog("Saving connection info with saveCredentials: \(saveCredentials)", view: "ConnectionsView")
+            savedConnections.add(
+                hostname: computer.host,
+                name: computer.name,
+                username: username,
+                password: saveCredentials ? password : nil,
+                saveCredentials: saveCredentials
+            )
+        } else {
+            viewLog("Credentials already saved, skipping duplicate save", view: "ConnectionsView")
+        }
 
         isAuthenticating = false
     }
