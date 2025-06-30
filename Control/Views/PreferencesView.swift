@@ -16,9 +16,11 @@ struct PreferencesView: View {
                     PreferencesRow(
                         destination: ExperimentalPlatformsView(),
                         iconName: "flask.fill",
-                        title: "Experimental Platforms",
+                        title: "Experimental Apps",
                         color: .green
                     )
+                }
+                Section {
                     PreferencesRow(
                         destination: FeedbackPreferenceView(),
                         iconName: "paperplane.fill",

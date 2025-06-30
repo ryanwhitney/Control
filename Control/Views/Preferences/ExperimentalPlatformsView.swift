@@ -7,12 +7,13 @@ struct ExperimentalPlatformsView: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Experimental Platforms")
+                Text("Experimental Apps")
                     .font(.title2)
                     .fontWeight(.bold)
-                
-                Text("These platforms are experimental and may have limited functionality or reliability issues.")
+                Text("These may have limited functionality or reliability issues.")
+                    .font(.body)
                     .foregroundStyle(.secondary)
+                    .padding(.bottom, 20)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
@@ -22,11 +23,11 @@ struct ExperimentalPlatformsView: View {
                         HStack {
                             HStack(spacing: 8) {
                                 Text(platform.name)
-                                    .fontWeight(.medium)
-                                
+                                    .font(.headline)
+
                                 Image(systemName: "flask.fill")
                                     .foregroundStyle(.tint)
-                                    .font(.caption)
+                                    .font(.subheadline)
                             }
                             
                             Spacer()
@@ -36,16 +37,17 @@ struct ExperimentalPlatformsView: View {
                                 set: { _ in platformRegistry.toggleExperimentalPlatform(platform.id) }
                             ))
                         }
-                        
-                        Text(platform.reasonForExperimental)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+
                     }
                     .padding()
                     .background(.ultraThinMaterial.opacity(0.5))
                     .cornerRadius(12)
+                    Text(platform.reasonForExperimental)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
                 }
             }
             
