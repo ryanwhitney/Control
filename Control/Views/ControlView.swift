@@ -40,7 +40,7 @@ struct ControlView: View {
         }
         let registry = PlatformRegistry(platforms: filteredPlatforms)
         
-        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared.client, platformRegistry: registry))
+        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared, platformRegistry: registry))
     }
     
     private var displayVolume: String {
@@ -208,8 +208,26 @@ struct ControlView: View {
             viewLog("ControlView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ControlView")
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
             if newPhase == .active {
-                viewLog("Scene became active - reconnecting SSH", view: "ControlView")
-                connectToSSH()
+                viewLog("Scene became active - checking connection health", view: "ControlView")
+                // First check if connection is healthy, then reconnect if needed
+                Task {
+                    if connectionManager.connectionState == .connected {
+                        viewLog("Connection appears active, verifying health...", view: "ControlView")
+                        do {
+                            try await connectionManager.verifyConnectionHealth()
+                            viewLog("✓ Connection health verified", view: "ControlView")
+                            // Connection is healthy, update app states
+                            await appController.updateAllStates()
+                        } catch {
+                            viewLog("❌ Connection health check failed: \(error)", view: "ControlView")
+                            // Connection is dead, reconnect
+                            connectToSSH()
+                        }
+                    } else {
+                        viewLog("Connection not active, reconnecting...", view: "ControlView")
+                        connectToSSH()
+                    }
+                }
             }
         }
         .onDisappear {

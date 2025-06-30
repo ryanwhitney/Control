@@ -312,11 +312,11 @@ struct ConnectionsView: View {
                     .presentationDragIndicator(.visible)
                 }
             }
-            .alert(connectionError?.title ?? "", isPresented: $showingError) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text(connectionError?.message ?? "")
-            }
+                    .alert(connectionError?.title ?? "", isPresented: $showingError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(connectionError?.message ?? "")
+        }
             .navigationDestination(isPresented: $showingFirstTimeSetup) {
                 if let computer = selectedConnection {
                     ChooseAppsView(
@@ -375,6 +375,8 @@ struct ConnectionsView: View {
             .tint(preferences.tintColorValue)
         }
         .onAppear {
+            // Disconnect any existing connections when returning to connections view
+            connectionManager.disconnect()
             startNetworkScan()
         }
         .onDisappear {
@@ -404,14 +406,16 @@ struct ConnectionsView: View {
         }
         .onChange(of: showingError) { _, newValue in
             if newValue {
-                // Reset states when showing error
+                // Reset states after error
                 connectingComputer = nil
                 selectedConnection = nil
+                isAuthenticating = false
+                username = ""
+                password = ""
             }
         }
     }
 
-    // Separate computer row view for reuse
     struct ComputerRow: View {
         let computer: Connection
         let isConnecting: Bool
@@ -474,6 +478,12 @@ struct ConnectionsView: View {
     }
 
     private func selectComputer(_ computer: Connection) {
+        // Prevent multiple simultaneous connection attempts
+        guard connectingComputer == nil else {
+            viewLog("⚠️ Connection already in progress, ignoring tap", view: "ConnectionsView")
+            return
+        }
+        
         selectedConnection = computer
         
         // Check if we have saved credentials
@@ -511,8 +521,37 @@ struct ConnectionsView: View {
         
         connectingComputer = computer
         
+        // Failsafe: Clear connecting state if it hangs and show timeout error
+        Task {
+            try await Task.sleep(nanoseconds: 8_000_000_000) // 8 sec
+            await MainActor.run {
+                if self.connectingComputer?.id == computer.id {
+                    viewLog("⚠️ Connection hung for 8 seconds, triggering timeout error", view: "ConnectionsView")
+                    self.connectingComputer = nil
+                    
+                    // Trigger timeout error
+                    let timeoutError = SSHError.timeout.formatError(displayName: computer.name)
+                    self.connectionError = (timeoutError.title, timeoutError.message)
+                    self.showingError = true
+                    
+                    // Clean up state
+                    self.isAuthenticating = false
+                    self.selectedConnection = nil
+                    self.username = ""
+                    self.password = ""
+                }
+            }
+        }
+        
         Task {
             do {
+                // Always disconnect first to ensure fresh connection
+                viewLog("Disconnecting any existing connection before attempting new one", view: "ConnectionsView")
+                connectionManager.disconnect()
+                
+                // Small delay to ensure cleanup
+                try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+                
                 try await connectionManager.verifyConnection(
                     host: computer.host,
                     username: username,
@@ -521,24 +560,32 @@ struct ConnectionsView: View {
                 
                 await MainActor.run {
                     viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
+                    self.connectingComputer = nil  // Clear connecting state on success
                     self.tryConnect(computer: computer)
                 }
+                
             } catch {
                 await MainActor.run {
                     viewLog("❌ ConnectionsView: Connection verification failed", view: "ConnectionsView")
                     viewLog("Error: \(error)", view: "ConnectionsView")
+                    viewLog("Error type: \(type(of: error))", view: "ConnectionsView")
                     
+                    // Clean up state on any error
                     self.isAuthenticating = false
                     self.connectingComputer = nil
                     
                     if let sshError = error as? SSHError {
+                        viewLog("✅ Successfully cast to SSHError: \(sshError)", view: "ConnectionsView")
                         let formattedError = sshError.formatError(displayName: computer.name)
                         self.connectionError = (formattedError.title, formattedError.message)
                     } else {
+                        viewLog("❌ Failed to cast to SSHError - using generic error", view: "ConnectionsView")
                         self.connectionError = (
                             "Connection Error",
                             """
                             An unexpected error occurred while connecting to \(computer.name).
+                            
+                            Technical details: \(error.localizedDescription)
                             """
                         )
                     }

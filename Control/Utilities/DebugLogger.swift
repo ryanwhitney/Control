@@ -96,6 +96,9 @@ class DebugLogger: ObservableObject {
             )
         }
         
+        // Sanitize network-related sensitive information
+        sanitized = sanitizeNetworkInfo(sanitized)
+        
         // Sanitize media titles and subtitles from command outputs
         if sanitized.contains("Full output:") {
             sanitized = sanitizeMediaContent(sanitized)
@@ -103,6 +106,65 @@ class DebugLogger: ObservableObject {
         
         // Also sanitize any other potential media content patterns
         sanitized = sanitizeGeneralMediaContent(sanitized)
+        
+        return sanitized
+    }
+    
+    private func sanitizeNetworkInfo(_ message: String) -> String {
+        var sanitized = message
+        
+        // Helper function to perform regex replacement with NSRegularExpression
+        func regexReplace(pattern: String, in text: String, replacer: (String) -> String) -> String {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+                return text
+            }
+            let range = NSRange(location: 0, length: text.utf16.count)
+            let matches = regex.matches(in: text, options: [], range: range)
+            
+            var result = text
+            var offset = 0
+            
+            for match in matches {
+                let matchRange = match.range
+                let adjustedRange = NSRange(location: matchRange.location + offset, length: matchRange.length)
+                
+                if let swiftRange = Range(adjustedRange, in: result) {
+                    let matchedText = String(result[swiftRange])
+                    let replacement = replacer(matchedText)
+                    result = result.replacingCharacters(in: swiftRange, with: replacement)
+                    offset += replacement.count - matchedText.count
+                }
+            }
+            return result
+        }
+        
+        // Redact hostnames (keep first 3 characters)
+        sanitized = regexReplace(pattern: #"[a-zA-Z0-9-]+\.local"#, in: sanitized) { match in
+            let prefix = String(match.prefix(3))
+            return "\(prefix)***"
+        }
+        
+        // Redact IPv4 addresses (keep first octet)
+        sanitized = regexReplace(pattern: #"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b"#, in: sanitized) { match in
+            if let firstOctet = match.split(separator: ".").first {
+                return "\(firstOctet).***.***.***"
+            }
+            return "***.***.***.***"
+        }
+        
+        // Redact IPv6 addresses (keep first segment)
+        sanitized = regexReplace(pattern: #"\b[0-9a-fA-F:]+::[0-9a-fA-F:]+\b"#, in: sanitized) { match in
+            if let firstSegment = match.split(separator: ":").first {
+                return "\(firstSegment)::***"
+            }
+            return "***::***"
+        }
+        
+        // Redact full IPv6 addresses
+        sanitized = sanitized.replacingOccurrences(of: #"\b([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b"#, with: "***:***:***:***:***:***:***:***", options: .regularExpression)
+        
+        // Redact MAC addresses if any appear
+        sanitized = sanitized.replacingOccurrences(of: #"\b([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b"#, with: "**:**:**:**:**:**", options: .regularExpression)
         
         return sanitized
     }

@@ -37,7 +37,7 @@ struct DebugLogsView: View {
                         if isReadOnly {
                             Text("To disable logging, go to  Preferences > Support.")
                         } else {
-                            Text("Control never logs passwords, sensitive connection data, or info about what you're playing.")
+                            Text("Control never logs passwords, hostnames, IP addresses, or info about what you're playing.")
                         }
                         
                         if debugLogger.isLoggingEnabled && !debugLogger.logs.isEmpty {

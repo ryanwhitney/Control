@@ -22,21 +22,40 @@ extension SSHError {
             )
         case .timeout:
             return (
-                "Couldn't connect to \(displayName)",
+                "Connection Timeout",
                 """
-                Please check your network connection and ensure both devices are on the same network.
+                The connection to \(displayName) timed out.
+                
+                Please check that:
+                • Both devices are on the same network
+                • Remote Login is enabled on your Mac
+                • Your Mac isn't sleeping or locked
                 """
             )
         case .channelError(let details):
-            return (
-                "Connection Error",
-                """
-                Failed to establish a secure connection with \(displayName).
-                Please try again in a few moments.
-                
-                Technical details: \(details)
-                """
-            )
+            if details.contains("Connection lost") || details.contains("Invalid heartbeat response") {
+                return (
+                    "Connection Lost",
+                    """
+                    The connection to \(displayName) was lost.
+                    
+                    Please check that:
+                    • Both devices are still on the same network
+                    • Your Mac is awake and responsive
+                    • Remote Login is still enabled
+                    """
+                )
+            } else {
+                return (
+                    "Connection Error",
+                    """
+                    Failed to establish a secure connection with \(displayName).
+                    Please try again in a few moments.
+                    
+                    Technical details: \(details)
+                    """
+                )
+            }
         case .channelNotConnected:
             return (
                 "Connection Error",

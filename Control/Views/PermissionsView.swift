@@ -76,7 +76,20 @@ struct PermissionsView: View {
         }
         .onChange(of: scenePhase, { oldPhase, newPhase in
             if newPhase == .active {
-                connectToSSH()
+                // Check connection health first, then reconnect if needed
+                Task {
+                    if connectionManager.connectionState == .connected {
+                        do {
+                            try await connectionManager.verifyConnectionHealth()
+                            viewLog("✓ PermissionsView: Connection health verified", view: "PermissionsView")
+                        } catch {
+                            viewLog("❌ PermissionsView: Connection health check failed: \(error)", view: "PermissionsView")
+                            connectToSSH()
+                        }
+                    } else {
+                        connectToSSH()
+                    }
+                }
             }
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         })
@@ -346,7 +359,7 @@ struct PermissionsView: View {
         let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
 
         return await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+            connectionManager.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
                 continuation.resume(returning: result)
             }
         }
@@ -371,7 +384,7 @@ struct PermissionsView: View {
 
         viewLog("Activating \(platform.name)...", view: "PermissionsView")
         let activateResult = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+            connectionManager.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -391,7 +404,7 @@ struct PermissionsView: View {
 
         viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+            connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -419,7 +432,7 @@ struct PermissionsView: View {
 
                 viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
                 let retryResult = await withCheckedContinuation { continuation in
-                    connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                    connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
                         continuation.resume(returning: result)
                     }
                 }

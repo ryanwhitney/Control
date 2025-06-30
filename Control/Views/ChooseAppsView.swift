@@ -143,7 +143,20 @@ struct ChooseAppsView: View {
         .onChange(of: scenePhase, { oldPhase, newPhase in
             viewLog("ChooseAppsView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ChooseAppsView")
             if newPhase == .active {
-                connectToSSH()
+                // Check connection health first, then reconnect if needed
+                Task {
+                    if connectionManager.connectionState == .connected {
+                        do {
+                            try await connectionManager.verifyConnectionHealth()
+                            viewLog("✓ ChooseAppsView: Connection health verified", view: "ChooseAppsView")
+                        } catch {
+                            viewLog("❌ ChooseAppsView: Connection health check failed: \(error)", view: "ChooseAppsView")
+                            connectToSSH()
+                        }
+                    } else {
+                        connectToSSH()
+                    }
+                }
             }
             connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         })

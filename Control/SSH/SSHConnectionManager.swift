@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 @MainActor
-class SSHConnectionManager: ObservableObject {
+class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     @Published private(set) var connectionState: ConnectionState = .disconnected
     private nonisolated let sshClient: SSHClient
     private var currentCredentials: Credentials?
@@ -64,61 +64,44 @@ class SSHConnectionManager: ObservableObject {
         
         // Show connection metadata without exposing sensitive info
         let isLocal = host.contains(".local")
-        let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
-        let hostRedacted = String(host.prefix(1)) + "***"
+        let connectionType = isLocal ? "Bonjour (.local)" : "TCP/IP"
+        let hostRedacted = String(host.prefix(3)) + "***"
         
-        connectionLog("Protocol: \(connectionType)")
-        connectionLog("Target: \(hostRedacted)")
-        connectionLog("Port: 22 (SSH)")
-        connectionLog("Username: \(String(username.prefix(1)))***")
-//        connectionLog("Password length: \(password.count)")
-        connectionLog("Current state: \(connectionState.description)")
+        connectionLog("Connecting via \(connectionType) to \(hostRedacted)")
         
-        // If we're already connected with same credentials, no need to reconnect
-        if case .connected = connectionState,
-           let existing = currentCredentials,
-           existing.host == host,
-           existing.username == username,
-           existing.password == password {
-            connectionLog("✓ Already connected with same credentials")
-            return
-        }
-        
-        // If we're in the process of connecting, don't start another connection
-        if case .connecting = connectionState {
-            connectionLog("⚠️ Connection already in progress")
-            throw SSHError.connectionFailed("Connection already in progress")
-        }
-        
-        // Clean up any existing connection
+        // Always clean up first to prevent state corruption
         await cleanupExistingConnection()
         
-        let previousState = connectionState.description
         connectionState = .connecting
-        connectionLog("Connection state changed: \(previousState) -> \(connectionState.description)")
         currentCredentials = Credentials(host: host, username: username, password: password)
         
         return try await withCheckedThrowingContinuation { continuation in
-            connectionLog("Attempting connection...")
             let client = self.client // Capture nonisolated client
-            Task {
-                client.connect(host: host, username: username, password: password) { result in
-                    Task { @MainActor in
-                        switch result {
-                        case .success:
-                            connectionLog("✓ Connection successful")
-                            let previousState = self.connectionState.description
-                            self.connectionState = .connected
-                            connectionLog("Connection state changed: \(previousState) -> \(self.connectionState.description)")
-                            continuation.resume()
-                        case .failure(let error):
-                            connectionLog("❌ Connection failed: \(error)")
-                            let previousState = self.connectionState.description
-                            self.connectionState = .failed(error.localizedDescription)
-                            connectionLog("Connection state changed: \(previousState) -> \(self.connectionState.description)")
-                            self.currentCredentials = nil
-                            continuation.resume(throwing: error)
-                        }
+            var hasResumed = false
+            let connectionId = UUID().uuidString.prefix(8)
+            
+            client.connect(host: host, username: username, password: password) { result in
+                Task { @MainActor in
+                    guard !hasResumed else {
+                        connectionLog("⚠️ [\(connectionId)] Continuation already resumed, ignoring duplicate result: \(result)")
+                        return
+                    }
+                    hasResumed = true
+                    connectionLog("🔄 [\(connectionId)] Processing connection result: \(result)")
+                    
+                    switch result {
+                    case .success:
+                        connectionLog("✓ [\(connectionId)] Connection successful")
+                        self.connectionState = .connected
+                        continuation.resume()
+                    case .failure(let error):
+                        connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
+                        self.connectionState = .failed(error.localizedDescription)
+                        self.currentCredentials = nil
+                        
+                        // Ensure client is disconnected on failure to prevent stale state
+                        client.disconnect()
+                        continuation.resume(throwing: error)
                     }
                 }
             }
@@ -126,49 +109,29 @@ class SSHConnectionManager: ObservableObject {
     }
     
     func verifyConnection(host: String, username: String, password: String) async throws {
-        connectionLog("Verifying connection")
         try await connect(host: host, username: username, password: password)
-        
-        // If we get here, connection was successful
-        // Keep connection alive for subsequent use instead of disconnecting
-        connectionLog("✓ Connection verified and maintained")
     }
     
     private func cleanupExistingConnection() async {
-        connectionLog("SSHConnectionManager: Cleaning up existing connection")
-        if case .connected = connectionState {
-            connectionLog("Found existing connection, disconnecting...")
-            disconnect()
-            // Give a small delay to ensure cleanup
-            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
-        }
+        disconnect()
+        // Give a small delay to ensure cleanup
+        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
     }
     
     nonisolated func disconnect() {
-        sshLog("SSHConnectionManager: Starting disconnect process")
         sshClient.disconnect()
         Task { @MainActor in
-            let previousState = self.connectionState.description
-            sshLog("Connection state before disconnect: \(previousState)")
             self.connectionState = .disconnected
             self.currentCredentials = nil
-            sshLog("✓ SSHConnectionManager disconnected")
         }
     }
     
-    nonisolated func disconnectSync() {
-        sshLog("SSHConnectionManager: Sync disconnect requested")
-        sshClient.disconnect()
-    }
-    
     deinit {
-        sshLog("SSHConnectionManager: Deinitializing")
-        disconnectSync()
+        sshClient.disconnect()
     }
     
     func shouldReconnect(host: String, username: String, password: String) -> Bool {
         guard case .connected = connectionState else { 
-            connectionLog("Should reconnect: Not connected (current state: \(connectionState.description))")
             return true 
         }
         
@@ -177,36 +140,26 @@ class SSHConnectionManager: ObservableObject {
            existing.host == host,
            existing.username == username,
            existing.password == password {
-            connectionLog("✓ Already connected with same credentials - no reconnect needed")
+            connectionLog("✓ Using existing connection")
             return false
         }
         
-        connectionLog("Should reconnect: Credentials have changed")
         return true
     }
     
     // MARK: - Lifecycle Management
     
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        connectionLog("SSHConnectionManager: Scene phase change")
-        connectionLog("Phase transition: \(oldPhase) -> \(newPhase)")
-        connectionLog("Current connection state: \(connectionState.description)")
+        connectionLog("Scene phase: \(oldPhase) -> \(newPhase)")
         
         switch newPhase {
         case .active:
-            connectionLog("Scene became active - ending background task")
             endBackgroundTask()
-            
         case .inactive:
-            connectionLog("Scene became inactive - keeping connection alive")
             // No action needed, keep connection alive
-            
+            break
         case .background:
-            connectionLog("Scene entering background - starting background task")
             startBackgroundTask()
-            // Only disconnect if background task expires (after ~30 seconds)
-            connectionLog("Maintaining connection in background")
-            
         @unknown default:
             connectionLog("Unknown scene phase: \(newPhase)")
         }
@@ -214,9 +167,9 @@ class SSHConnectionManager: ObservableObject {
     
     private func startBackgroundTask() {
         backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
-            // Background task is about to expire, disconnect to clean up resources
-            connectionLog("Background task expiring - disconnecting SSH")
-            self?.disconnect()
+            // Background task is about to expire, disconnect gracefully
+            self?.client.disconnect() // Use direct client disconnect for graceful exit
+            self?.disconnect() // Then update our state
             self?.endBackgroundTask()
         }
     }
@@ -236,20 +189,16 @@ class SSHConnectionManager: ObservableObject {
         onSuccess: @escaping () async -> Void,
         onError: @escaping (Error) -> Void
     ) {
-        connectionLog("Handling connection")
         Task {
             do {
                 if !shouldReconnect(host: host, username: username, password: password) {
-                    connectionLog("✓ Using existing connection")
                     await onSuccess()
                     return
                 }
                 
                 try await connect(host: host, username: username, password: password)
-                connectionLog("✓ Connection established")
                 await onSuccess()
             } catch {
-                connectionLog("❌ Connection failed: \(error)")
                 onError(error)
             }
         }
@@ -276,17 +225,26 @@ class SSHConnectionManager: ObservableObject {
         return isConnectionLoss
     }
     
-    // Add connection loss detection to command execution
+    /// Execute a command with post-command heartbeat verification
+    /// 
+    /// This method now includes a heartbeat mechanism that:
+    /// - Executes the user command normally
+    /// - Sends a heartbeat after the command to verify connection health
+    /// - Triggers reconnection if heartbeat fails within 3 seconds
+    /// - Prevents hard crashes by detecting dead connections quickly
     nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         sshLog("SSHConnectionManager: Executing command via new channel")
         if let description = description {
             sshLog("Command: \(description)")
         }
         
+        // Execute the command normally
         client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
             switch result {
             case .success(_):
                 sshLog("✓ Command completed successfully")
+                // Send post-command heartbeat to verify connection health
+                self?.executePostCommandHeartbeat()
                 completion(result)
             case .failure(let error):
                 sshLog("❌ Command failed: \(error)")
@@ -295,9 +253,99 @@ class SSHConnectionManager: ObservableObject {
                     Task { @MainActor [weak self] in
                         self?.handleConnectionLost()
                     }
+                } else {
+                    // Send heartbeat after failed command to check if connection is still alive
+                    self?.executePostCommandHeartbeat()
                 }
                 completion(result)
             }
         }
     }
+    
+    /// Executes a post-command heartbeat to verify connection is still alive
+    /// If heartbeat fails within 3 seconds, triggers reconnection
+    nonisolated private func executePostCommandHeartbeat() {
+        let heartbeatCommand = "echo \"heartbeat-$(date +%s)\""
+        sshLog("💓 Sending post-command heartbeat check")
+        
+        // Set a 3-second timeout for the heartbeat
+        var heartbeatCompleted = false
+        
+        let timeoutTask = DispatchWorkItem {
+            if !heartbeatCompleted {
+                sshLog("💓 Post-command heartbeat timed out after 3 seconds - triggering reconnect")
+                Task { @MainActor [weak self] in
+                    self?.handleConnectionLost()
+                }
+            }
+        }
+        
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3.0, execute: timeoutTask)
+        
+        // Execute heartbeat
+        client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Post-command heartbeat") { result in
+            heartbeatCompleted = true
+            timeoutTask.cancel()
+            
+            switch result {
+            case .success(let output):
+                if output.contains("heartbeat-") {
+                    sshLog("💓 Post-command heartbeat successful: \(output)")
+                } else {
+                    sshLog("💓 Post-command heartbeat invalid response - triggering reconnect")
+                    Task { @MainActor [weak self] in
+                        self?.handleConnectionLost()
+                    }
+                }
+            case .failure(let error):
+                sshLog("💓 Post-command heartbeat failed: \(error) - triggering reconnect")
+                Task { @MainActor [weak self] in
+                    self?.handleConnectionLost()
+                }
+            }
+        }
+    }
+    
+    /// Verifies that the connection is alive and responsive
+    /// Useful for proactive connection health checks
+    func verifyConnectionHealth() async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            let heartbeatCommand = "echo \"health-check-$(date +%s)\""
+            sshLog("💓 Executing connection health check")
+            
+            client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Connection health check") { result in
+                switch result {
+                case .success(let output):
+                    if output.contains("health-check-") {
+                        sshLog("💓 Connection health check successful")
+                        continuation.resume()
+                    } else {
+                        sshLog("💓 Connection health check invalid response")
+                        continuation.resume(throwing: SSHError.channelError("Invalid health check response"))
+                    }
+                case .failure(let error):
+                    sshLog("💓 Connection health check failed: \(error)")
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
+    // MARK: - SSHClientProtocol Conformance
+    
+    /// Protocol-required connect method with completion handler
+    nonisolated func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+        Task {
+            do {
+                try await self.connect(host: host, username: username, password: password)
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+    
+
+    
+    // executeCommandWithNewChannel is already implemented above with heartbeat protection
 } 
