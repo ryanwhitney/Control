@@ -6,9 +6,14 @@ struct PlatformControl: View {
     @EnvironmentObject var controller: AppController
     @StateObject private var preferences = UserPreferences.shared
     @State private var showingExperimentalAlert = false
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+
+    private var isPhoneLandscape: Bool {
+        verticalSizeClass == .compact
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: isPhoneLandscape ? 0 : 16) {
             VStack(spacing: 4) {
                 HStack {
                     Text(platform.name)
@@ -27,7 +32,7 @@ struct PlatformControl: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.bottom, 50)
+                .padding(.bottom, isPhoneLandscape ? 10 : 50)
                 VStack(alignment: .center) {
                     if !state.title.isEmpty {
                         Text(state.title)
@@ -50,7 +55,7 @@ struct PlatformControl: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(minHeight: 40)
-                .padding(.bottom, 60)
+                .padding(.bottom, isPhoneLandscape ? 20 : 60)
             }
 
             HStack(spacing: 16) {
@@ -85,7 +90,7 @@ struct PlatformControl: View {
                     .buttonStyle(IconButtonStyle())
                 }
             }
-            .padding(.bottom, 60)
+            .padding(.bottom, isPhoneLandscape ? 40 : 60)
         }
         .onAppear {
             Task {

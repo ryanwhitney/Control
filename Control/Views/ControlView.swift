@@ -13,6 +13,7 @@ struct ControlView: View {
     }
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) var verticalSizeClass
     @StateObject private var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
@@ -33,6 +34,10 @@ struct ControlView: View {
     @State private var showingSetupFlow = false
 
 
+    private var isPhoneLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+    
     init(host: String, displayName: String, username: String, password: String) {
         self.host = host
         self.displayName = displayName
@@ -141,8 +146,10 @@ struct ControlView: View {
                         .disabled(!volumeInitialized)
                     }
                 }
-                .frame(maxWidth: 500)
-                Spacer(minLength: 40)
+                .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
+                if !isPhoneLandscape {
+                    Spacer(minLength: 40)
+                }
             }
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
