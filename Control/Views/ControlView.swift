@@ -45,7 +45,14 @@ struct ControlView: View {
     
     // Update AppController with current platforms
     private func updateAppControllerPlatforms() {
-        let currentPlatforms = enabledPlatforms
+        var currentPlatforms = enabledPlatforms
+        
+        // If no platforms are saved for this host, use default enabled platforms
+        if currentPlatforms.isEmpty {
+            let defaultRegistry = PlatformRegistry()
+            currentPlatforms = defaultRegistry.enabledPlatforms
+            viewLog("ControlView: No saved platforms for host, using defaults: \(currentPlatforms)", view: "ControlView")
+        }
         
         // Create new registry with all platforms, but update enabled platforms
         let newRegistry = PlatformRegistry()

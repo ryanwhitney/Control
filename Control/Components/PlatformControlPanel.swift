@@ -92,7 +92,7 @@ struct PlatformControl: View {
                 await controller.updateState(for: platform)
             }
         }
-        .alert("Experimental Platform", isPresented: $showingExperimentalAlert) {
+        .alert("\(platform.name) support is experimental", isPresented: $showingExperimentalAlert) {
             Button("OK") { }
         } message: {
             Text(platform.reasonForExperimental)

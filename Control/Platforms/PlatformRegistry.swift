@@ -13,7 +13,7 @@ class PlatformRegistry: ObservableObject {
         IINAApp(),
         SpotifyApp(),
         SafariApp(),
-        ChromeApp()
+//        ChromeApp()
     ]
     
     init(platforms: [any AppPlatform]? = nil) {

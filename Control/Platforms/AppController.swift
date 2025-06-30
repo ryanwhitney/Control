@@ -124,7 +124,12 @@ class AppController: ObservableObject {
                 error: nil
             )
             // Only update if we don't have a previous state or if the state has changed
-            if states[platform.id]?.title != newState.title {
+            let currentState = states[platform.id]
+            let shouldUpdate = currentState == nil ||
+                             currentState?.title != newState.title ||
+                             currentState?.isPlaying != newState.isPlaying
+            
+            if shouldUpdate {
                 states[platform.id] = newState
                 lastKnownStates[platform.id] = newState
             }
@@ -143,14 +148,24 @@ class AppController: ObservableObject {
                     error: nil
                 )
                 // Only update if we don't have a previous state or if the state has changed
-                if states[platform.id]?.title != newState.title {
+                let currentState = states[platform.id]
+                let shouldUpdate = currentState == nil ||
+                                 currentState?.title != newState.title ||
+                                 currentState?.isPlaying != newState.isPlaying
+                
+                if shouldUpdate {
                     states[platform.id] = newState
                     lastKnownStates[platform.id] = newState
                 }
             } else {
                 let newState = platform.parseState(output)
                 // Only update if we don't have a previous state or if the state has changed
-                if states[platform.id]?.title != newState.title {
+                let currentState = states[platform.id]
+                let shouldUpdate = currentState == nil ||
+                                 currentState?.title != newState.title ||
+                                 currentState?.isPlaying != newState.isPlaying
+                
+                if shouldUpdate {
                     states[platform.id] = newState
                     lastKnownStates[platform.id] = newState
                 }

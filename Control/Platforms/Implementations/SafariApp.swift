@@ -2,8 +2,10 @@ import Foundation
 
 struct SafariApp: AppPlatform {
     let id = "safari"
-    let name = "Safari (experimental)"
+    let name = "Safari"
     let defaultEnabled = false
+    let experimental = true
+    let reasonForExperimental = "Control finds videos in open tabs and *should* work on most sites. Does not work with videos embedded in iframes. Play/pause is unreliable."
 
     var supportedActions: [ActionConfig] {
         [
@@ -26,21 +28,48 @@ struct SafariApp: AppPlatform {
     tell application "Safari"
         set windowCount to count of windows
         if windowCount is 0 then
-            return " |||No media playing ||| stopped |||false"
+            return "Nothing playing |||   ||| false ||| false"
         end if
         
-        repeat with w in windows
-            set tabCount to count of tabs of w
-            repeat with t in tabs of w
-                if t's URL starts with "https://www.youtube.com/watch" then
-                    set videoTitle to t's name
-                    set isPlaying to do JavaScript "document.querySelector('video').paused ? 'false' : 'true'" in t
-                    return videoTitle & "|||YouTube|||" & isPlaying
-                end if
-            end repeat
-        end repeat
+        -- 1) Check the current tab in the frontmost window
+        try
+            set currentTab to current tab of window 1
+            set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
+            if hasVideo then
+                set videoScript to "
+                    var video = document.querySelector('video');
+                    var title = document.title || 'Unknown Video';
+                    var siteName = window.location.hostname.replace('www.', '');
+                    var isPlaying = !video.paused && !video.ended;
+                    title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
+                "
+                set videoInfo to do JavaScript videoScript in currentTab
+                return videoInfo
+            end if
+        end try
         
-        return " ||| No media playing ||| stopped |||false"
+        -- 2) Check the current tab in any other windows
+        if windowCount > 1 then
+            repeat with w from 2 to windowCount
+                try
+                    set currentTab to current tab of window w
+                    set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
+                    if hasVideo then
+                        set videoScript to "
+                            var video = document.querySelector('video');
+                            var title = document.title || 'Unknown Video';
+                            var siteName = window.location.hostname.replace('www.', '');
+                            var isPlaying = !video.paused && !video.ended;
+                            title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
+                        "
+                        set videoInfo to do JavaScript videoScript in currentTab
+                        return videoInfo
+                    end if
+                end try
+            end repeat
+        end if
+        
+        return "Nothing playing |||   ||| false ||| false"
     end tell
     """
 
@@ -50,11 +79,17 @@ struct SafariApp: AppPlatform {
 
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
+        
         if components.count >= 3 {
+            let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let isPlayingStr = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            let isPlaying = isPlayingStr == "true"
+            
             return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+                title: title,
+                subtitle: subtitle,
+                isPlaying: isPlaying,
                 error: nil
             )
         }
@@ -74,46 +109,130 @@ struct SafariApp: AppPlatform {
                 set windowCount to count of windows
                 if windowCount is 0 then return
                 
-                repeat with w in windows
-                    set tabCount to count of tabs of w
-                    repeat with t in tabs of w
-                        if t's URL starts with "https://www.youtube.com/watch" then
-                            do JavaScript "document.querySelector('video').click()" in t
-                            return
-                        end if
+                -- 1) Check the focused tab of the frontmost window
+                try
+                    set currentTab to current tab of window 1
+                    set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
+                    if hasVideo then
+                        do JavaScript "
+                            var video = document.querySelector('video');
+                            if (video) {
+                                if (video.paused || video.ended) {
+                                    video.play();
+                                } else {
+                                    video.pause();
+                                }
+                            }
+                        " in currentTab
+                        return
+                    end if
+                end try
+                
+                -- 2) Check the focused tab of other windows
+                if windowCount > 1 then
+                    repeat with w from 2 to windowCount
+                        try
+                            set currentTab to current tab of window w
+                            set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
+                            if hasVideo then
+                                do JavaScript "
+                                    var video = document.querySelector('video');
+                                    if (video) {
+                                        if (video.paused || video.ended) {
+                                            video.play();
+                                        } else {
+                                            video.pause();
+                                        }
+                                    }
+                                " in currentTab
+                                return
+                            end if
+                        end try
                     end repeat
-                end repeat
+                end if
             end tell
             """
         case .skipForward(let seconds):
             return """
             tell application "Safari"
-            if (count of windows) > 0 then
-                tell current tab of front window
-                    do JavaScript "
-                    (function() {
-                        const media = document.querySelector('video, audio');
-                        if (media) media.currentTime += \(seconds);
-                    })();
-                    "
-                end tell
-            end if
-        end tell
-        """
+                set windowCount to count of windows
+                if windowCount is 0 then return
+                
+                -- 1) Check the focused tab of the frontmost window
+                try
+                    set currentTab to current tab of window 1
+                    set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
+                    if hasVideo then
+                        do JavaScript "
+                            (function() {
+                                const media = document.querySelector('video, audio');
+                                if (media) media.currentTime += \(seconds);
+                            })();
+                        " in currentTab
+                        return
+                    end if
+                end try
+                
+                -- 2) Check the focused tab of other windows
+                if windowCount > 1 then
+                    repeat with w from 2 to windowCount
+                        try
+                            set currentTab to current tab of window w
+                            set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
+                            if hasVideo then
+                                do JavaScript "
+                                    (function() {
+                                        const media = document.querySelector('video, audio');
+                                        if (media) media.currentTime += \(seconds);
+                                    })();
+                                " in currentTab
+                                return
+                            end if
+                        end try
+                    end repeat
+                end if
+            end tell
+            """
         case .skipBackward(let seconds):
             return """
             tell application "Safari"
-                if (count of windows) > 0 then
-                    tell current tab of front window
+                set windowCount to count of windows
+                if windowCount is 0 then return
+                
+                -- 1) Check the focused tab of the frontmost window
+                try
+                    set currentTab to current tab of window 1
+                    set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
+                    if hasVideo then
                         do JavaScript "
-                        (function() {
-                            const media = document.querySelector('video, audio');
-                            if (media) media.currentTime -= \(seconds);
-                        })();
-                    "
-                    end tell
+                            (function() {
+                                const media = document.querySelector('video, audio');
+                                if (media) media.currentTime -= \(seconds);
+                            })();
+                        " in currentTab
+                        return
+                    end if
+                end try
+                
+                -- 2) Check the focused tab of other windows
+                if windowCount > 1 then
+                    repeat with w from 2 to windowCount
+                        try
+                            set currentTab to current tab of window w
+                            set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
+                            if hasVideo then
+                                do JavaScript "
+                                    (function() {
+                                        const media = document.querySelector('video, audio');
+                                        if (media) media.currentTime -= \(seconds);
+                                    })();
+                                " in currentTab
+                                return
+                            end if
+                        end try
+                    end repeat
                 end if
-                end tell
+            end tell
             """
         default:
             return ""
