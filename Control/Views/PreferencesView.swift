@@ -11,13 +11,13 @@ struct PreferencesView: View {
                         destination: ThemePreferenceView(),
                         iconName: "paintbrush.fill",
                         title: "Theme",
-                        color: .indigo
+                        color: .green
                     )
                     PreferencesRow(
                         destination: ExperimentalPlatformsView(),
                         iconName: "flask.fill",
-                        title: "Experimental Apps",
-                        color: .green
+                        title: "Experimental App Controls",
+                        color: .indigo
                     )
                 }
                 Section {

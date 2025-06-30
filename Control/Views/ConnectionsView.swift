@@ -23,6 +23,7 @@ struct ConnectionsView: View {
     @State private var showingSetupFlow = false
     @State private var navigateToControl = false
     @State private var activePopover: ActivePopover?
+    @State private var showingWhatsNew = false
 
     enum ActivePopover: Identifiable {
         case help
@@ -259,7 +260,7 @@ struct ConnectionsView: View {
                             } else {
                                 passwordToSave = nil
                             }
-                            
+
                             savedConnections.updateLastUsername(
                                 for: computer.host,
                                 name: nickname ?? computer.name,
@@ -327,11 +328,11 @@ struct ConnectionsView: View {
                     .presentationDragIndicator(.visible)
                 }
             }
-                    .alert(connectionError?.title ?? "", isPresented: $showingError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(connectionError?.message ?? "")
-        }
+            .alert(connectionError?.title ?? "", isPresented: $showingError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(connectionError?.message ?? "")
+            }
             .navigationDestination(isPresented: $showingSetupFlow) {
                 if let computer = selectedConnection {
                     SetupFlowView(
@@ -372,12 +373,28 @@ struct ConnectionsView: View {
                     PreferencesView()
                 }
             }
+            .sheet(isPresented: $showingWhatsNew) {
+                WhatsNewView {
+                    showingWhatsNew = false
+                }
+                .presentationBackground(.black)
+                .presentationDetents([.large])
+                .presentationCornerRadius(20)
+                .interactiveDismissDisabled(true)
+            }
             .tint(preferences.tintColorValue)
         }
         .onAppear {
             // Disconnect any existing connections when returning to connections view
             connectionManager.disconnect()
             startNetworkScan()
+
+            // Show what's new screen if user hasn't seen it for this version
+            if preferences.shouldShowWhatsNew {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showingWhatsNew = true
+                }
+            }
         }
         .onDisappear {
             networkScanner?.cancel()
@@ -445,10 +462,10 @@ struct ConnectionsView: View {
     private var networkComputers: [Connection] {
         connections.compactMap { service in
             guard let hostname = service.hostName else { return nil }
-            
+
             // Clean up the hostname by removing the extra period
             let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
-            
+
             return Connection(
                 id: service.name,
                 name: service.name.replacingOccurrences(of: "\\032", with: ""),
@@ -458,7 +475,7 @@ struct ConnectionsView: View {
             )
         }
     }
-    
+
     private var savedComputers: [Connection] {
         savedConnections.items.map { saved in
             Connection(
@@ -477,14 +494,14 @@ struct ConnectionsView: View {
             viewLog("⚠️ Connection already in progress, ignoring tap", view: "ConnectionsView")
             return
         }
-        
+
         selectedConnection = computer
-        
+
         // Check if we have saved credentials
         if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
             username = savedConnection.username ?? ""
             password = savedConnections.password(for: computer.host) ?? ""
-            
+
             // If we have saved credentials, attempt to connect
             if !username.isEmpty && !password.isEmpty {
                 verifyAndConnect(computer: computer)
@@ -503,10 +520,10 @@ struct ConnectionsView: View {
             isAuthenticating = true
         }
     }
-    
+
     private func verifyAndConnect(computer: Connection) {
         viewLog("ConnectionsView: Starting connection verification", view: "ConnectionsView")
-        
+
         // Show connection metadata without exposing sensitive info
         let isLocal = computer.host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
@@ -514,9 +531,9 @@ struct ConnectionsView: View {
         viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
         viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
         viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ConnectionsView")
-        
+
         connectingComputer = computer
-        
+
         // Failsafe: Clear connecting state if it hangs and show timeout error
         Task {
             try await Task.sleep(nanoseconds: 8_000_000_000) // 8 sec
@@ -524,12 +541,12 @@ struct ConnectionsView: View {
                 if self.connectingComputer?.id == computer.id {
                     viewLog("⚠️ Connection hung for 8 seconds, triggering timeout error", view: "ConnectionsView")
                     self.connectingComputer = nil
-                    
+
                     // Trigger timeout error
                     let timeoutError = SSHError.timeout.formatError(displayName: computer.name)
                     self.connectionError = (timeoutError.title, timeoutError.message)
                     self.showingError = true
-                    
+
                     // Clean up state
                     self.isAuthenticating = false
                     self.selectedConnection = nil
@@ -538,38 +555,38 @@ struct ConnectionsView: View {
                 }
             }
         }
-        
+
         Task {
             do {
                 // Always disconnect first to ensure fresh connection
                 viewLog("Disconnecting any existing connection before attempting new one", view: "ConnectionsView")
                 connectionManager.disconnect()
-                
+
                 // Small delay to ensure cleanup
                 try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
-                
+
                 try await connectionManager.verifyConnection(
                     host: computer.host,
                     username: username,
                     password: password
                 )
-                
+
                 await MainActor.run {
                     viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
                     self.connectingComputer = nil  // Clear connecting state on success
                     self.tryConnect(computer: computer)
                 }
-                
+
             } catch {
                 await MainActor.run {
                     viewLog("❌ ConnectionsView: Connection verification failed", view: "ConnectionsView")
                     viewLog("Error: \(error)", view: "ConnectionsView")
                     viewLog("Error type: \(type(of: error))", view: "ConnectionsView")
-                    
+
                     // Clean up state on any error
                     self.isAuthenticating = false
                     self.connectingComputer = nil
-                    
+
                     if let sshError = error as? SSHError {
                         viewLog("✅ Successfully cast to SSHError: \(sshError)", view: "ConnectionsView")
                         let formattedError = sshError.formatError(displayName: computer.name)
@@ -590,10 +607,10 @@ struct ConnectionsView: View {
             }
         }
     }
-    
+
     private func tryConnect(computer: Connection) {
         viewLog("ConnectionsView: Proceeding with connection flow", view: "ConnectionsView")
-        
+
         // Show connection metadata without exposing sensitive info
         let isLocal = computer.host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
@@ -601,9 +618,9 @@ struct ConnectionsView: View {
         viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
         viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
         viewLog("Has connected before: \(savedConnections.hasConnectedBefore(computer.host))", view: "ConnectionsView")
-        
+
         selectedConnection = computer
-        
+
         if !savedConnections.hasConnectedBefore(computer.host) {
             viewLog("First time setup needed - navigating to SetupFlowView", view: "ConnectionsView")
             showingSetupFlow = true
@@ -611,7 +628,7 @@ struct ConnectionsView: View {
             viewLog("Regular connection - navigating to ControlView", view: "ConnectionsView")
             navigateToControl = true
         }
-        
+
         // Save connection info and preference
         viewLog("Saving connection info with saveCredentials: \(saveCredentials)", view: "ConnectionsView")
         savedConnections.add(
@@ -621,7 +638,7 @@ struct ConnectionsView: View {
             password: saveCredentials ? password : nil,
             saveCredentials: saveCredentials
         )
-        
+
         isAuthenticating = false
     }
 
@@ -632,16 +649,16 @@ struct ConnectionsView: View {
         connections.removeAll()
         errorMessage = nil
         isSearching = true
-        
+
         // Stop existing scan
         networkScanner?.cancel()
-        
+
         let parameters = NWParameters()
         parameters.includePeerToPeer = false
-        
+
         let scanner = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: parameters)
         self.networkScanner = scanner
-        
+
         scanner.stateUpdateHandler = { state in
             viewLog("Network scanner state: \(state)", view: "ConnectionsView")
             DispatchQueue.main.async {
@@ -664,7 +681,7 @@ struct ConnectionsView: View {
                 }
             }
         }
-        
+
         scanner.browseResultsChangedHandler = { results, changes in
             viewLog("Network scan found \(results.count) services", view: "ConnectionsView")
             DispatchQueue.main.async {
@@ -673,21 +690,21 @@ struct ConnectionsView: View {
                         viewLog("Invalid endpoint format in scan result", view: "ConnectionsView")
                         return nil
                     }
-                    
+
                     // Log connection metadata without exposing service name
                     viewLog("Found SSH service: type=\(type), domain=\(domain), name=\(String(name.prefix(3)))***", view: "ConnectionsView")
-                    
+
                     let service = NetService(domain: domain, type: type, name: name)
                     service.resolve(withTimeout: 5.0)
-                    
+
                     return service
                 }
             }
         }
-        
+
         viewLog("Starting network scan with 8 second timeout", view: "ConnectionsView")
         scanner.start(queue: .main)
-        
+
         // Add timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
             viewLog("Network scan timeout reached", view: "ConnectionsView")

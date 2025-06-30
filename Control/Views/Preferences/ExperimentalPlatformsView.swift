@@ -7,11 +7,12 @@ struct ExperimentalPlatformsView: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Experimental Apps")
+                Text("Experimental App Controls")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundStyle(.primary)
-                Text("These may have reliability issues or limited functionality. Once enabled, you can add controls for each device during initial setup or under the ") +
+                Text("These may have reliability issues or limited functionality.")
+                Text("Once enabled, you can add controls during inital setup or under the ") +
                 Text.withSymbolPrefixes(
                     symbols: [Text.InlineSymbol(name: "ellipsis.circle.fill", accessibilityLabel: "menu")],
                     text: "menu on the controls screen."

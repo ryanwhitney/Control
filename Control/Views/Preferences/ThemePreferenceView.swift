@@ -97,26 +97,6 @@ struct ThemePreferenceView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
-//
-//                TabView(selection: $selectedIndex) {
-//                    ForEach(Self.colors.indices, id: \.self) { index in
-//                        let (name, value, color) = Self.colors[index]
-//                        VStack {
-//                            Text(name)
-//                                .font(.title2.bold())
-//                                .padding()
-//                            Button(action: {
-//                                preferences.tintColor = value
-//                            }) {
-//                                Text("Set as theme color")
-//                            }
-//                            .buttonStyle(.borderedProminent)
-//                        }
-//                        .padding()
-//                        .tag(index)
-//                    }
-//                }
-//                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .always))
             }
         }
         .background(.black)
