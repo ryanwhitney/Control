@@ -170,19 +170,17 @@ struct PermissionsView: View {
                 ScrollView(showsIndicators: false) {
                     HStack{EmptyView()}.frame(height: headerHeight)
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(enabledPlatforms), id: \.self) { platformId in
-                            if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
-                                HStack {
-                                    Text(platform.name)
-                                    Spacer()
-                                    permissionStatusIcon(for: platformId)
-                                }
-                                .padding()
-                                .background(.ultraThinMaterial.opacity(0.5))
-                                .cornerRadius(12)
-                                .opacity(permissionStates[platformId] != .initial ? 1 : 0.5)
-                                .animation(.spring(), value: permissionStates[platformId])
+                        ForEach(PlatformRegistry.allPlatforms.filter { enabledPlatforms.contains($0.id) }, id: \.id) { platform in
+                            HStack {
+                                Text(platform.name)
+                                Spacer()
+                                permissionStatusIcon(for: platform.id)
                             }
+                            .padding()
+                            .background(.ultraThinMaterial.opacity(0.5))
+                            .cornerRadius(12)
+                            .opacity(permissionStates[platform.id] != .initial ? 1 : 0.5)
+                            .animation(.spring(), value: permissionStates[platform.id])
                         }
                     }
                     .opacity(showAppList ? 1 : 0)

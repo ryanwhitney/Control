@@ -6,7 +6,11 @@ struct ControlView: View {
     let displayName: String
     let username: String
     let password: String
-    let enabledPlatforms: Set<String>
+    
+    // Always get platforms from savedConnections (reactive)
+    private var enabledPlatforms: Set<String> {
+        savedConnections.enabledPlatforms(host)
+    }
     
     @Environment(\.dismiss) private var dismiss
     @StateObject private var connectionManager = SSHConnectionManager.shared
@@ -26,21 +30,33 @@ struct ControlView: View {
     @State private var selectedPlatformIndex: Int = 0
     @State private var showingError = false
     @State private var connectionError: (title: String, message: String)?
+    @State private var showingSetupFlow = false
 
-    init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
+
+    init(host: String, displayName: String, username: String, password: String) {
         self.host = host
         self.displayName = displayName
         self.username = username
         self.password = password
-        self.enabledPlatforms = enabledPlatforms
         
-        // Filter platforms based on enabled set
+        // Create placeholder AppController - will be properly initialized in onAppear
+        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared, platformRegistry: PlatformRegistry(platforms: [])))
+    }
+    
+    // Update AppController with current platforms
+    private func updateAppControllerPlatforms() {
+        let currentPlatforms = enabledPlatforms
         let filteredPlatforms = PlatformRegistry.allPlatforms.filter { platform in
-            enabledPlatforms.isEmpty || enabledPlatforms.contains(platform.id)
+            currentPlatforms.isEmpty || currentPlatforms.contains(platform.id)
         }
-        let registry = PlatformRegistry(platforms: filteredPlatforms)
         
-        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared, platformRegistry: registry))
+        viewLog("ControlView: Updating AppController with \(filteredPlatforms.count) platforms: \(filteredPlatforms.map { $0.name })", view: "ControlView")
+        
+        // Create new registry with current platforms
+        let newRegistry = PlatformRegistry(platforms: filteredPlatforms)
+        
+        // Update the AppController's platform registry
+        appController.updatePlatformRegistry(newRegistry)
     }
     
     private var displayVolume: String {
@@ -138,6 +154,7 @@ struct ControlView: View {
         .navigationTitle(displayName)
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
+        .id(enabledPlatforms) // Force recreation when platforms change
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -154,6 +171,15 @@ struct ControlView: View {
                         HStack{
                             Text("Change Theme")
                             Image(systemName: "circle.fill")
+                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                        }
+                    }
+                    Button {
+                        showingSetupFlow = true
+                    } label: {
+                        HStack{
+                            Text("Manage Apps")
+                            Image(systemName: "square.fill.on.square.fill")
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
                     }
@@ -188,6 +214,9 @@ struct ControlView: View {
             viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
             viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
             
+            // Update AppController with current platforms
+            updateAppControllerPlatforms()
+            
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
                 viewLog("⚠️ ControlView: Connection lost handler triggered", view: "ControlView")
@@ -203,6 +232,19 @@ struct ControlView: View {
             } else {
                 viewLog("No previous platform preference, using default index 0", view: "ControlView")
             }
+        }
+        .navigationDestination(isPresented: $showingSetupFlow) {
+            SetupFlowView(
+                host: host,
+                displayName: displayName,
+                username: username,
+                password: password,
+                isReconfiguration: true,
+                onComplete: {
+                    showingSetupFlow = false
+                }
+            )
+            .environmentObject(savedConnections)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             viewLog("ControlView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ControlView")

@@ -20,8 +20,7 @@ struct ConnectionsView: View {
     @State private var connectionError: (title: String, message: String)?
     @State private var showingAddDialog = false
     @State private var showingError = false
-    @State private var showingFirstTimeSetup = false
-    @State private var navigateToPermissions = false
+    @State private var showingSetupFlow = false
     @State private var navigateToControl = false
     @State private var activePopover: ActivePopover?
 
@@ -317,35 +316,21 @@ struct ConnectionsView: View {
         } message: {
             Text(connectionError?.message ?? "")
         }
-            .navigationDestination(isPresented: $showingFirstTimeSetup) {
+            .navigationDestination(isPresented: $showingSetupFlow) {
                 if let computer = selectedConnection {
-                    ChooseAppsView(
+                    SetupFlowView(
                         host: computer.host,
                         displayName: computer.name,
                         username: username,
                         password: password,
-                        onComplete: { selectedPlatforms in
-                            savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
-                            showingFirstTimeSetup = false
-                            navigateToPermissions = true
-                        }
-                    )
-                }
-            }
-            .navigationDestination(isPresented: $navigateToPermissions) {
-                if let computer = selectedConnection {
-                    PermissionsView(
-                        host: computer.host,
-                        displayName: computer.name,
-                        username: username,
-                        password: password,
-                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host),
+                        isReconfiguration: false,
                         onComplete: {
-                            savedConnections.markAsConnected(computer.host)
-                            navigateToPermissions = false
+                            viewLog("ConnectionsView: First-time setup completed, navigating to ControlView", view: "ConnectionsView")
+                            showingSetupFlow = false
                             navigateToControl = true
                         }
                     )
+                    .environmentObject(savedConnections)
                 }
             }
             .navigationDestination(isPresented: $navigateToControl) {
@@ -354,8 +339,7 @@ struct ConnectionsView: View {
                         host: computer.host,
                         displayName: computer.name,
                         username: username,
-                        password: password,
-                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
+                        password: password
                     )
                     .environmentObject(savedConnections)
                 }
@@ -392,15 +376,9 @@ struct ConnectionsView: View {
                 selectedConnection = nil
             }
         }
-        .onChange(of: showingFirstTimeSetup) { _, newValue in
+        .onChange(of: showingSetupFlow) { _, newValue in
             if !newValue {
-                // Reset states when returning from setup
-                connectingComputer = nil
-            }
-        }
-        .onChange(of: navigateToPermissions) { _, newValue in
-            if !newValue {
-                // Reset states when returning from permissions
+                // Reset states when returning from setup flow
                 connectingComputer = nil
             }
         }
@@ -609,8 +587,8 @@ struct ConnectionsView: View {
         selectedConnection = computer
         
         if !savedConnections.hasConnectedBefore(computer.host) {
-            viewLog("First time setup needed - navigating to ChooseAppsView", view: "ConnectionsView")
-            showingFirstTimeSetup = true
+            viewLog("First time setup needed - navigating to SetupFlowView", view: "ConnectionsView")
+            showingSetupFlow = true
         } else {
             viewLog("Regular connection - navigating to ControlView", view: "ConnectionsView")
             navigateToControl = true

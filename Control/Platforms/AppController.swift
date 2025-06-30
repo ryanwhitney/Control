@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 class AppController: ObservableObject {
     private var sshClient: SSHClientProtocol
-    private let platformRegistry: PlatformRegistry
+    private var platformRegistry: PlatformRegistry
     private var isUpdating = false
     @Published var isActive = true
     static var debugMode = true // Add debug flag for troubleshooting
@@ -45,6 +45,31 @@ class AppController: ObservableObject {
         appControllerLog("AppController: Updating SSH Client")
         self.sshClient = client
         isActive = true  // Ensure we're active for upcoming state updates
+    }
+    
+    func updatePlatformRegistry(_ newRegistry: PlatformRegistry) {
+        appControllerLog("AppController: Updating platform registry")
+        appControllerLog("Previous platform count: \(platformRegistry.platforms.count)")
+        appControllerLog("New platform count: \(newRegistry.platforms.count)")
+        
+        self.platformRegistry = newRegistry
+        
+        // Clear existing states
+        states.removeAll()
+        lastKnownStates.removeAll()
+        
+        // Initialize states for new platforms
+        for platform in platformRegistry.platforms {
+            let initialState = AppState(title: "Loading...", subtitle: "")
+            states[platform.id] = initialState
+            lastKnownStates[platform.id] = initialState
+        }
+        
+        // Ensure controller is active for the new platforms
+        isActive = true
+        appControllerLog("✓ AppController reactivated for new platform registry")
+        
+        appControllerLog("✓ Platform registry updated with platforms: \(platformRegistry.platforms.map { $0.name })")
     }
     
     func updateAllStates() async {

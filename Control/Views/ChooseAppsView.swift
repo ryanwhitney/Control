@@ -6,7 +6,12 @@ struct ChooseAppsView: View {
     let displayName: String
     let username: String
     let password: String
+    let initialSelection: Set<String>?
     let onComplete: (Set<String>) -> Void
+    
+    private var isReconfiguration: Bool {
+        initialSelection != nil
+    }
 
     @StateObject private var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
@@ -98,7 +103,7 @@ struct ChooseAppsView: View {
                         viewLog("Selected platforms: \(selectedPlatforms)", view: "ChooseAppsView")
                         onComplete(selectedPlatforms)
                     }) {
-                        Text("Continue")
+                        Text(isReconfiguration ? "Update" : "Continue")
                             .padding(.vertical, 11)
                             .frame(maxWidth: .infinity)
                             .tint(.accentColor)
@@ -130,8 +135,14 @@ struct ChooseAppsView: View {
             viewLog("Protocol: \(connectionType)", view: "ChooseAppsView")
             viewLog("Display name: \(String(displayName.prefix(3)))***", view: "ChooseAppsView")
 
-            // Initialize selected platforms based on their defaultEnabled property
-            selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
+            // Initialize selected platforms based on initialSelection or defaultEnabled property
+            if let initialSelection = initialSelection {
+                selectedPlatforms = initialSelection
+                viewLog("ChooseAppsView: Using provided initial selection: \(initialSelection)", view: "ChooseAppsView")
+            } else {
+                selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
+                viewLog("ChooseAppsView: Using default enabled platforms: \(selectedPlatforms)", view: "ChooseAppsView")
+            }
             
             // Set up connection lost handler
             connectionManager.setConnectionLostHandler { @MainActor in
@@ -205,6 +216,7 @@ struct headerSizePreferenceKey: PreferenceKey {
             displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
             username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
             password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
+            initialSelection: nil,
             onComplete: { _ in }
         )
     }
