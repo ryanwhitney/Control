@@ -5,7 +5,7 @@ struct SafariApp: AppPlatform {
     let name = "Safari"
     let defaultEnabled = false
     let experimental = true
-    let reasonForExperimental = "Supports video in visible Safari tabs across all windows. Does not work with content in iFrames and play/pause may be unreliable."
+    let reasonForExperimental = "Supports video in visible Safari tabs across all windows. Does not work with content in iframes and play/pause may be unreliable."
 
     var supportedActions: [ActionConfig] {
         [
