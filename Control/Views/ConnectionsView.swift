@@ -147,8 +147,9 @@ struct ConnectionsView: View {
                                         Button {
                                             selectedConnection = computer
                                             username = computer.lastUsername ?? ""
-                                            password = "•••••"
-                                            saveCredentials = false
+                                            // Show bullets if password exists, empty if not
+                                            password = savedConnections.password(for: computer.host) != nil ? "•••••" : ""
+                                            saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
                                             showingAddDialog = true
                                         } label: {
                                             Label("Edit", systemImage: "pencil")
@@ -251,11 +252,20 @@ struct ConnectionsView: View {
                         password: $password,
                         saveCredentials: $saveCredentials,
                         onSuccess: { _, nickname in
+                            // Only update password if user actually changed it (not still bullets)
+                            let passwordToSave: String?
+                            if saveCredentials {
+                                passwordToSave = password == "•••••" ? savedConnections.password(for: computer.host) : password
+                            } else {
+                                passwordToSave = nil
+                            }
+                            
                             savedConnections.updateLastUsername(
                                 for: computer.host,
                                 name: nickname ?? computer.name,
                                 username: username,
-                                password: saveCredentials ? password : nil
+                                password: passwordToSave,
+                                saveCredentials: saveCredentials
                             )
                             showingAddDialog = false
                             selectedConnection = nil
@@ -273,7 +283,13 @@ struct ConnectionsView: View {
                         password: $password,
                         saveCredentials: .init(get: { true }, set: { self.saveCredentials = $0 }),
                         onSuccess: { hostname, nickname in
-                            addManualComputer(hostname, name: nickname ?? hostname, username: username, password: password)
+                            savedConnections.add(
+                                hostname: hostname,
+                                name: nickname ?? hostname,
+                                username: username,
+                                password: password,
+                                saveCredentials: saveCredentials
+                            )
                             showingAddDialog = false
                         },
                         onCancel: { showingAddDialog = false }
@@ -474,14 +490,16 @@ struct ConnectionsView: View {
                 verifyAndConnect(computer: computer)
             } else {
                 // Show authentication dialog for missing credentials
-                saveCredentials = true
+                // Use the saved preference for this host
+                saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
                 isAuthenticating = true
             }
         } else {
             // Show authentication dialog for new connection
             username = computer.lastUsername ?? ""
             password = ""
-            saveCredentials = true
+            // Use the saved preference for this host (defaults to true for new connections)
+            saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
             isAuthenticating = true
         }
     }
@@ -594,31 +612,20 @@ struct ConnectionsView: View {
             navigateToControl = true
         }
         
-        // Save credentials if requested
-        if saveCredentials {
-            viewLog("Saving credentials for future connections", view: "ConnectionsView")
-            savedConnections.add(
-                hostname: computer.host,
-                name: computer.name,
-                username: username,
-                password: password
-            )
-        } else {
-            // Just update the username without password
-            viewLog("Updating username without saving password", view: "ConnectionsView")
-            savedConnections.updateLastUsername(
-                for: computer.host,
-                name: computer.name,
-                username: username
-            )
-        }
+        // Save connection info and preference
+        viewLog("Saving connection info with saveCredentials: \(saveCredentials)", view: "ConnectionsView")
+        savedConnections.add(
+            hostname: computer.host,
+            name: computer.name,
+            username: username,
+            password: saveCredentials ? password : nil,
+            saveCredentials: saveCredentials
+        )
         
         isAuthenticating = false
     }
 
-    private func addManualComputer(_ host: String, name: String, username: String? = nil, password: String? = nil) {
-        savedConnections.add(hostname: host, username: username, password: password)
-    }
+
 
     private func startNetworkScan() {
         viewLog("ConnectionsView: Starting network scan", view: "ConnectionsView")

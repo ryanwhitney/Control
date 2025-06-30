@@ -8,10 +8,11 @@ struct FeedbackPreferenceView: View {
         VStack(spacing:16){
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 16){
-                    Text("Hi there, I'm [Ryan](https://rw.is).")
-                    Text("I made Control after getting tired of constantly getting up to adjust the volume when watching movies on my computer.")
-                    Text("(And I didn't love the existing options, which required installing separate Mac apps and maintaining subscriptions.)")
-                    Text("I’d love to make Control as useful and accessible as possible. Please share any feedback you have!")
+                    Text("Hi, I'm [Ryan](https://rw.is).")
+                    Text("I made Control after getting tired of standing up to make small volume adjustments.")
+                    Text("Existing options required separate Mac apps and paid subscriptions.")
+                    Text("Instead, Control is designed to not require any additional software. It's free, it's simple, and it usually works.")
+                    Text("I’d love to make Control as useful and accessible as possible. Feedback, suggestions, and requests for additional app support are always welcome.")
                 }
                 .foregroundStyle(.secondary)
 

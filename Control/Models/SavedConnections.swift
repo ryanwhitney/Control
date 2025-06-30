@@ -14,6 +14,7 @@ class SavedConnections: ObservableObject {
         var hasConnectedBefore: Bool
         var enabledPlatforms: Set<String>
         var lastViewedPlatform: String?
+        var saveCredentialsPreference: Bool?  // nil = legacy
         
         init(hostname: String, name: String? = nil, username: String? = nil) {
             self.id = UUID()
@@ -24,6 +25,7 @@ class SavedConnections: ObservableObject {
             self.hasConnectedBefore = false
             self.enabledPlatforms = []
             self.lastViewedPlatform = nil
+            self.saveCredentialsPreference = nil
         }
     }
     
@@ -31,33 +33,49 @@ class SavedConnections: ObservableObject {
         load()
     }
     
-    func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil) {
-        // Don't add if already exists
-        guard !items.contains(where: { $0.hostname == hostname }) else { return }
-        
-        let connection = SavedConnection(hostname: hostname, name: name, username: username)
-        items.append(connection)
-        save()
-        
-        // Save password to keychain if provided
-        if let password = password {
-            savePassword(password, for: hostname)
-        }
-    }
-    
-    func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil) {
+    func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
+        // Update existing connection if it exists
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
             items[index].username = username
             if let name = name {
                 items[index].name = name
             }
+            items[index].saveCredentialsPreference = saveCredentials
+            save()
+        } else {
+            // Create new connection
+            var connection = SavedConnection(hostname: hostname, name: name, username: username)
+            connection.saveCredentialsPreference = saveCredentials
+            items.append(connection)
+            save()
+        }
+        
+        // Save or remove password based on preference
+        if saveCredentials, let password = password {
+            savePassword(password, for: hostname)
+        } else if !saveCredentials {
+            // Remove password if user chose not to save credentials
+            removePassword(for: hostname)
+        }
+    }
+    
+    func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil, saveCredentials: Bool) {
+        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+            items[index].username = username
+            if let name = name {
+                items[index].name = name
+            }
+            items[index].saveCredentialsPreference = saveCredentials
             save()
             
-            if let password = password {
+            // Save or remove password based on preference
+            if saveCredentials, let password = password {
                 savePassword(password, for: hostname)
+            } else if !saveCredentials {
+                removePassword(for: hostname)
             }
         } else {
-            add(hostname: hostname, name: name, username: username, password: password)
+            add(hostname: hostname, name: name, username: username, password: password, saveCredentials: saveCredentials)
         }
     }
     
@@ -111,6 +129,24 @@ class SavedConnections: ObservableObject {
         }
     }
     
+    private func removePassword(for hostname: String) {
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "VolumeControl",
+            kSecAttrAccount as String: hostname
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+    }
+    
+    func getSaveCredentialsPreference(for hostname: String) -> Bool {
+        // Return the user's preference, defaulting to false for legacy connections, true for new ones
+        if let connection = items.first(where: { $0.hostname == hostname }) {
+            return connection.saveCredentialsPreference ?? false  // Legacy connections default to false (safer)
+        } else {
+            return true  // New connections default to true
+        }
+    }
+    
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: saveKey),
               let decoded = try? JSONDecoder().decode([SavedConnection].self, from: data) else {
@@ -130,12 +166,7 @@ class SavedConnections: ObservableObject {
         save()
         
         // Remove password from keychain
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: hostname
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
+        removePassword(for: hostname)
     }
     
     func markAsConnected(_ hostname: String) {
