@@ -17,6 +17,14 @@ struct ChooseAppsView: View {
     @StateObject private var platformRegistry = PlatformRegistry()
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
+    
+    private var availablePlatforms: [any AppPlatform] {
+        let nonExperimental = platformRegistry.nonExperimentalPlatforms
+        let enabledExperimental = platformRegistry.experimentalPlatforms.filter { 
+            platformRegistry.enabledExperimentalPlatforms.contains($0.id) 
+        }
+        return nonExperimental + enabledExperimental
+    }
 
     @State private var selectedPlatforms: Set<String> = []
     @State private var showingConnectionLostAlert = false
@@ -28,7 +36,7 @@ struct ChooseAppsView: View {
             ScrollView {
                 HStack{EmptyView()}.frame(height: headerHeight)
                 VStack(spacing: 8) {
-                    ForEach(platformRegistry.platforms, id: \.id) { platform in
+                    ForEach(availablePlatforms, id: \.id) { platform in
                         HStack {
                             Toggle(isOn: Binding(
                                 get: { selectedPlatforms.contains(platform.id) },
@@ -40,8 +48,15 @@ struct ChooseAppsView: View {
                                     }
                                 }
                             )) {
-                                Text(platform.name)
-                                    .padding()
+                                HStack {
+                                    Text(platform.name)
+                                    if platform.experimental {
+                                        Image(systemName: "flask.fill")
+                                            .foregroundStyle(.tint)
+                                            .font(.caption)
+                                    }
+                                }
+                                .padding()
                             }
                             .padding(.trailing)
                             .foregroundStyle(.primary)
@@ -140,7 +155,7 @@ struct ChooseAppsView: View {
                 selectedPlatforms = initialSelection
                 viewLog("ChooseAppsView: Using provided initial selection: \(initialSelection)", view: "ChooseAppsView")
             } else {
-                selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
+                selectedPlatforms = Set(availablePlatforms.filter { $0.defaultEnabled }.map { $0.id })
                 viewLog("ChooseAppsView: Using default enabled platforms: \(selectedPlatforms)", view: "ChooseAppsView")
             }
             

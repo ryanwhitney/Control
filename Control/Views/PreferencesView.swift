@@ -14,16 +14,22 @@ struct PreferencesView: View {
                         color: .indigo
                     )
                     PreferencesRow(
-                        destination: SupportPreferenceView(),
-                        iconName: "questionmark.diamond.fill",
-                        title: "Support",
+                        destination: ExperimentalPlatformsView(),
+                        iconName: "flask.fill",
+                        title: "Experimental Platforms",
                         color: .orange
                     )
                     PreferencesRow(
                         destination: FeedbackPreferenceView(),
                         iconName: "paperplane.fill",
                         title: "Send Feedback",
-                        color: .green
+                        color: .blue
+                    )
+                    PreferencesRow(
+                        destination: SupportPreferenceView(),
+                        iconName: "questionmark.diamond.fill",
+                        title: "Support",
+                        color: .orange
                     )
                 }
             }

@@ -15,12 +15,13 @@ struct PlatformControl: View {
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
                         .id(platform.name)
-                    if platform.name.contains("Safari") {
+                    if platform.experimental {
                         Button {
                             showingExperimentalAlert = true
                         } label: {
                             Label("Experimental", systemImage: "flask.fill")
                                 .labelStyle(.iconOnly)
+                                .foregroundStyle(.tint)
                                 .rotationEffect(Angle(degrees: 20.0))
                         }
                         .buttonStyle(.plain)
@@ -91,10 +92,10 @@ struct PlatformControl: View {
                 await controller.updateState(for: platform)
             }
         }
-        .alert("Experimental Feature", isPresented: $showingExperimentalAlert) {
+        .alert("Experimental Platform", isPresented: $showingExperimentalAlert) {
             Button("OK") { }
         } message: {
-            Text("Safari support is currently experimental and may not work as expected. Some features might be limited or unstable.")
+            Text(platform.reasonForExperimental)
         }
     }
 }

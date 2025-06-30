@@ -46,14 +46,12 @@ struct ControlView: View {
     // Update AppController with current platforms
     private func updateAppControllerPlatforms() {
         let currentPlatforms = enabledPlatforms
-        let filteredPlatforms = PlatformRegistry.allPlatforms.filter { platform in
-            currentPlatforms.isEmpty || currentPlatforms.contains(platform.id)
-        }
         
-        viewLog("ControlView: Updating AppController with \(filteredPlatforms.count) platforms: \(filteredPlatforms.map { $0.name })", view: "ControlView")
+        // Create new registry with all platforms, but update enabled platforms
+        let newRegistry = PlatformRegistry()
+        newRegistry.enabledPlatforms = currentPlatforms
         
-        // Create new registry with current platforms
-        let newRegistry = PlatformRegistry(platforms: filteredPlatforms)
+        viewLog("ControlView: Updating AppController with \(newRegistry.activePlatforms.count) active platforms: \(newRegistry.activePlatforms.map { $0.name })", view: "ControlView")
         
         // Update the AppController's platform registry
         appController.updatePlatformRegistry(newRegistry)

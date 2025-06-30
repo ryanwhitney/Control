@@ -75,6 +75,8 @@ protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
     var defaultEnabled: Bool { get }
+    var experimental: Bool { get }
+    var reasonForExperimental: String { get }
     var supportedActions: [ActionConfig] { get }
     
     func fetchState() -> String
@@ -86,6 +88,9 @@ protocol AppPlatform: Identifiable {
 }
 
 extension AppPlatform {
+    var experimental: Bool { false }
+    var reasonForExperimental: String { "" }
+    
     func isInstalledScript() -> String {
         let appPath = "/Applications/\(name).app"
         return """
