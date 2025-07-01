@@ -9,21 +9,13 @@ class NetworkScanner: ObservableObject {
     @Published private(set) var errorMessage: String?
     
     private var browser: NWBrowser?
-    private var lastScanTime: Date?
-    
-    /// Checks if a scan should automatically run (hasn't run in 30+ seconds)
-    var shouldAutoScan: Bool {
-        guard let lastScan = lastScanTime else { return true }
-        return Date().timeIntervalSince(lastScan) > 30
-    }
-    
+
     func startScan() {
         viewLog("NetworkScanner: Starting network scan", view: "NetworkScanner")
         services.removeAll()
         errorMessage = nil
         isScanning = true
-        lastScanTime = Date()
-        
+
         browser?.cancel()
         
         let parameters = NWParameters()

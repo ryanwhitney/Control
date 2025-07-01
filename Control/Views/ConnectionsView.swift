@@ -30,9 +30,11 @@ struct ConnectionsView: View {
                         viewLog("Refresh requested but already searching", view: "ConnectionsView")
                         continuation.resume()
                     } else {
+                        // Start scan and end pull-to-refresh immediately
+                        // Our custom progress indicator will show the scan status
                         viewModel.startNetworkScan()
-                        Task {
-                            try await Task.sleep(nanoseconds: 6_500_000_000) // Slightly longer than scan timeout
+                        viewLog("Pull-to-refresh initiated, using custom progress indicator", view: "ConnectionsView")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                             continuation.resume()
                         }
                     }
@@ -118,7 +120,15 @@ struct ConnectionsView: View {
         .environmentObject(viewModel)
         .onAppear(perform: viewModel.onAppear)
         .onDisappear(perform: viewModel.onDisappear)
-        .onChange(of: scenePhase, viewModel.handleScenePhaseChange)
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            viewModel.handleScenePhaseChange(from: oldPhase, to: newPhase)
+            
+            // Rescan when app comes to foreground if enough time has passed
+            if oldPhase != .active && newPhase == .active {
+                viewLog("App came to foreground, checking if rescan needed", view: "ConnectionsView")
+                viewModel.checkForRescanOnForeground()
+            }
+        }
         .onChange(of: viewModel.navigateToControl) { _, newValue in
             if !newValue {
                 viewModel.connectingComputer = nil

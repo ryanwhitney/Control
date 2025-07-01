@@ -3,23 +3,18 @@ import SwiftUI
 struct ConnectionsListView: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
 
+    private var statusText: String {
+        if viewModel.isSearching {
+            return "Searching…"
+        } else {
+            return viewModel.networkComputers.isEmpty ? "No connections found" : ""
+        }
+    }
+
     var body: some View {
         List {
             Section(header: Text("On Your Network".capitalized)) {
-                if viewModel.networkComputers.isEmpty && viewModel.isSearching {
-                    HStack {
-                        Text("Scanning...")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        ProgressView()
-                    }
-                    .accessibilityLabel("Scanning for devices")
-                } else if viewModel.networkComputers.isEmpty {
-                    Text("No connections found")
-                        .foregroundColor(.secondary)
-                }
-
-                ForEach(viewModel.networkComputers) { computer in
+                ForEach(viewModel.networkComputers, id: \.host) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
@@ -28,21 +23,35 @@ struct ConnectionsListView: View {
                     }
                     .accessibilityHint(viewModel.connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
                     .accessibilityAddTraits(viewModel.connectingComputer?.id == computer.id ? .updatesFrequently : [])
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
                 }
 
-                if !viewModel.networkComputers.isEmpty && viewModel.isSearching {
+                if viewModel.networkComputers.isEmpty || viewModel.isSearching {
                     HStack {
-                        Text("Searching for others…")
-                            .font(.subheadline)
+                        Text(statusText)
                             .foregroundColor(.secondary)
+                            .font(.subheadline)
                         Spacer()
-                        ProgressView()
+                        if viewModel.showProgressIndicator {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        }
                     }
-                    .accessibilityLabel("Scanning for additional devices")
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing),
+                            removal: .move(edge: .leading)
+                        )
+                        .combined(with: .opacity)
+                    )
                 }
             }
+
             Section(header: Text("Recent".capitalized)) {
-                ForEach(viewModel.savedComputers) { computer in
+                ForEach(viewModel.savedComputers, id: \.host) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
@@ -68,11 +77,19 @@ struct ConnectionsListView: View {
                         .accessibilityLabel("Edit \(computer.name)")
                         .tint(.accentColor)
                     }
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
                 }
             }
             .opacity(viewModel.savedComputers.isEmpty ? 0 : 1)
             .accessibilityLabel("Recent connections")
         }
+        .animation(.easeInOut(duration: 0.3), value: viewModel.networkComputers.map(\.id))
+        .animation(.easeInOut(duration: 0.3), value: viewModel.savedComputers.map(\.id))
+        .animation(.easeInOut(duration: 0.3), value: viewModel.isSearching)
+        .animation(.easeInOut(duration: 0.2), value: viewModel.showProgressIndicator)
     }
 }
 
@@ -91,10 +108,10 @@ struct ConnectionsListView: View {
                     isConnecting: true,
                     action: {}
                 )
-                
+
                 ComputerRowView(
                     computer: Connection(
-                        id: "mac-studio", 
+                        id: "mac-studio",
                         name: "Mac Studio",
                         host: "mac-studio.local",
                         type: .manual,
@@ -104,7 +121,7 @@ struct ConnectionsListView: View {
                     action: {}
                 )
             }
-            
+
             Section(header: Text("Recent".capitalized)) {
                 ComputerRowView(
                     computer: Connection(
