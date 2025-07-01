@@ -77,6 +77,9 @@ struct ConnectionsView: View {
                     .accessibilityLabel("Settings")
                 }
             }
+            .navigationTitle("")
+            .accessibilityLabel("Control App - Connections List - Home")
+            .accessibilityAddTraits(.isHeader)
             .sheet(isPresented: $viewModel.showingAddDialog) {
                 AddConnectionSheet()
             }

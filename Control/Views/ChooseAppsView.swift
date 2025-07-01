@@ -49,7 +49,7 @@ struct ChooseAppsView: View, SSHConnectedView {
 
     var body: some View {
         ZStack(alignment: .top) {
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 HStack{EmptyView()}.frame(height: headerHeight)
                 VStack(spacing: 8) {
                     ForEach(availablePlatforms, id: \.id) { platform in
@@ -93,6 +93,11 @@ struct ChooseAppsView: View, SSHConnectedView {
                 }
                 .padding()
             }
+            .mask(
+                LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
+            )
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
             
@@ -106,7 +111,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .foregroundStyle(.tint, .quaternary)
                     .padding(.bottom, -20)
                     .accessibilityHidden(true)
-                Text("Which apps would you like to control?")
+                Text("Choose apps to control")
                     .font(.title2)
                     .bold()
                     .padding(.horizontal)
@@ -115,6 +120,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
+            .accessibilityAddTraits(.isHeader)
             .frame(maxWidth:.infinity)
             .multilineTextAlignment(.center)
             .background(GeometryReader {
@@ -154,20 +160,17 @@ struct ChooseAppsView: View, SSHConnectedView {
             }
         }
         .toolbarBackground(.black, for: .navigationBar)
+        .navigationTitle("")
+        .navigationBarBackButtonHidden(false)
         .onAppear {
             viewLog("ChooseAppsView: View appeared", view: "ChooseAppsView")
-
-            // Initialize selected platforms based on initialSelection or defaultEnabled property
-            if let initialSelection = initialSelection {
-                selectedPlatforms = initialSelection
-                viewLog("ChooseAppsView: Using provided initial selection: \(initialSelection)", view: "ChooseAppsView")
-            } else {
-                selectedPlatforms = Set(availablePlatforms.filter { $0.defaultEnabled }.map { $0.id })
-                viewLog("ChooseAppsView: Using default enabled platforms: \(selectedPlatforms)", view: "ChooseAppsView")
-            }
+            updateSelectedPlatforms()
             
             // Set up SSH connection
             setupSSHConnection()
+        }
+        .onChange(of: initialSelection) { _, newValue in
+            updateSelectedPlatforms()
         }
         .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
@@ -181,7 +184,14 @@ struct ChooseAppsView: View, SSHConnectedView {
         .alert(isPresented: showingError) { connectionErrorAlert() }
     }
 
-
+    private func updateSelectedPlatforms() {
+        // Initialize selected platforms based on initialSelection or defaultEnabled property
+        if let initialSelection = initialSelection {
+            selectedPlatforms = initialSelection
+        } else {
+            selectedPlatforms = Set(availablePlatforms.filter { $0.defaultEnabled }.map { $0.id })
+        }
+    }
 }
 
 struct headerSizePreferenceKey: PreferenceKey {

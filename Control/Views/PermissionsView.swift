@@ -114,8 +114,6 @@ struct PermissionsView: View, SSHConnectedView {
         }
     }
 
-
-
     private var successView: some View {
         VStack {
             Image(systemName: "checkmark.circle.fill")
@@ -180,12 +178,12 @@ struct PermissionsView: View, SSHConnectedView {
                         .bold()
                         .padding(.horizontal)
                         .padding(.top)
-
                     Text("Control can only access apps you approve.")
                         .multilineTextAlignment(.center)
                         .foregroundColor(.secondary)
                         .padding(.horizontal)
                 }
+                .accessibilityAddTraits(.isHeader)
                 .frame(maxWidth:.infinity)
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
@@ -206,6 +204,7 @@ struct PermissionsView: View, SSHConnectedView {
             }
         }
         .toolbarBackground(.black, for: .navigationBar)
+        .navigationTitle("")
     }
 
     struct headerSizePreferenceKey: PreferenceKey {

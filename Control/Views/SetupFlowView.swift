@@ -1,5 +1,153 @@
 import SwiftUI
 
+// MARK: - Setup Flow Context
+struct SetupFlowContext {
+    let host: String
+    let displayName: String
+    let username: String
+    let password: String
+    let isReconfiguration: Bool
+}
+
+// MARK: - Setup Flow Navigation
+struct SetupFlowNavigationView: View {
+    let context: SetupFlowContext
+    let onComplete: () -> Void
+    
+    @EnvironmentObject private var savedConnections: SavedConnections
+    @State private var originalEnabledPlatforms: Set<String> = [] // For comparison logic only
+    @State private var temporarySelectedPlatforms: Set<String>? = nil // Intermediate state during flow
+    @State private var permissionsContext: PermissionsNavigationContext?
+    
+    // Clear priority system for initial selection
+    private var chooseAppsInitialSelection: Set<String>? {
+        // Priority 1: Temporary selection (during active flow)
+        if let temporary = temporarySelectedPlatforms {
+            viewLog("SetupFlow: Using temporary selection: \(temporary)", view: "SetupFlowNavigationView")
+            return temporary
+        }
+        
+        // Priority 2: Saved platforms (for reconfiguration)
+        if context.isReconfiguration {
+            let saved = savedConnections.enabledPlatforms(context.host)
+            viewLog("SetupFlow: Using saved platforms: \(saved)", view: "SetupFlowNavigationView")
+            return saved
+        }
+        
+        // Priority 3: Default platforms (for new setup)
+        viewLog("SetupFlow: Using default platforms (nil - will be resolved by ChooseAppsView)", view: "SetupFlowNavigationView")
+        return nil
+    }
+    
+    var body: some View {
+        ChooseAppsView(
+            host: context.host,
+            displayName: context.displayName,
+            username: context.username,
+            password: context.password,
+            initialSelection: chooseAppsInitialSelection,
+            onComplete: { selectedPlatforms in
+                handlePlatformSelection(selectedPlatforms)
+            }
+        )
+        .navigationDestination(item: $permissionsContext) { permContext in
+            PermissionsView(
+                host: permContext.host,
+                displayName: permContext.displayName,
+                username: permContext.username,
+                password: permContext.password,
+                enabledPlatforms: permContext.enabledPlatforms,
+                onComplete: {
+                    // Save the final selection and complete the flow
+                    savedConnections.updateEnabledPlatforms(permContext.host, platforms: permContext.enabledPlatforms)
+                    if !context.isReconfiguration {
+                        savedConnections.markAsConnected(permContext.host)
+                    }
+                    
+                    // Clear temporary state since we're done
+                    temporarySelectedPlatforms = nil
+                    
+                    onComplete()
+                }
+            )
+        }
+        .navigationTitle("")
+        .navigationBarBackButtonHidden(false)
+        .onAppear {
+            // Capture the original enabled platforms at the start (for comparison logic only)
+            originalEnabledPlatforms = savedConnections.enabledPlatforms(context.host)
+            
+            // Don't reset temporary state if we already have one (coming back from permissions)
+            // Only reset when the flow starts fresh
+            if temporarySelectedPlatforms == nil {
+                viewLog("SetupFlow: Fresh start - no temporary state", view: "SetupFlowNavigationView")
+            } else {
+                viewLog("SetupFlow: Preserving temporary state: \(temporarySelectedPlatforms!)", view: "SetupFlowNavigationView")
+            }
+            
+            if context.isReconfiguration {
+                viewLog("SetupFlow: Starting reconfiguration with original platforms: \(originalEnabledPlatforms)", view: "SetupFlowNavigationView")
+            } else {
+                viewLog("SetupFlow: Starting first-time setup", view: "SetupFlowNavigationView")
+            }
+        }
+    }
+    
+    private func handlePlatformSelection(_ selectedPlatforms: Set<String>) {
+        // ALWAYS update temporary state - this is our source of truth during the flow
+        temporarySelectedPlatforms = selectedPlatforms
+        
+        let shouldSkipPermissions: Bool
+        
+        if selectedPlatforms.isEmpty {
+            // No apps selected - skip permissions and save empty selection
+            shouldSkipPermissions = true
+        } else if !context.isReconfiguration {
+            // First-time setup - always go through permissions
+            shouldSkipPermissions = false
+        } else {
+            // Reconfiguration - only go through permissions if enabling new apps
+            // Compare against ORIGINAL platforms (captured at start), not temporary state
+            let hasNewApps = !selectedPlatforms.isSubset(of: originalEnabledPlatforms)
+            shouldSkipPermissions = !hasNewApps
+            
+        }
+        
+        if shouldSkipPermissions {
+            // Save the selection and complete the flow
+            savedConnections.updateEnabledPlatforms(context.host, platforms: selectedPlatforms)
+            if !context.isReconfiguration {
+                savedConnections.markAsConnected(context.host)
+            }
+            
+            // Clear temporary state since we're done
+            temporarySelectedPlatforms = nil
+            
+            onComplete()
+        } else {
+            // Navigate to permissions by setting the context
+            permissionsContext = PermissionsNavigationContext(
+                host: context.host,
+                displayName: context.displayName,
+                username: context.username,
+                password: context.password,
+                enabledPlatforms: selectedPlatforms
+            )
+        }
+    }
+}
+
+// MARK: - Permissions Navigation Context
+struct PermissionsNavigationContext: Identifiable, Hashable {
+    let id = UUID()
+    let host: String
+    let displayName: String
+    let username: String
+    let password: String
+    let enabledPlatforms: Set<String>
+}
+
+// MARK: - Legacy SetupFlowView (for compatibility)
 struct SetupFlowView: View {
     let host: String
     let displayName: String
@@ -8,106 +156,16 @@ struct SetupFlowView: View {
     let isReconfiguration: Bool
     let onComplete: () -> Void
     
-    @EnvironmentObject private var savedConnections: SavedConnections
-    @State private var currentStep: SetupStep = .chooseApps
-    @State private var selectedPlatforms: Set<String> = []
-    
-    enum SetupStep {
-        case chooseApps
-        case permissions
-    }
-    
     var body: some View {
-        Group {
-            switch currentStep {
-            case .chooseApps:
-                // Get the current enabled platforms for both display and comparison
-                let currentEnabledPlatforms = savedConnections.enabledPlatforms(host)
-                
-                ChooseAppsView(
-                    host: host,
-                    displayName: displayName,
-                    username: username,
-                    password: password,
-                    initialSelection: isReconfiguration ? currentEnabledPlatforms : nil,
-                    onComplete: { platforms in
-                        selectedPlatforms = platforms
-                        
-                        // Determine if we need to go through permissions BEFORE updating saved state
-                        let shouldSkipPermissions: Bool
-                        
-                        if platforms.isEmpty {
-                            // No apps selected - always skip permissions
-                            shouldSkipPermissions = true
-                        } else if !isReconfiguration {
-                            // First-time setup - always go through permissions
-                            shouldSkipPermissions = false
-                        } else {
-                            // Reconfiguration - only go through permissions if enabling new apps
-                            // Use the captured platforms for comparison, not the state variable
-                            let hasNewApps = !platforms.isSubset(of: currentEnabledPlatforms)
-                            shouldSkipPermissions = !hasNewApps
-                            
-                            viewLog("SetupFlowView: Reconfiguration analysis", view: "SetupFlowView")
-                            viewLog("  Initial platforms: \(currentEnabledPlatforms)", view: "SetupFlowView")
-                            viewLog("  Selected platforms: \(platforms)", view: "SetupFlowView")
-                            viewLog("  Has new apps: \(hasNewApps)", view: "SetupFlowView")
-                            viewLog("  Will skip permissions: \(shouldSkipPermissions)", view: "SetupFlowView")
-                        }
-                        
-                        // Now update the saved state AFTER our comparison
-                        savedConnections.updateEnabledPlatforms(host, platforms: platforms)
-                        
-                        if shouldSkipPermissions {
-                            if !isReconfiguration {
-                                savedConnections.markAsConnected(host)
-                            }
-                            // Exit the setup flow - return to original ControlView
-                            onComplete()
-                        } else {
-                            currentStep = .permissions
-                        }
-                    }
-                )
-                
-            case .permissions:
-                PermissionsView(
-                    host: host,
-                    displayName: displayName,
-                    username: username,
-                    password: password,
-                    enabledPlatforms: selectedPlatforms,
-                    onComplete: {
-                        if !isReconfiguration {
-                            savedConnections.markAsConnected(host)
-                        }
-                        // Exit the setup flow - return to original ControlView
-                        onComplete()
-                    }
-                )
-            }
-        }
-        .navigationBarBackButtonHidden(currentStep == .permissions)
-        .toolbar {
-            if currentStep == .permissions {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Back") {
-                        currentStep = .chooseApps
-                    }
-                }
-            }
-        }
-        .onAppear {
-            // Always reset to the beginning when the flow appears
-            currentStep = .chooseApps
-            selectedPlatforms = [] // Reset selected platforms from previous runs
-            
-            if isReconfiguration {
-                let currentPlatforms = savedConnections.enabledPlatforms(host)
-                viewLog("SetupFlowView: Starting reconfiguration with platforms: \(currentPlatforms)", view: "SetupFlowView")
-            } else {
-                viewLog("SetupFlowView: Starting first-time setup", view: "SetupFlowView")
-            }
-        }
+        SetupFlowNavigationView(
+            context: SetupFlowContext(
+                host: host,
+                displayName: displayName,
+                username: username,
+                password: password,
+                isReconfiguration: isReconfiguration
+            ),
+            onComplete: onComplete
+        )
     }
 } 
