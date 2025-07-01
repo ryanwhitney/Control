@@ -130,10 +130,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     
     deinit {
         sshClient.disconnect()
-        Task { @MainActor in
-            self.cancelBackgroundDisconnect()
-            self.endBackgroundTask()
-        }
+        backgroundDisconnectTimer?.cancel()
     }
     
     func shouldReconnect(host: String, username: String, password: String) -> Bool {
