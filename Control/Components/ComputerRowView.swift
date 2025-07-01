@@ -30,4 +30,48 @@ struct ComputerRowView: View {
         .accessibilityValue("\(computer.name) at host  \(computer.host); \(computer.lastUsername != nil ? "saved user: \(computer.lastUsername!)" : "")")
         .disabled(isConnecting)
     }
+}
+
+#Preview("Normal State") {
+    List {
+        ComputerRowView(
+            computer: Connection(
+                id: "ryan-macbook",
+                name: "Ryan's MacBook Pro",
+                host: "ryan-macbook.local",
+                type: .manual,
+                lastUsername: "ryan"
+            ),
+            isConnecting: false,
+            action: {}
+        )
+        
+        ComputerRowView(
+            computer: Connection(
+                id: "mac-studio",
+                name: "Mac Studio",
+                host: "192.168.1.100",
+                type: .manual,
+                lastUsername: nil
+            ),
+            isConnecting: false,
+            action: {}
+        )
+    }
+}
+
+#Preview("Connecting State") {
+    List {
+        ComputerRowView(
+            computer: Connection(
+                id: "ryan-macbook",
+                name: "Ryan's MacBook Pro",
+                host: "ryan-macbook.local",
+                type: .manual,
+                lastUsername: "ryan"
+            ),
+            isConnecting: true,
+            action: {}
+        )
+    }
 } 

@@ -257,6 +257,56 @@ private struct ControlDestination: View {
     }
 }
 
-#Preview {
+// MARK: - Previews
+
+#Preview("Live SSH Connection") {
     ConnectionsView()
+}
+
+@MainActor
+private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
+    override init() {
+        super.init()
+    }
+    
+    override func startNetworkScan() {
+        // Override to prevent actual scanning
+    }
+    
+    override func selectComputer(_ computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func deleteConnection(hostname: String) {
+        // Override to prevent actual deletion
+    }
+    
+    override func editConnection(_ computer: Connection) {
+        // Override to prevent actual editing
+    }
+    
+    override func connectWithCredentials(computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func connectWithNewCredentials(computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func onAppear() {
+        // Override to prevent initialization
+    }
+    
+    override func onDisappear() {
+        // Override to prevent cleanup
+    }
+}
+
+#Preview("With Mock Data") {
+    @Previewable @StateObject var mockViewModel = MockConnectionsViewModelForPreview()
+    
+    NavigationStack {
+        ConnectionsView()
+    }
+    .environmentObject(mockViewModel)
 }

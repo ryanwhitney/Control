@@ -37,4 +37,26 @@ struct HelpButtonView: View {
         .padding(.horizontal)
         .padding(.bottom, hasConnections ? 20 : 8)
     }
+}
+
+#Preview("No Connections") {
+    ZStack {
+        Color.gray.opacity(0.1)
+        HelpButtonView(
+            hasConnections: false,
+            onHelp: {}
+        )
+    }
+    .frame(height: 300)
+}
+
+#Preview("With Connections") {
+    ZStack {
+        Color.gray.opacity(0.1)
+        HelpButtonView(
+            hasConnections: true,
+            onHelp: {}
+        )
+    }
+    .frame(height: 300)
 } 

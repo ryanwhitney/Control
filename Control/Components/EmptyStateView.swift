@@ -35,4 +35,18 @@ struct EmptyStateView: View {
             Spacer()
         }
     }
+}
+
+#Preview("No Connections") {
+    EmptyStateView(
+        isSearching: false,
+        onRefresh: {}
+    )
+}
+
+#Preview("Searching") {
+    EmptyStateView(
+        isSearching: true,
+        onRefresh: {}
+    )
 } 

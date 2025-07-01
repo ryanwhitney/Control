@@ -75,3 +75,79 @@ struct ConnectionsListView: View {
         }
     }
 }
+
+#Preview("With Connections") {
+    NavigationView {
+        List {
+            Section(header: Text("On Your Network".capitalized)) {
+                ComputerRowView(
+                    computer: Connection(
+                        id: "ryan-macbook",
+                        name: "Ryan's MacBook Pro",
+                        host: "ryan-macbook.local",
+                        type: .manual,
+                        lastUsername: "ryan"
+                    ),
+                    isConnecting: true,
+                    action: {}
+                )
+                
+                ComputerRowView(
+                    computer: Connection(
+                        id: "mac-studio", 
+                        name: "Mac Studio",
+                        host: "mac-studio.local",
+                        type: .manual,
+                        lastUsername: nil
+                    ),
+                    isConnecting: false,
+                    action: {}
+                )
+            }
+            
+            Section(header: Text("Recent".capitalized)) {
+                ComputerRowView(
+                    computer: Connection(
+                        id: "work-mac",
+                        name: "Work iMac",
+                        host: "192.168.1.100",
+                        type: .manual,
+                        lastUsername: "work"
+                    ),
+                    isConnecting: false,
+                    action: {}
+                )
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        // Mock delete action
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    .tint(.red)
+
+                    Button {
+                        // Mock edit action
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(.accentColor)
+                }
+            }
+        }
+    }
+}
+
+#Preview("Empty State") {
+    NavigationView {
+        List {
+            Section(header: Text("On Your Network".capitalized)) {
+                Text("No connections found")
+                    .foregroundColor(.secondary)
+            }
+            Section(header: Text("Recent".capitalized)) {
+                // Empty section
+            }
+            .opacity(0)
+        }
+    }
+}
