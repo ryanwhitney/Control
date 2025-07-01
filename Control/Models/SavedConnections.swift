@@ -37,7 +37,6 @@ class SavedConnections: ObservableObject {
 
         // Update existing connection if it exists, else create new
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
-            let oldPreference = items[index].saveCredentialsPreference
             items[index].username = username
             if let name = name {
                 items[index].name = name
@@ -64,7 +63,6 @@ class SavedConnections: ObservableObject {
     func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil, saveCredentials: Bool) {
 
         if let index = items.firstIndex(where: { $0.hostname == hostname }) {
-            let oldPreference = items[index].saveCredentialsPreference
             items[index].username = username
             if let name = name {
                 items[index].name = name
@@ -161,7 +159,7 @@ class SavedConnections: ObservableObject {
             kSecAttrService as String: "VolumeControl",
             kSecAttrAccount as String: hostname
         ]
-        let status = SecItemDelete(deleteQuery as CFDictionary)
+        _ = SecItemDelete(deleteQuery as CFDictionary)
     }
     
     func getSaveCredentialsPreference(for hostname: String) -> Bool {

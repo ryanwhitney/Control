@@ -71,7 +71,7 @@ class NetworkScanner: ObservableObject {
         
         Task {
             try await Task.sleep(nanoseconds: 8_000_000_000)
-            await stopScan()
+            stopScan()
         }
     }
     
