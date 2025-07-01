@@ -9,12 +9,20 @@ class NetworkScanner: ObservableObject {
     @Published private(set) var errorMessage: String?
     
     private var browser: NWBrowser?
+    private var lastScanTime: Date?
+    
+    /// Checks if a scan should automatically run (hasn't run in 30+ seconds)
+    var shouldAutoScan: Bool {
+        guard let lastScan = lastScanTime else { return true }
+        return Date().timeIntervalSince(lastScan) > 30
+    }
     
     func startScan() {
         viewLog("NetworkScanner: Starting network scan", view: "NetworkScanner")
         services.removeAll()
         errorMessage = nil
         isScanning = true
+        lastScanTime = Date()
         
         browser?.cancel()
         
@@ -66,11 +74,11 @@ class NetworkScanner: ObservableObject {
             }
         }
         
-        viewLog("Starting network scan with 8 second timeout", view: "NetworkScanner")
+        viewLog("Starting network scan with 6 second timeout", view: "NetworkScanner")
         scanner.start(queue: .main)
         
         Task {
-            try await Task.sleep(nanoseconds: 8_000_000_000)
+            try await Task.sleep(nanoseconds: 6_000_000_000)
             stopScan()
         }
     }

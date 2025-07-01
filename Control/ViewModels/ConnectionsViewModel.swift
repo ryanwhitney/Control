@@ -19,6 +19,7 @@ class ConnectionsViewModel: ObservableObject {
     
     @Published private(set) var networkComputers: [Connection] = []
     @Published private(set) var savedComputers: [Connection] = []
+    @Published private(set) var isSearching = false
     
     private let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
@@ -35,11 +36,10 @@ class ConnectionsViewModel: ObservableObject {
         !networkComputers.isEmpty || !savedComputers.isEmpty
     }
     
-    var isSearching: Bool {
-        networkScanner.isScanning
-    }
+
     
     init() {
+        isSearching = networkScanner.isScanning
         updateComputerLists()
         setupObservers()
     }
@@ -49,6 +49,13 @@ class ConnectionsViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateNetworkComputers()
+            }
+            .store(in: &cancellables)
+        
+        networkScanner.$isScanning
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isScanning in
+                self?.isSearching = isScanning
             }
             .store(in: &cancellables)
         
@@ -64,6 +71,7 @@ class ConnectionsViewModel: ObservableObject {
     
     func startNetworkScan() {
         networkScanner.startScan()
+        isSearching = networkScanner.isScanning
     }
     
     func selectComputer(_ computer: Connection) {
@@ -172,7 +180,14 @@ class ConnectionsViewModel: ObservableObject {
     
     func onAppear() {
         connectionManager.disconnect()
-        startNetworkScan()
+        
+        // Auto-scan only if we haven't scanned recently
+        if networkScanner.shouldAutoScan {
+            viewLog("Auto-starting network scan (last scan >30s ago)", view: "ConnectionsViewModel")
+            startNetworkScan()
+        } else {
+            viewLog("Skipping auto-scan (scanned recently)", view: "ConnectionsViewModel")
+        }
         
         if preferences.shouldShowWhatsNew {
             Task {
@@ -184,6 +199,7 @@ class ConnectionsViewModel: ObservableObject {
     
     func onDisappear() {
         networkScanner.stopScan()
+        isSearching = networkScanner.isScanning
     }
     
     private func performConnection(computer: Connection) async throws {

@@ -25,10 +25,16 @@ struct ConnectionsView: View {
             }
             .refreshable {
                 await withCheckedContinuation { continuation in
-                    viewModel.startNetworkScan()
-                    Task {
-                        try await Task.sleep(nanoseconds: 8_000_000_000)
+                    if viewModel.isSearching {
+                        // Already searching, end refresh immediately
+                        viewLog("Refresh requested but already searching", view: "ConnectionsView")
                         continuation.resume()
+                    } else {
+                        viewModel.startNetworkScan()
+                        Task {
+                            try await Task.sleep(nanoseconds: 6_500_000_000) // Slightly longer than scan timeout
+                            continuation.resume()
+                        }
                     }
                 }
             }
