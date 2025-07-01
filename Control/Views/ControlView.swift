@@ -263,7 +263,9 @@ struct ControlView: View, SSHConnectedView {
             )
             .environmentObject(savedConnections)
         }
-        .onChange(of: scenePhase, handleScenePhaseChange)
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(from: oldPhase, to: newPhase)
+        }
         .onDisappear {
             viewLog("ControlView: View disappeared", view: "ControlView")
             Task { @MainActor in

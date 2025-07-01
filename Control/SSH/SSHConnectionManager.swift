@@ -123,11 +123,17 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         Task { @MainActor in
             self.connectionState = .disconnected
             self.currentCredentials = nil
+            self.cancelBackgroundDisconnect()
+            self.endBackgroundTask()
         }
     }
     
     deinit {
         sshClient.disconnect()
+        Task { @MainActor in
+            self.cancelBackgroundDisconnect()
+            self.endBackgroundTask()
+        }
     }
     
     func shouldReconnect(host: String, username: String, password: String) -> Bool {
@@ -149,33 +155,82 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     
     // MARK: - Lifecycle Management
     
+    private var backgroundDisconnectTimer: DispatchWorkItem?
+    private var lastScenePhaseChange: (from: ScenePhase, to: ScenePhase, time: Date)?
+    
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        // Debounce duplicate calls (multiple views calling this simultaneously)
+        let now = Date()
+        if let last = lastScenePhaseChange,
+           last.from == oldPhase && last.to == newPhase,
+           now.timeIntervalSince(last.time) < 0.1 {
+            return // Ignore duplicate call within 100ms
+        }
+        
+        lastScenePhaseChange = (oldPhase, newPhase, now)
         connectionLog("Scene phase: \(oldPhase) -> \(newPhase)")
         
         switch newPhase {
         case .active:
+            cancelBackgroundDisconnect()
             endBackgroundTask()
         case .inactive:
-            // No action needed, keep connection alive
+            // No action needed, keep connection alive briefly
             break
         case .background:
-            startBackgroundTask()
+            startBackgroundDisconnectTimer()
         @unknown default:
             connectionLog("Unknown scene phase: \(newPhase)")
         }
     }
     
-    private func startBackgroundTask() {
-        backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
-            // Background task is about to expire, disconnect gracefully
-            self?.client.disconnect() // Use direct client disconnect for graceful exit
-            self?.disconnect() // Then update our state
+    private func startBackgroundDisconnectTimer() {
+        // Cancel any existing timer
+        cancelBackgroundDisconnect()
+        
+        // Start background task to prevent immediate termination
+        startBackgroundTask()
+        
+        // Set up 30-second timer to disconnect SSH
+        let disconnectTimer = DispatchWorkItem { [weak self] in
+            connectionLog("📱 App backgrounded for 30 seconds - disconnecting SSH")
+            self?.disconnect()
             self?.endBackgroundTask()
+        }
+        
+        backgroundDisconnectTimer = disconnectTimer
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30.0, execute: disconnectTimer)
+        connectionLog("📱 Started 30-second background disconnect timer")
+    }
+    
+    private func cancelBackgroundDisconnect() {
+        backgroundDisconnectTimer?.cancel()
+        backgroundDisconnectTimer = nil
+        connectionLog("📱 Cancelled background disconnect timer")
+    }
+    
+    private func startBackgroundTask() {
+        // End any existing background task first
+        endBackgroundTask()
+        
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SSH Connection Cleanup") { [weak self] in
+            // Background task is about to expire (system limit ~30-180 seconds)
+            connectionLog("📱 Background task expiring - disconnecting SSH")
+            self?.client.disconnect()
+            self?.disconnect() 
+            self?.endBackgroundTask()
+        }
+        
+        if backgroundTask == .invalid {
+            connectionLog("⚠️ Failed to start background task")
+        } else {
+            connectionLog("📱 Started background task: \(backgroundTask)")
         }
     }
     
     private func endBackgroundTask() {
         if backgroundTask != .invalid {
+            connectionLog("📱 Ending background task: \(backgroundTask)")
             UIApplication.shared.endBackgroundTask(backgroundTask)
             backgroundTask = .invalid
         }
