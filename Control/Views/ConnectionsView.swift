@@ -285,14 +285,16 @@ struct ConnectionsView: View {
                         password: $password,
                         saveCredentials: .init(get: { true }, set: { self.saveCredentials = $0 }),
                         onSuccess: { hostname, nickname in
-                            savedConnections.add(
-                                hostname: hostname,
+                            // Create computer object for new connection
+                            let newComputer = Connection(
+                                id: hostname,
                                 name: nickname ?? hostname,
-                                username: username,
-                                password: password,
-                                saveCredentials: saveCredentials
+                                host: hostname,
+                                type: .manual,
+                                lastUsername: username
                             )
                             showingAddDialog = false
+                            connectWithNewCredentials(computer: newComputer)
                         },
                         onCancel: { showingAddDialog = false }
                     )
@@ -308,27 +310,15 @@ struct ConnectionsView: View {
                         password: $password,
                         saveCredentials: $saveCredentials,
                         onSuccess: { _, nickname in
-                            savedConnections.add(
-                                hostname: computer.host,
+                            // Update computer name if provided
+                            let updatedComputer = Connection(
+                                id: computer.id,
                                 name: nickname ?? computer.name,
-                                username: username,
-                                password: saveCredentials ? password : nil,
-                                saveCredentials: saveCredentials
+                                host: computer.host,
+                                type: computer.type,
+                                lastUsername: computer.lastUsername
                             )
-                            
-                            if let nickname = nickname {
-                                // Create new computer with updated name
-                                let updatedComputer = Connection(
-                                    id: computer.id,
-                                    name: nickname,
-                                    host: computer.host,
-                                    type: computer.type,
-                                    lastUsername: computer.lastUsername
-                                )
-                                verifyAndConnect(computer: updatedComputer, alreadySaved: true)
-                            } else {
-                                verifyAndConnect(computer: computer, alreadySaved: true)
-                            }
+                            connectWithNewCredentials(computer: updatedComputer)
                         },
                         onCancel: {
                             isAuthenticating = false
@@ -426,11 +416,10 @@ struct ConnectionsView: View {
             }
         }
         .onChange(of: showingError) { _, newValue in
-            if newValue {
-                // Reset states after error
+            if !newValue {
+                // Reset states after error dialog is dismissed
                 connectingComputer = nil
                 selectedConnection = nil
-                isAuthenticating = false
                 username = ""
                 password = ""
             }
@@ -508,71 +497,46 @@ struct ConnectionsView: View {
 
         // Check if we have saved credentials
         if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
+            // We have saved credentials - use them to connect
             username = savedConnection.username ?? ""
             let retrievedPassword = savedConnections.password(for: computer.host)
             password = retrievedPassword ?? ""
+            saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
 
-            // If we have saved credentials, attempt to connect
+            // If we have both username and password, attempt to connect
             if !username.isEmpty && !password.isEmpty {
-                verifyAndConnect(computer: computer)
+                connectWithCredentials(computer: computer)
             } else {
                 // Show authentication dialog for missing credentials
-                // Use the saved preference for this host
-                saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
-                
                 isAuthenticating = true
             }
         } else {
-            // Show authentication dialog for new connection
+            // No saved credentials - show authentication dialog
             username = computer.lastUsername ?? ""
             password = ""
-            // Use the saved preference for this host (defaults to true for new connections)
             saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
             isAuthenticating = true
         }
     }
 
-    private func verifyAndConnect(computer: Connection, alreadySaved: Bool = false) {
-        viewLog("ConnectionsView: Starting connection verification", view: "ConnectionsView")
-
+    private func connectWithCredentials(computer: Connection) {
+        viewLog("ConnectionsView: Attempting connection with saved credentials", view: "ConnectionsView")
+        
         // Show connection metadata without exposing sensitive info
         let isLocal = computer.host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
         viewLog("Connection type: \(connectionType)", view: "ConnectionsView")
         viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
         viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
-        viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ConnectionsView")
 
         connectingComputer = computer
-
-        // Failsafe: Clear connecting state if it hangs and show timeout error
-        Task {
-            try await Task.sleep(nanoseconds: 8_000_000_000) // 8 sec
-            await MainActor.run {
-                if self.connectingComputer?.id == computer.id {
-                    viewLog("⚠️ Connection hung for 8 seconds, triggering timeout error", view: "ConnectionsView")
-                    self.connectingComputer = nil
-
-                    // Trigger timeout error
-                    let timeoutError = SSHError.timeout.formatError(displayName: computer.name)
-                    self.connectionError = (timeoutError.title, timeoutError.message)
-                    self.showingError = true
-
-                    // Clean up state
-                    self.isAuthenticating = false
-                    self.selectedConnection = nil
-                    self.username = ""
-                    self.password = ""
-                }
-            }
-        }
 
         Task {
             do {
                 // Always disconnect first to ensure fresh connection
                 viewLog("Disconnecting any existing connection before attempting new one", view: "ConnectionsView")
                 connectionManager.disconnect()
-
+                
                 // Small delay to ensure cleanup
                 try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
 
@@ -584,54 +548,105 @@ struct ConnectionsView: View {
 
                 await MainActor.run {
                     viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
-                    self.connectingComputer = nil  // Clear connecting state on success
-                    self.tryConnect(computer: computer, alreadySaved: alreadySaved)
+                    self.connectingComputer = nil
+                    self.navigateToApp(computer: computer)
                 }
 
             } catch {
                 await MainActor.run {
                     viewLog("❌ ConnectionsView: Connection verification failed", view: "ConnectionsView")
                     viewLog("Error: \(error)", view: "ConnectionsView")
-                    viewLog("Error type: \(type(of: error))", view: "ConnectionsView")
-
-                    // Clean up state on any error
-                    self.isAuthenticating = false
+                    
                     self.connectingComputer = nil
-
-                    if let sshError = error as? SSHError {
-                        viewLog("✅ Successfully cast to SSHError: \(sshError)", view: "ConnectionsView")
-                        let formattedError = sshError.formatError(displayName: computer.name)
-                        self.connectionError = (formattedError.title, formattedError.message)
-                    } else {
-                        viewLog("❌ Failed to cast to SSHError - using generic error", view: "ConnectionsView")
-                        self.connectionError = (
-                            "Connection Error",
-                            """
-                            An unexpected error occurred while connecting to \(computer.name).
-                            
-                            Technical details: \(error.localizedDescription)
-                            """
-                        )
-                    }
-                    self.showingError = true
+                    self.handleConnectionError(error: error, computer: computer)
                 }
             }
         }
     }
 
-    private func tryConnect(computer: Connection, alreadySaved: Bool = false) {
-        viewLog("ConnectionsView: Proceeding with connection flow", view: "ConnectionsView")
-
+    private func connectWithNewCredentials(computer: Connection) {
+        viewLog("ConnectionsView: Attempting connection with new credentials", view: "ConnectionsView")
+        
         // Show connection metadata without exposing sensitive info
         let isLocal = computer.host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
         viewLog("Connection type: \(connectionType)", view: "ConnectionsView")
         viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsView")
         viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsView")
-        viewLog("Has connected before: \(savedConnections.hasConnectedBefore(computer.host))", view: "ConnectionsView")
 
+        connectingComputer = computer
+
+        Task {
+            do {
+                // Always disconnect first to ensure fresh connection
+                viewLog("Disconnecting any existing connection before attempting new one", view: "ConnectionsView")
+                connectionManager.disconnect()
+                
+                // Small delay to ensure cleanup
+                try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+
+                try await connectionManager.verifyConnection(
+                    host: computer.host,
+                    username: username,
+                    password: password
+                )
+
+                await MainActor.run {
+                    viewLog("✓ ConnectionsView: Connection verified successfully", view: "ConnectionsView")
+                    self.connectingComputer = nil
+                    
+                    // Only save credentials after successful verification
+                    viewLog("Saving credentials after successful verification with saveCredentials: \(self.saveCredentials)", view: "ConnectionsView")
+                    self.savedConnections.add(
+                        hostname: computer.host,
+                        name: computer.name,
+                        username: self.username,
+                        password: self.saveCredentials ? self.password : nil,
+                        saveCredentials: self.saveCredentials
+                    )
+                    
+                    self.navigateToApp(computer: computer)
+                }
+
+            } catch {
+                await MainActor.run {
+                    viewLog("❌ ConnectionsView: Connection verification failed", view: "ConnectionsView")
+                    viewLog("Error: \(error)", view: "ConnectionsView")
+                    
+                    self.connectingComputer = nil
+                    self.handleConnectionError(error: error, computer: computer)
+                }
+            }
+        }
+    }
+
+    private func handleConnectionError(error: Error, computer: Connection) {
+        // Clean up state on any error
+        isAuthenticating = false
+        
+        if let sshError = error as? SSHError {
+            viewLog("✅ Successfully handled SSHError: \(sshError)", view: "ConnectionsView")
+            let formattedError = sshError.formatError(displayName: computer.name)
+            connectionError = (formattedError.title, formattedError.message)
+        } else {
+            viewLog("❌ Handling generic error", view: "ConnectionsView")
+            connectionError = (
+                "Connection Error",
+                """
+                An unexpected error occurred while connecting to \(computer.name).
+                
+                Technical details: \(error.localizedDescription)
+                """
+            )
+        }
+        showingError = true
+    }
+
+    private func navigateToApp(computer: Connection) {
+        viewLog("ConnectionsView: Navigating to app", view: "ConnectionsView")
+        
         selectedConnection = computer
-
+        
         if !savedConnections.hasConnectedBefore(computer.host) {
             viewLog("First time setup needed - navigating to SetupFlowView", view: "ConnectionsView")
             showingSetupFlow = true
@@ -639,25 +654,9 @@ struct ConnectionsView: View {
             viewLog("Regular connection - navigating to ControlView", view: "ConnectionsView")
             navigateToControl = true
         }
-
-        // Save connection info and preference (if not already saved)
-        if !alreadySaved {
-            viewLog("Saving connection info with saveCredentials: \(saveCredentials)", view: "ConnectionsView")
-            savedConnections.add(
-                hostname: computer.host,
-                name: computer.name,
-                username: username,
-                password: saveCredentials ? password : nil,
-                saveCredentials: saveCredentials
-            )
-        } else {
-            viewLog("Credentials already saved, skipping duplicate save", view: "ConnectionsView")
-        }
-
+        
         isAuthenticating = false
     }
-
-
 
     private func startNetworkScan() {
         viewLog("ConnectionsView: Starting network scan", view: "ConnectionsView")
