@@ -181,11 +181,16 @@ struct ControlView: View, SSHConnectedView {
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
         .padding()
-        .navigationTitle(displayName)
+        .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
         .id(enabledPlatforms) // Force recreation when platforms change
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(displayName)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {

@@ -71,25 +71,10 @@ struct SetupFlowNavigationView: View {
                 }
             )
         }
-        .navigationTitle("")
         .navigationBarBackButtonHidden(false)
         .onAppear {
             // Capture the original enabled platforms at the start (for comparison logic only)
             originalEnabledPlatforms = savedConnections.enabledPlatforms(context.host)
-            
-            // Don't reset temporary state if we already have one (coming back from permissions)
-            // Only reset when the flow starts fresh
-            if temporarySelectedPlatforms == nil {
-                viewLog("SetupFlow: Fresh start - no temporary state", view: "SetupFlowNavigationView")
-            } else {
-                viewLog("SetupFlow: Preserving temporary state: \(temporarySelectedPlatforms!)", view: "SetupFlowNavigationView")
-            }
-            
-            if context.isReconfiguration {
-                viewLog("SetupFlow: Starting reconfiguration with original platforms: \(originalEnabledPlatforms)", view: "SetupFlowNavigationView")
-            } else {
-                viewLog("SetupFlow: Starting first-time setup", view: "SetupFlowNavigationView")
-            }
         }
     }
     
