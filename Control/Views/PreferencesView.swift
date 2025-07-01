@@ -45,7 +45,8 @@ struct PreferencesView: View {
                     }
                 }
             }
-        }.background(.ultraThinMaterial)
+        }
+        .background(.ultraThinMaterial)
     }
 }
 

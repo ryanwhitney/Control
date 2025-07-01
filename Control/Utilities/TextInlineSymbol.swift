@@ -23,7 +23,6 @@ extension Text {
             if let color = symbol.color {
                 symbolText = symbolText.foregroundColor(color)
             }
-        
             strText = symbolText + Text(" ") + strText
         }
         return strText
