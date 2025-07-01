@@ -225,95 +225,116 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return isConnectionLoss
     }
     
-    /// Execute a command with post-command heartbeat verification
+    /// Execute a command with proactive timeout-based connection monitoring
     /// 
-    /// This method now includes a heartbeat mechanism that:
-    /// - Executes the user command normally
-    /// - Sends a heartbeat after the command to verify connection health
-    /// - Triggers reconnection if heartbeat fails within 3 seconds
-    /// - Prevents hard crashes by detecting dead connections quickly
-    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        sshLog("SSHConnectionManager: Executing command via new channel")
+    /// This method includes a heartbeat mechanism that:
+    /// - Starts a timeout timer when the command is sent
+    /// - Triggers reconnection if no response (success OR failure) within 6 seconds
+    /// - Prevents silent hangs by detecting dead connections proactively
+    /// - Sends heartbeat verification after successful commands
+    nonisolated func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        sshLog("SSHConnectionManager: Executing command with proactive timeout monitoring")
         if let description = description {
             sshLog("Command: \(description)")
         }
         
-        // Execute the command normally
+        let commandId = UUID().uuidString.prefix(8)
+        var hasCompleted = false
+        let startTime = Date()
+        
+        // Start proactive timeout monitoring
+        let timeoutTask = DispatchWorkItem { [weak self] in
+            guard !hasCompleted else { return }
+            hasCompleted = true
+            
+            let elapsed = Date().timeIntervalSince(startTime)
+            sshLog("⏰ [\(commandId)] Command timed out after \(String(format: "%.1f", elapsed))s with no response")
+            sshLog("💓 [\(commandId)] Proactive heartbeat timeout - connection appears dead")
+            
+            // Connection appears dead - trigger reconnection
+            Task { @MainActor [weak self] in
+                self?.handleConnectionLost()
+            }
+            completion(.failure(SSHError.timeout))
+        }
+        
+        sshLog("⏰ [\(commandId)] Starting 6-second proactive timeout monitor")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: timeoutTask)
+        
+        // Execute the command
         client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
+            guard !hasCompleted else { 
+                sshLog("⚠️ [\(commandId)] Command completed but timeout already triggered, ignoring result")
+                return 
+            }
+            hasCompleted = true
+            timeoutTask.cancel()
+            
+            let elapsed = Date().timeIntervalSince(startTime)
+            sshLog("⏰ [\(commandId)] Command completed in \(String(format: "%.1f", elapsed))s")
+            
             switch result {
-            case .success(_):
-                sshLog("✓ Command completed successfully")
-                // Send post-command heartbeat to verify connection health
-                self?.executePostCommandHeartbeat()
-                completion(result)
+            case .success(let output):
+                sshLog("✓ [\(commandId)] Command succeeded, sending verification heartbeat")
+                // Command succeeded, send verification heartbeat
+                self?.sendPostCommandHeartbeat { heartbeatResult in
+                    switch heartbeatResult {
+                    case .success:
+                        sshLog("💓 [\(commandId)] Post-command heartbeat successful")
+                        completion(.success(output))
+                    case .failure(let heartbeatError):
+                        sshLog("💓 [\(commandId)] Post-command heartbeat failed: \(heartbeatError)")
+                        // Heartbeat failed - connection is likely dead
+                        Task { @MainActor [weak self] in
+                            self?.handleConnectionLost()
+                        }
+                        completion(.failure(heartbeatError))
+                    }
+                }
             case .failure(let error):
-                sshLog("❌ Command failed: \(error)")
+                sshLog("❌ [\(commandId)] Command failed: \(error)")
+                // Command failed, check if it's a connection issue
                 if self?.isConnectionLossError(error) == true {
-                    sshLog("🚨 Connection loss detected during command execution")
+                    sshLog("🚨 [\(commandId)] Connection loss detected during command execution")
                     Task { @MainActor [weak self] in
                         self?.handleConnectionLost()
                     }
-                } else {
-                    // Send heartbeat after failed command to check if connection is still alive
-                    self?.executePostCommandHeartbeat()
                 }
-                completion(result)
+                completion(.failure(error))
             }
         }
     }
     
-    /// Executes a post-command heartbeat to verify connection is still alive
-    /// If heartbeat fails within 3 seconds, triggers reconnection
-    nonisolated private func executePostCommandHeartbeat() {
-        let heartbeatCommand = "echo \"heartbeat-$(date +%s)\""
-        sshLog("💓 Sending post-command heartbeat check")
+    /// Send a heartbeat command to verify connection health after normal commands
+    private nonisolated func sendPostCommandHeartbeat(completion: @escaping (Result<Void, Error>) -> Void) {
+        let heartbeatId = UUID().uuidString.prefix(8)
+        let heartbeatCommand = "echo \"heartbeat-\(heartbeatId)-$(date +%s)\""
+        sshLog("💓 Sending post-command heartbeat: \(heartbeatId)")
         
-        // Set a 3-second timeout for the heartbeat
-        var heartbeatCompleted = false
-        
-        let timeoutTask = DispatchWorkItem {
-            if !heartbeatCompleted {
-                sshLog("💓 Post-command heartbeat timed out after 3 seconds - triggering reconnect")
-                Task { @MainActor [weak self] in
-                    self?.handleConnectionLost()
-                }
-            }
-        }
-        
-        DispatchQueue.global().asyncAfter(deadline: .now() + 3.0, execute: timeoutTask)
-        
-        // Execute heartbeat
         client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Post-command heartbeat") { result in
-            heartbeatCompleted = true
-            timeoutTask.cancel()
-            
             switch result {
             case .success(let output):
-                if output.contains("heartbeat-") {
-                    sshLog("💓 Post-command heartbeat successful: \(output)")
+                if output.contains("heartbeat-\(heartbeatId)") {
+                    sshLog("💓 Heartbeat verified: connection is alive")
+                    completion(.success(()))
                 } else {
-                    sshLog("💓 Post-command heartbeat invalid response - triggering reconnect")
-                    Task { @MainActor [weak self] in
-                        self?.handleConnectionLost()
-                    }
+                    sshLog("💓 Heartbeat invalid response: \(output)")
+                    completion(.failure(SSHError.channelError("Invalid heartbeat response")))
                 }
             case .failure(let error):
-                sshLog("💓 Post-command heartbeat failed: \(error) - triggering reconnect")
-                Task { @MainActor [weak self] in
-                    self?.handleConnectionLost()
-                }
+                sshLog("💓 Heartbeat failed: \(error)")
+                completion(.failure(error))
             }
         }
     }
     
     /// Verifies that the connection is alive and responsive
-    /// Useful for proactive connection health checks
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
-            let heartbeatCommand = "echo \"health-check-$(date +%s)\""
+            let healthCommand = "echo \"health-check-$(date +%s)\""
             sshLog("💓 Executing connection health check")
             
-            client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Connection health check") { result in
+            client.executeCommandWithNewChannel(healthCommand, description: "Connection health check") { result in
                 switch result {
                 case .success(let output):
                     if output.contains("health-check-") {
@@ -329,6 +350,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 }
             }
         }
+    }
+    
+    /// Compatibility alias for existing code
+    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommand(command, description: description, completion: completion)
     }
     
     // MARK: - SSHClientProtocol Conformance

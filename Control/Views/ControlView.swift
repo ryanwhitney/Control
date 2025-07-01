@@ -1,7 +1,7 @@
 import SwiftUI
 import Combine
 
-struct ControlView: View {
+struct ControlView: View, SSHConnectedView {
     let host: String
     let displayName: String
     let username: String
@@ -14,7 +14,7 @@ struct ControlView: View {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) var verticalSizeClass
-    @StateObject private var connectionManager = SSHConnectionManager.shared
+    @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
     @EnvironmentObject private var savedConnections: SavedConnections
@@ -25,13 +25,31 @@ struct ControlView: View {
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
-    @State private var showingConnectionLostAlert = false
+    @State private var _showingConnectionLostAlert = false
     @State private var showingThemeSettings: Bool = false
     @State private var showingDebugLogs: Bool = false
     @State private var selectedPlatformIndex: Int = 0
-    @State private var showingError = false
-    @State private var connectionError: (title: String, message: String)?
+    @State private var _showingError = false
+    @State private var _connectionError: (title: String, message: String)?
     @State private var showingSetupFlow = false
+    
+    // MARK: - SSHConnectedView Protocol Properties
+    var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
+    var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
+    var showingError: Binding<Bool> { $_showingError }
+    
+    // MARK: - SSH Connection Callbacks
+    func onSSHConnected() {
+        Task { await appController.updateAllStates() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+            isReady = true
+            viewLog("ControlView: Ready state activated", view: "ControlView")
+        }
+    }
+    
+    func onSSHConnectionFailed(_ error: Error) {
+        // Error handling is done automatically by the mixin
+    }
 
 
     private var isPhoneLandscape: Bool {
@@ -214,27 +232,14 @@ struct ControlView: View {
         }
         .onAppear {
             viewLog("ControlView: View appeared", view: "ControlView")
-            
-            // Show connection metadata without exposing sensitive info
-            let isLocal = host.contains(".local")
-            let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
-            let hostRedacted = String(host.prefix(3)) + "***"
-            
-            viewLog("Target: \(hostRedacted)", view: "ControlView")
-            viewLog("Protocol: \(connectionType)", view: "ControlView")
-            viewLog("Display name: \(String(displayName.prefix(3)))***", view: "ControlView")
             viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
             viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
             
             // Update AppController with current platforms
             updateAppControllerPlatforms()
             
-            // Set up connection lost handler
-            connectionManager.setConnectionLostHandler { @MainActor in
-                viewLog("⚠️ ControlView: Connection lost handler triggered", view: "ControlView")
-                showingConnectionLostAlert = true
-            }
-            connectToSSH()
+            // Set up SSH connection
+            setupSSHConnection()
             
             // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
@@ -258,32 +263,7 @@ struct ControlView: View {
             )
             .environmentObject(savedConnections)
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            viewLog("ControlView: Scene phase changed from \(oldPhase) to \(newPhase)", view: "ControlView")
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-            if newPhase == .active {
-                viewLog("Scene became active - checking connection health", view: "ControlView")
-                // First check if connection is healthy, then reconnect if needed
-                Task {
-                    if connectionManager.connectionState == .connected {
-                        viewLog("Connection appears active, verifying health...", view: "ControlView")
-                        do {
-                            try await connectionManager.verifyConnectionHealth()
-                            viewLog("✓ Connection health verified", view: "ControlView")
-                            // Connection is healthy, update app states
-                            await appController.updateAllStates()
-                        } catch {
-                            viewLog("❌ Connection health check failed: \(error)", view: "ControlView")
-                            // Connection is dead, reconnect
-                            connectToSSH()
-                        }
-                    } else {
-                        viewLog("Connection not active, reconnecting...", view: "ControlView")
-                        connectToSSH()
-                    }
-                }
-            }
-        }
+        .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
             viewLog("ControlView: View disappeared", view: "ControlView")
             Task { @MainActor in
@@ -318,18 +298,12 @@ struct ControlView: View {
                 viewLog("❌ ControlView: Connection failed: \(error)", view: "ControlView")
             }
         }
-        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
-            Button("OK") {
-                dismiss()
-            }
+        .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
+            Button("OK") { dismiss() }
         } message: {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
-        .alert(connectionError?.title ?? "", isPresented: $showingError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(connectionError?.message ?? "")
-        }
+        .alert(isPresented: showingError) { connectionErrorAlert() }
         .sheet(isPresented: $showingThemeSettings){
             ThemePreferenceSheet()
                 .presentationDetents([.height(200)])
@@ -340,39 +314,7 @@ struct ControlView: View {
         }
     }
 
-    private func connectToSSH() {
-        viewLog("ControlView: Starting SSH connection", view: "ControlView")
-        viewLog("Current connection state: \(connectionManager.connectionState)", view: "ControlView")
-        
-        connectionManager.handleConnection(
-            host: host,
-            username: username,
-            password: password,
-            onSuccess: { [weak appController] in
-                viewLog("✓ ControlView: SSH connection successful", view: "ControlView")
-                await appController?.updateAllStates()
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
-                    isReady = true
-                    viewLog("ControlView: Ready state activated", view: "ControlView")
-                }
-            },
-            onError: { error in
-                viewLog("❌ ControlView: SSH connection failed", view: "ControlView")
-                viewLog("Error: \(error)", view: "ControlView")
-                
-                if let sshError = error as? SSHError {
-                    connectionError = sshError.formatError(displayName: displayName)
-                } else {
-                    connectionError = (
-                        "Connection Error",
-                        "An unexpected error occurred: \(error.localizedDescription)"
-                    )
-                }
-                showingError = true
-            }
-        )
-    }
+
 
     private func adjustVolume(by amount: Int) {
         guard volumeInitialized else { 

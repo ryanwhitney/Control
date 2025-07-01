@@ -311,7 +311,7 @@ class SSHClient: SSHClientProtocol {
         executeCommandDirectly(command, description: description, completion: completion)
     }
     
-    /// Execute command directly without any heartbeat checks - used by the heartbeat mechanism itself
+    /// Execute command directly without heartbeat checks - used by the heartbeat mechanism itself
     func executeCommandBypassingHeartbeat(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         executeCommandDirectly(command, description: description, completion: completion)
     }
@@ -372,7 +372,7 @@ class SSHClient: SSHClientProtocol {
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
                     // Add timeout for command execution - shorter for heartbeat commands
-                    let timeoutSeconds = (command.contains("heartbeat-") || command.contains("health-check-")) ? 3 : 5
+                    let timeoutSeconds = (command.contains("heartbeat-")) ? 3 : 5
                     channel.eventLoop.scheduleTask(in: .seconds(Int64(timeoutSeconds))) {
                         if let pendingPromise = handler.pendingCommandPromise {
                             sshLog("⏰ Command execution timed out after \(timeoutSeconds) seconds")

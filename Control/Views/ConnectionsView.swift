@@ -139,8 +139,8 @@ struct ConnectionsView: View {
 
 private struct AddConnectionSheet: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
-    
-    var body: some View {
+
+        var body: some View {
         if let computer = viewModel.selectedConnection {
             AuthenticationView(
                 mode: .edit,
@@ -306,7 +306,7 @@ private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
     @Previewable @StateObject var mockViewModel = MockConnectionsViewModelForPreview()
     
     NavigationStack {
-        ConnectionsView()
+    ConnectionsView()
     }
     .environmentObject(mockViewModel)
 }
