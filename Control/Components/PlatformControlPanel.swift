@@ -34,28 +34,26 @@ struct PlatformControl: View {
                 }
                 .padding(.bottom, isPhoneLandscape ? 10 : 50)
                 VStack(alignment: .center) {
-                    if !state.title.isEmpty {
-                        Text(state.title)
-                            .lineLimit(1)
-                            .id("\(platform.name)_title")
-                            .contentTransition(.opacity)
-                            .animation(.spring(), value: state.subtitle)
-                    }
-
-                    if !state.subtitle.isEmpty {
-                        Text(state.subtitle)
-                            .fontWeight(.semibold)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.center)
-                            .id("\(platform.name)_subtitle")
-                            .contentTransition(.opacity)
-                            .animation(.spring(), value: state.subtitle)
-                    }
+                    Text(state.title)
+                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .id("\(platform.name)_title")
+                        .frame(maxWidth: .infinity)
+                    Text(state.subtitle)
+                        .fontWeight(.semibold)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .id("\(platform.name)_subtitle")
+                        .frame(maxWidth: .infinity)
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .frame(minHeight: 40)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .padding(.horizontal, isPhoneLandscape ? 64 : 10)
                 .padding(.bottom, isPhoneLandscape ? 20 : 60)
+                .transition(.opacity)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.title)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.subtitle)
             }
 
             HStack(spacing: 16) {
