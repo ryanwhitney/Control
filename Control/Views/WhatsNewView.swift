@@ -75,7 +75,7 @@ struct WhatsNewView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.top, 8)
-                            Text("VERSION 1.1")
+                            Text("VERSION 1.10")
                                 .font(.footnote)
                                 .tracking(1)
                                 .foregroundStyle(.tertiary)

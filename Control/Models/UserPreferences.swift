@@ -41,7 +41,7 @@ class UserPreferences: ObservableObject {
     }
     
     // Update to show the what's new screen
-    private let whatsNewContentVersion = "1.09"
+    private let whatsNewContentVersion = "1.10"
 
     var shouldShowWhatsNew: Bool {
         return lastSeenWhatsNewVersion != whatsNewContentVersion
