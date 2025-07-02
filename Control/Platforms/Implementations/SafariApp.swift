@@ -5,7 +5,7 @@ struct SafariApp: AppPlatform {
     let name = "Safari"
     let defaultEnabled = false
     let experimental = true
-    let reasonForExperimental = "Supports video in visible Safari tabs across all windows. Does not work with content in iframes. Play/pause may be unreliable."
+    let reasonForExperimental = "Only looks for video in the current tab of the frontmost window. Does not work with content in iframes. Play/pause may be unreliable."
 
     var supportedActions: [ActionConfig] {
         [
@@ -31,7 +31,7 @@ struct SafariApp: AppPlatform {
             return "Nothing playing |||   ||| false ||| false"
         end if
         
-        -- 1) Check the current tab in the frontmost window
+        -- Check the current tab in the frontmost window only
         try
             set currentTab to current tab of window 1
             set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
@@ -47,27 +47,6 @@ struct SafariApp: AppPlatform {
                 return videoInfo
             end if
         end try
-        
-        -- 2) Check the current tab in any other windows
-        if windowCount > 1 then
-            repeat with w from 2 to windowCount
-                try
-                    set currentTab to current tab of window w
-                    set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
-                    if hasVideo then
-                        set videoScript to "
-                            var video = document.querySelector('video');
-                            var title = document.title || 'Unknown Video';
-                            var siteName = window.location.hostname.replace('www.', '');
-                            var isPlaying = !video.paused && !video.ended;
-                            title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
-                        "
-                        set videoInfo to do JavaScript videoScript in currentTab
-                        return videoInfo
-                    end if
-                end try
-            end repeat
-        end if
         
         return "Nothing playing |||   ||| false ||| false"
     end tell
@@ -109,7 +88,7 @@ struct SafariApp: AppPlatform {
                 set windowCount to count of windows
                 if windowCount is 0 then return
                 
-                -- 1) Check the focused tab of the frontmost window
+                -- Check the current tab in the frontmost window only
                 try
                     set currentTab to current tab of window 1
                     set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
@@ -124,32 +103,8 @@ struct SafariApp: AppPlatform {
                                 }
                             }
                         " in currentTab
-                        return
                     end if
                 end try
-                
-                -- 2) Check the focused tab of other windows
-                if windowCount > 1 then
-                    repeat with w from 2 to windowCount
-                        try
-                            set currentTab to current tab of window w
-                            set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
-                            if hasVideo then
-                                do JavaScript "
-                                    var video = document.querySelector('video');
-                                    if (video) {
-                                        if (video.paused || video.ended) {
-                                            video.play();
-                                        } else {
-                                            video.pause();
-                                        }
-                                    }
-                                " in currentTab
-                                return
-                            end if
-                        end try
-                    end repeat
-                end if
             end tell
             """
         case .skipForward(let seconds):
@@ -158,7 +113,7 @@ struct SafariApp: AppPlatform {
                 set windowCount to count of windows
                 if windowCount is 0 then return
                 
-                -- 1) Check the focused tab of the frontmost window
+                -- Check the current tab in the frontmost window only
                 try
                     set currentTab to current tab of window 1
                     set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
@@ -169,28 +124,8 @@ struct SafariApp: AppPlatform {
                                 if (media) media.currentTime += \(seconds);
                             })();
                         " in currentTab
-                        return
                     end if
                 end try
-                
-                -- 2) Check the focused tab of other windows
-                if windowCount > 1 then
-                    repeat with w from 2 to windowCount
-                        try
-                            set currentTab to current tab of window w
-                            set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
-                            if hasVideo then
-                                do JavaScript "
-                                    (function() {
-                                        const media = document.querySelector('video, audio');
-                                        if (media) media.currentTime += \(seconds);
-                                    })();
-                                " in currentTab
-                                return
-                            end if
-                        end try
-                    end repeat
-                end if
             end tell
             """
         case .skipBackward(let seconds):
@@ -199,7 +134,7 @@ struct SafariApp: AppPlatform {
                 set windowCount to count of windows
                 if windowCount is 0 then return
                 
-                -- 1) Check the focused tab of the frontmost window
+                -- Check the current tab in the frontmost window only
                 try
                     set currentTab to current tab of window 1
                     set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
@@ -210,28 +145,8 @@ struct SafariApp: AppPlatform {
                                 if (media) media.currentTime -= \(seconds);
                             })();
                         " in currentTab
-                        return
                     end if
                 end try
-                
-                -- 2) Check the focused tab of other windows
-                if windowCount > 1 then
-                    repeat with w from 2 to windowCount
-                        try
-                            set currentTab to current tab of window w
-                            set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
-                            if hasVideo then
-                                do JavaScript "
-                                    (function() {
-                                        const media = document.querySelector('video, audio');
-                                        if (media) media.currentTime -= \(seconds);
-                                    })();
-                                " in currentTab
-                                return
-                            end if
-                        end try
-                    end repeat
-                end if
             end tell
             """
         default:
