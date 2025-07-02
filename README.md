@@ -15,9 +15,9 @@ Basic media controls for:
   - QuickTime Player
   - VLC
   - Spotify
+  - IINA
 
-Experimental controls (disabled by default) for:
+Experimental controls for:
   - Safari 
-  - Chrome 
 
 To request support for additional apps, [file an Issue](https://github.com/ryanwhitney/Control/issues).
