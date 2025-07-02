@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var preferences = UserPreferences.shared
     
     var body: some View {
         NavigationStack {
@@ -11,19 +12,27 @@ struct PreferencesView: View {
                         destination: ThemePreferenceView(),
                         iconName: "paintbrush.fill",
                         title: "Theme",
+                        color: .green
+                    )
+                    PreferencesRow(
+                        destination: ExperimentalPlatformsView(),
+                        iconName: "flask.fill",
+                        title: "Experimental App Controls",
                         color: .indigo
+                    )
+                }
+                Section {
+                    PreferencesRow(
+                        destination: FeedbackPreferenceView(),
+                        iconName: "paperplane.fill",
+                        title: "Send Feedback",
+                        color: .blue
                     )
                     PreferencesRow(
                         destination: SupportPreferenceView(),
                         iconName: "questionmark.diamond.fill",
                         title: "Support",
                         color: .orange
-                    )
-                    PreferencesRow(
-                        destination: FeedbackPreferenceView(),
-                        iconName: "paperplane.fill",
-                        title: "Send Feedback",
-                        color: .green
                     )
                 }
             }
@@ -37,7 +46,9 @@ struct PreferencesView: View {
                     }
                 }
             }
-        }.background(.ultraThinMaterial)
+        }
+        .background(.ultraThinMaterial)
+        .tint(preferences.tintColorValue)
     }
 }
 

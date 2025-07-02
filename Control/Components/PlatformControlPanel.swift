@@ -5,21 +5,34 @@ struct PlatformControl: View {
     @Binding var state: AppState
     @EnvironmentObject var controller: AppController
     @StateObject private var preferences = UserPreferences.shared
-    
+    @State private var showingExperimentalAlert = false
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+
+    private var isPhoneLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: isPhoneLandscape ? 0 : 16) {
             VStack(spacing: 4) {
                 HStack {
                     Text(platform.name)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
-                        .padding(.bottom, 50)
                         .id(platform.name)
-                    if platform.name.contains("Safari") {
-                        Label("Experimental", systemImage: "exclamationmark.triangle.fill")
-                            .labelStyle(.iconOnly)
+                    if platform.experimental {
+                        Button {
+                            showingExperimentalAlert = true
+                        } label: {
+                            Label("Experimental", systemImage: "flask.fill")
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.tint)
+                                .rotationEffect(Angle(degrees: 20.0))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(.bottom, isPhoneLandscape ? 10 : 50)
                 VStack(alignment: .center) {
                     if !state.title.isEmpty {
                         Text(state.title)
@@ -32,7 +45,8 @@ struct PlatformControl: View {
                     if !state.subtitle.isEmpty {
                         Text(state.subtitle)
                             .fontWeight(.semibold)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
                             .id("\(platform.name)_subtitle")
                             .contentTransition(.opacity)
                             .animation(.spring(), value: state.subtitle)
@@ -41,9 +55,9 @@ struct PlatformControl: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(minHeight: 40)
-                .padding(.bottom, 60)
+                .padding(.bottom, isPhoneLandscape ? 20 : 60)
             }
-            
+
             HStack(spacing: 16) {
                 ForEach(platform.supportedActions) { appAction in
                     Button {
@@ -76,15 +90,20 @@ struct PlatformControl: View {
                     .buttonStyle(IconButtonStyle())
                 }
             }
-            .padding(.bottom, 60)
+            .padding(.bottom, isPhoneLandscape ? 40 : 60)
         }
         .onAppear {
             Task {
                 await controller.updateState(for: platform)
             }
         }
+        .alert("\(platform.name) support is experimental", isPresented: $showingExperimentalAlert) {
+            Button("OK") { }
+        } message: {
+            Text(platform.reasonForExperimental)
+        }
     }
-} 
+}
 
 #Preview {
     let client = SSHClient()
@@ -93,9 +112,9 @@ struct PlatformControl: View {
         username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
         password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
     ) { _ in }
-    
+
     return PlatformControl(
-        platform: VLCApp(),
+        platform: SafariApp(),
         state: .constant(.init(
             title: "Skin",
             subtitle: "Wild Powwers",
@@ -105,4 +124,4 @@ struct PlatformControl: View {
     .environmentObject(AppController(sshClient: client, platformRegistry: PlatformRegistry()))
     .padding()
     .preferredColorScheme(.dark)
-} 
+}

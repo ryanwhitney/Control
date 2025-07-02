@@ -3,211 +3,47 @@ import Foundation
 import Network
 
 struct ConnectionsView: View {
-    @StateObject private var savedConnections = SavedConnections()
-    @StateObject private var connectionManager = SSHConnectionManager()
-    @StateObject private var preferences = UserPreferences.shared
+    @StateObject private var viewModel = ConnectionsViewModel()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var connections: [NetService] = []
-    @State private var networkScanner: NWBrowser?
-    @State private var selectedConnection: Connection?
-    @State private var connectingComputer: Connection?
-    @State private var username: String = ""
-    @State private var password: String = ""
-    @State private var errorMessage: String?
-    @State private var saveCredentials = false
-    @State private var isSearching = false
-    @State private var isAuthenticating = false
-    @State private var connectionError: (title: String, message: String)?
-    @State private var showingAddDialog = false
-    @State private var showingError = false
-    @State private var showingFirstTimeSetup = false
-    @State private var navigateToPermissions = false
-    @State private var navigateToControl = false
-    @State private var activePopover: ActivePopover?
-
-    enum ActivePopover: Identifiable {
-        case help
-        case preferences
-        var id: Self { self }
-    }
-
-    struct Connection: Identifiable, Hashable {
-        let id: String
-        let name: String
-        let host: String
-        let type: ConnectionType
-        var lastUsername: String?
-
-        enum ConnectionType {
-            case bonjour(NetService)
-            case manual
-        }
-
-        static func == (lhs: Connection, rhs: Connection) -> Bool {
-            return lhs.host == rhs.host
-        }
-
-        func hash(into hasher: inout Hasher) {
-            hasher.combine(host)
-        }
-    }
 
     var body: some View {
         NavigationStack {
             ZStack {
-                if connections.isEmpty && savedConnections.items.isEmpty {
-                    VStack(spacing: 20) {
-                        Spacer()
-                        if isSearching {
-                            ProgressView()
-                                .controlSize(.large)
-                            Text("Searching...")
-                                .foregroundStyle(.tertiary)
-                        } else {
-                            VStack(spacing: 16){
-                                Image(systemName: "macbook.and.iphone")
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 60, height: 40)
-                                    .foregroundStyle(.tint)
-                                Text("No connections found")
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                Text("Make sure your Mac is on the same network and has Remote Login enabled.")
-                                    .foregroundStyle(.secondary)
-                                Button(action: startNetworkScan) {
-                                    Text("Refresh")
-                                        .foregroundStyle(.tint)
-                                }
-                            }
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-
-                        }
-                        Spacer()
-                    }
+                if viewModel.hasConnections {
+                    ConnectionsListView()
                 } else {
-                    List {
-                        Section(header: Text("On Your Network".capitalized)) {
-                            if connections.isEmpty && isSearching {
-                                HStack {
-                                    Text("Scanning...")
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    ProgressView()
-                                }
-                                .accessibilityLabel("Scanning for devices")
-                            } else if connections.isEmpty {
-                                Text("No connections found")
-                                    .foregroundColor(.secondary)
-                            }
-                            ForEach(networkComputers) { computer in
-                                ComputerRow(
-                                    computer: computer,
-                                    isConnecting: connectingComputer?.id == computer.id
-                                ) {
-                                    selectComputer(computer)
-                                }
-                                .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
-                                .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
-                            }
-                            if !connections.isEmpty && isSearching {
-                                HStack {
-                                    Text("Searching for others…")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    ProgressView()
-                                }
-                                .accessibilityLabel("Scanning for additional devices")
-                            }
-                        }
-                        Section(header: Text("Recent".capitalized)) {
-                            if savedComputers.isEmpty {
-                                Text("No recent connections")
-                                    .foregroundColor(.secondary)
-                            } else {
-                                ForEach(savedComputers) { computer in
-                                    ComputerRow(
-                                        computer: computer,
-                                        isConnecting: connectingComputer?.id == computer.id
-                                    ) {
-                                        selectComputer(computer)
-                                    }
-                                    .accessibilityHint(connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
-                                    .accessibilityAddTraits(connectingComputer?.id == computer.id ? .updatesFrequently : [])
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button(role: .destructive) {
-                                            savedConnections.remove(hostname: computer.host)
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                        .accessibilityLabel("Delete \(computer.name)")
-                                        .tint(.red)
+                    EmptyStateView(
+                        isSearching: viewModel.isSearching,
+                        onRefresh: viewModel.startNetworkScan
+                    )
+                }
 
-                                        Button {
-                                            selectedConnection = computer
-                                            username = computer.lastUsername ?? ""
-                                            password = "•••••"
-                                            saveCredentials = false
-                                            showingAddDialog = true
-                                        } label: {
-                                            Label("Edit", systemImage: "pencil")
-                                        }
-                                        .accessibilityLabel("Edit \(computer.name)")
-                                        .tint(.accentColor)
-                                    }
-                                }
-                            }
-                        }
-                        .accessibilityLabel("Recent connections")
-                    }
-                }
-                VStack {
-                    Spacer()
-                    if connections.isEmpty && savedConnections.items.isEmpty {
-                        Button {
-                            activePopover = .help
-                        } label: {
-                            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .background(.thickMaterial)
-                                .cornerRadius(12)
-                                .tint(.accentColor)
-                                .foregroundStyle(.tint)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.gray)
-                    } else {
-                        Button {
-                            activePopover = .help
-                        } label: {
-                            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
-                                .padding()
-                                .frame(maxWidth: .infinity)
-                                .font(.subheadline)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom, connections.isEmpty && savedConnections.items.isEmpty ? 8 : 20)
+                HelpButtonView(
+                    hasConnections: viewModel.hasConnections,
+                    onHelp: { viewModel.activePopover = .help }
+                )
             }
             .refreshable {
                 await withCheckedContinuation { continuation in
-                    startNetworkScan()
-                    // Wait for scan timeout (8 seconds)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                    if viewModel.isSearching {
+                        // Already searching, end refresh immediately
+                        viewLog("Refresh requested but already searching", view: "ConnectionsView")
                         continuation.resume()
+                    } else {
+                        // Start scan and end pull-to-refresh immediately
+                        // Our custom progress indicator will show the scan status
+                        viewModel.startNetworkScan()
+                        viewLog("Pull-to-refresh initiated, using custom progress indicator", view: "ConnectionsView")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                            continuation.resume()
+                        }
                     }
                 }
             }
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    HStack(spacing: 4){
+                    HStack(spacing: 4) {
                         Text("Control".uppercased())
                             .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
                     }
@@ -215,17 +51,17 @@ struct ConnectionsView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     HStack {
-                        Button(action: startNetworkScan) {
+                        Button(action: viewModel.startNetworkScan) {
                             Image(systemName: "arrow.clockwise")
                         }
                         .accessibilityLabel("Rescan for devices")
 
                         Button(action: {
-                            selectedConnection = nil
-                            username = ""
-                            password = ""
-                            saveCredentials = true
-                            showingAddDialog = true
+                            viewModel.selectedConnection = nil
+                            viewModel.username = ""
+                            viewModel.password = ""
+                            viewModel.saveCredentials = true
+                            viewModel.showingAddDialog = true
                         }) {
                             Image(systemName: "plus")
                         }
@@ -234,133 +70,34 @@ struct ConnectionsView: View {
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        activePopover = .preferences
+                        viewModel.activePopover = .preferences
                     } label: {
                         Image(systemName: "gearshape")
                     }
                     .accessibilityLabel("Settings")
                 }
             }
-            .sheet(isPresented: $showingAddDialog) {
-                if let computer = selectedConnection {
-                    // Edit mode
-                    AuthenticationView(
-                        mode: .edit,
-                        existingHost: computer.host,
-                        existingName: computer.name,
-                        username: $username,
-                        password: $password,
-                        saveCredentials: $saveCredentials,
-                        onSuccess: { _, nickname in
-                            savedConnections.updateLastUsername(
-                                for: computer.host,
-                                name: nickname ?? computer.name,
-                                username: username,
-                                password: saveCredentials ? password : nil
-                            )
-                            showingAddDialog = false
-                            selectedConnection = nil
-                        },
-                        onCancel: {
-                            showingAddDialog = false
-                            selectedConnection = nil
-                        }
-                    )
-                } else {
-                    // Add mode
-                    AuthenticationView(
-                        mode: .add,
-                        username: $username,
-                        password: $password,
-                        saveCredentials: .init(get: { true }, set: { self.saveCredentials = $0 }),
-                        onSuccess: { hostname, nickname in
-                            addManualComputer(hostname, name: nickname ?? hostname, username: username, password: password)
-                            showingAddDialog = false
-                        },
-                        onCancel: { showingAddDialog = false }
-                    )
-                }
+            .navigationTitle("")
+            .accessibilityLabel("Control App - Connections List - Home")
+            .accessibilityAddTraits(.isHeader)
+            .sheet(isPresented: $viewModel.showingAddDialog) {
+                AddConnectionSheet()
             }
-            .sheet(isPresented: $isAuthenticating) {
-                if let computer = selectedConnection {
-                    AuthenticationView(
-                        mode: .authenticate,
-                        existingHost: computer.host,
-                        existingName: computer.name,
-                        username: $username,
-                        password: $password,
-                        saveCredentials: $saveCredentials,
-                        onSuccess: { _, nickname in
-                            if let nickname = nickname {
-                                // Create new computer with updated name
-                                let updatedComputer = Connection(
-                                    id: computer.id,
-                                    name: nickname,
-                                    host: computer.host,
-                                    type: computer.type,
-                                    lastUsername: computer.lastUsername
-                                )
-                                verifyAndConnect(computer: updatedComputer)
-                            } else {
-                                verifyAndConnect(computer: computer)
-                            }
-                        },
-                        onCancel: {
-                            isAuthenticating = false
-                        }
-                    )
-                    .presentationDragIndicator(.visible)
-                }
+            .sheet(isPresented: $viewModel.isAuthenticating) {
+                AuthenticationSheet()
             }
-            .alert(connectionError?.title ?? "", isPresented: $showingError) {
+            .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(connectionError?.message ?? "")
+                Text(viewModel.connectionError?.message ?? "")
             }
-            .navigationDestination(isPresented: $showingFirstTimeSetup) {
-                if let computer = selectedConnection {
-                    ChooseAppsView(
-                        host: computer.host,
-                        displayName: computer.name,
-                        username: username,
-                        password: password,
-                        onComplete: { selectedPlatforms in
-                            savedConnections.updateEnabledPlatforms(computer.host, platforms: selectedPlatforms)
-                            showingFirstTimeSetup = false
-                            navigateToPermissions = true
-                        }
-                    )
-                }
+            .navigationDestination(isPresented: $viewModel.showingSetupFlow) {
+                SetupFlowDestination()
             }
-            .navigationDestination(isPresented: $navigateToPermissions) {
-                if let computer = selectedConnection {
-                    PermissionsView(
-                        host: computer.host,
-                        displayName: computer.name,
-                        username: username,
-                        password: password,
-                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host),
-                        onComplete: {
-                            savedConnections.markAsConnected(computer.host)
-                            navigateToPermissions = false
-                            navigateToControl = true
-                        }
-                    )
-                }
+            .navigationDestination(isPresented: $viewModel.navigateToControl) {
+                ControlDestination()
             }
-            .navigationDestination(isPresented: $navigateToControl) {
-                if let computer = selectedConnection {
-                    ControlView(
-                        host: computer.host,
-                        displayName: computer.name,
-                        username: username,
-                        password: password,
-                        enabledPlatforms: savedConnections.enabledPlatforms(computer.host)
-                    )
-                    .environmentObject(savedConnections)
-                }
-            }
-            .sheet(item: $activePopover) { popover in
+            .sheet(item: $viewModel.activePopover) { popover in
                 switch popover {
                 case .help:
                     NavigationView {
@@ -372,294 +109,223 @@ struct ConnectionsView: View {
                     PreferencesView()
                 }
             }
-            .tint(preferences.tintColorValue)
+            .sheet(isPresented: $viewModel.showingWhatsNew) {
+                WhatsNewView {
+                    viewModel.showingWhatsNew = false
+                }
+                .presentationBackground(.black)
+                .presentationDetents([.large])
+                .presentationCornerRadius(20)
+                .interactiveDismissDisabled(true)
+            }
+            .tint(UserPreferences.shared.tintColorValue)
         }
-        .onAppear {
-            startNetworkScan()
-        }
-        .onDisappear {
-            networkScanner?.cancel()
-        }
+        .environmentObject(viewModel)
+        .onAppear(perform: viewModel.onAppear)
+        .onDisappear(perform: viewModel.onDisappear)
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-        }
-        .onChange(of: navigateToControl) { _, newValue in
-            if !newValue {
-                // Reset states when returning from ControlView
-                connectingComputer = nil
-                selectedConnection = nil
-            }
-        }
-        .onChange(of: showingFirstTimeSetup) { _, newValue in
-            if !newValue {
-                // Reset states when returning from setup
-                connectingComputer = nil
-            }
-        }
-        .onChange(of: navigateToPermissions) { _, newValue in
-            if !newValue {
-                // Reset states when returning from permissions
-                connectingComputer = nil
-            }
-        }
-        .onChange(of: showingError) { _, newValue in
-            if newValue {
-                // Reset states when showing error
-                connectingComputer = nil
-                selectedConnection = nil
-            }
-        }
-    }
-
-    // Separate computer row view for reuse
-    struct ComputerRow: View {
-        let computer: Connection
-        let isConnecting: Bool
-        let action: () -> Void
-
-        var body: some View {
-            Button(action: action) {
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(computer.name)
-                            .font(.headline)
-                        Text(computer.host)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                        if let username = computer.lastUsername {
-                            Text(username)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if isConnecting {
-                        ProgressView()
-                    }
-                }
-            }
-            .accessibilityLabel("Device")
-            .accessibilityValue("\(computer.name) at host  \(computer.host); \(computer.lastUsername != nil ? "saved user: \(computer.lastUsername!)" : "")")
-            .disabled(isConnecting)
-        }
-    }
-
-    private var networkComputers: [Connection] {
-        connections.compactMap { service in
-            guard let hostname = service.hostName else { return nil }
+            viewModel.handleScenePhaseChange(from: oldPhase, to: newPhase)
             
-            // Clean up the hostname by removing the extra period
-            let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
-            
-            return Connection(
-                id: service.name,
-                name: service.name.replacingOccurrences(of: "\\032", with: ""),
-                host: cleanHostname,
-                type: .bonjour(service),
-                lastUsername: savedConnections.lastUsername(for: cleanHostname)
-            )
-        }
-    }
-    
-    private var savedComputers: [Connection] {
-        savedConnections.items.map { saved in
-            Connection(
-                id: saved.hostname,
-                name: saved.name ?? saved.hostname,
-                host: saved.hostname,
-                type: .manual,
-                lastUsername: saved.username
-            )
-        }.sorted { $0.name < $1.name }
-    }
-
-    private func selectComputer(_ computer: Connection) {
-        selectedConnection = computer
-        
-        // Check if we have saved credentials
-        if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
-            username = savedConnection.username ?? ""
-            password = savedConnections.password(for: computer.host) ?? ""
-            
-            // If we have saved credentials, attempt to connect
-            if !username.isEmpty && !password.isEmpty {
-                verifyAndConnect(computer: computer)
-            } else {
-                // Show authentication dialog for missing credentials
-                saveCredentials = true
-                isAuthenticating = true
-            }
-        } else {
-            // Show authentication dialog for new connection
-            username = computer.lastUsername ?? ""
-            password = ""
-            saveCredentials = true
-            isAuthenticating = true
-        }
-    }
-    
-    private func verifyAndConnect(computer: Connection) {
-        print("\n=== ConnectionsView: Verifying connection ===")
-        print("Computer: \(computer.name) (\(computer.host))")
-        
-        connectingComputer = computer
-        
-        Task {
-            do {
-                try await connectionManager.verifyConnection(
-                    host: computer.host,
-                    username: username,
-                    password: password
-                )
-                
-                await MainActor.run {
-                    self.tryConnect(computer: computer)
-                }
-            } catch {
-                await MainActor.run {
-                    self.isAuthenticating = false
-                    self.connectingComputer = nil
-                    
-                    if let sshError = error as? SSHError {
-                        let formattedError = sshError.formatError(displayName: computer.name)
-                        self.connectionError = (formattedError.title, formattedError.message)
-                    } else {
-                        self.connectionError = (
-                            "Connection Error",
-                            """
-                            An unexpected error occurred while connecting to \(computer.name).
-                            """
-                        )
-                    }
-                    self.showingError = true
-                }
+            // Rescan when app comes to foreground if enough time has passed
+            if oldPhase != .active && newPhase == .active {
+                viewLog("App came to foreground, checking if rescan needed", view: "ConnectionsView")
+                viewModel.checkForRescanOnForeground()
             }
         }
-    }
-    
-    private func tryConnect(computer: Connection) {
-        print("\n=== ConnectionsView: Proceeding with connection ===")
-        print("Computer: \(computer.name) (\(computer.host))")
-        
-        selectedConnection = computer
-        
-        if !savedConnections.hasConnectedBefore(computer.host) {
-            print("First time setup needed")
-            showingFirstTimeSetup = true
-        } else {
-            print("Regular connection")
-            navigateToControl = true
-        }
-        
-        // Save credentials if requested
-        if saveCredentials {
-            savedConnections.add(
-                hostname: computer.host,
-                name: computer.name,
-                username: username,
-                password: password
-            )
-        } else {
-            // Just update the username without password
-            savedConnections.updateLastUsername(
-                for: computer.host,
-                name: computer.name,
-                username: username
-            )
-        }
-        
-        isAuthenticating = false
-    }
-
-    private func addManualComputer(_ host: String, name: String, username: String? = nil, password: String? = nil) {
-        savedConnections.add(hostname: host, username: username, password: password)
-    }
-
-    private func startNetworkScan() {
-        print("\n=== Starting Network Scan ===")
-        connections.removeAll()
-        errorMessage = nil
-        isSearching = true
-        
-        // Stop existing scan
-        networkScanner?.cancel()
-        
-        let parameters = NWParameters()
-        parameters.includePeerToPeer = false
-        
-        let scanner = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: parameters)
-        self.networkScanner = scanner
-        
-        scanner.stateUpdateHandler = { state in
-            print("Scanner state: \(state)")
-            DispatchQueue.main.async {
-                switch state {
-                case .failed(let error):
-                    print("Scanner failed: \(error)")
-                    self.errorMessage = error.localizedDescription
-                    self.isSearching = false
-                case .ready:
-                    print("Scanner ready")
-                case .cancelled:
-                    print("Scanner cancelled")
-                    self.isSearching = false
-                case .setup:
-                    print("Scanner setting up")
-                case .waiting:
-                    print("Scanner waiting")
-                @unknown default:
-                    print("Scanner in unknown state: \(state)")
-                }
+        .onChange(of: viewModel.navigateToControl) { _, newValue in
+            if !newValue {
+                viewModel.connectingComputer = nil
+                viewModel.selectedConnection = nil
             }
         }
-        
-        scanner.browseResultsChangedHandler = { results, changes in
-            print("Found \(results.count) services")
-            DispatchQueue.main.async {
-                self.connections = results.compactMap { result in
-                    guard case .service(let name, let type, let domain, _) = result.endpoint else {
-                        print("Invalid endpoint format")
-                        return nil
-                    }
-                    print("Found service: \(name)")
-                    
-                    let service = NetService(domain: domain, type: type, name: name)
-                    service.resolve(withTimeout: 5.0)
-                    
-                    // Print detailed service information
-                    print("Service details:")
-                    print("  - Name: \(service.name)")
-                    print("  - Type: \(service.type)")
-                    print("  - Domain: \(service.domain)")
-                    print("  - HostName: \(service.hostName ?? "unknown")")
-                    if let addresses = service.addresses {
-                        print("  - Addresses: \(addresses.count) found")
-                        for (index, address) in addresses.enumerated() {
-                            print("    [\(index)] \(address.description)")
-                        }
-                    }
-                    print("  - Port: \(service.port)")
-                    
-                    return service
-                }
+        .onChange(of: viewModel.showingSetupFlow) { _, newValue in
+            if !newValue {
+                viewModel.connectingComputer = nil
             }
         }
-        
-        print("Starting network scan...")
-        scanner.start(queue: .main)
-        
-        // Add timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            print("\n=== Scan Complete ===")
-            print("Final computer count: \(self.connections.count)")
-            scanner.cancel()
-            DispatchQueue.main.async {
-                self.isSearching = false
+        .onChange(of: viewModel.showingError) { _, newValue in
+            if !newValue {
+                viewModel.connectingComputer = nil
+                viewModel.selectedConnection = nil
+                viewModel.username = ""
+                viewModel.password = ""
             }
         }
     }
 }
 
-#Preview {
+// MARK: - Sheet Views
+
+private struct AddConnectionSheet: View {
+    @EnvironmentObject private var viewModel: ConnectionsViewModel
+
+        var body: some View {
+        if let computer = viewModel.selectedConnection {
+            AuthenticationView(
+                mode: .edit,
+                existingHost: computer.host,
+                existingName: computer.name,
+                username: $viewModel.username,
+                password: $viewModel.password,
+                saveCredentials: $viewModel.saveCredentials,
+                onSuccess: { _, nickname in
+                    viewModel.updateCredentials(
+                        hostname: computer.host,
+                        name: nickname ?? computer.name,
+                        username: viewModel.username,
+                        password: viewModel.password,
+                        saveCredentials: viewModel.saveCredentials
+                    )
+                    viewModel.showingAddDialog = false
+                    viewModel.selectedConnection = nil
+                },
+                onCancel: {
+                    viewModel.showingAddDialog = false
+                    viewModel.selectedConnection = nil
+                }
+            )
+        } else {
+            AuthenticationView(
+                mode: .add,
+                username: $viewModel.username,
+                password: $viewModel.password,
+                saveCredentials: .init(get: { true }, set: { viewModel.saveCredentials = $0 }),
+                onSuccess: { hostname, nickname in
+                    let newComputer = Connection(
+                        id: hostname,
+                        name: nickname ?? hostname,
+                        host: hostname,
+                        type: .manual,
+                        lastUsername: viewModel.username
+                    )
+                    viewModel.showingAddDialog = false
+                    viewModel.connectWithNewCredentials(computer: newComputer)
+                },
+                onCancel: { viewModel.showingAddDialog = false }
+            )
+        }
+    }
+}
+
+private struct AuthenticationSheet: View {
+    @EnvironmentObject private var viewModel: ConnectionsViewModel
+    
+    var body: some View {
+        if let computer = viewModel.selectedConnection {
+            AuthenticationView(
+                mode: .authenticate,
+                existingHost: computer.host,
+                existingName: computer.name,
+                username: $viewModel.username,
+                password: $viewModel.password,
+                saveCredentials: $viewModel.saveCredentials,
+                onSuccess: { _, nickname in
+                    let updatedComputer = Connection(
+                        id: computer.id,
+                        name: nickname ?? computer.name,
+                        host: computer.host,
+                        type: computer.type,
+                        lastUsername: computer.lastUsername
+                    )
+                    viewModel.connectWithNewCredentials(computer: updatedComputer)
+                },
+                onCancel: {
+                    viewModel.isAuthenticating = false
+                }
+            )
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+private struct SetupFlowDestination: View {
+    @EnvironmentObject private var viewModel: ConnectionsViewModel
+    
+    var body: some View {
+        if let computer = viewModel.selectedConnection {
+            SetupFlowView(
+                host: computer.host,
+                displayName: computer.name,
+                username: viewModel.username,
+                password: viewModel.password,
+                isReconfiguration: false,
+                onComplete: {
+                    viewLog("ConnectionsView: First-time setup completed, navigating to ControlView", view: "ConnectionsView")
+                    viewModel.showingSetupFlow = false
+                    viewModel.navigateToControl = true
+                }
+            )
+            .environmentObject(SavedConnections())
+        }
+    }
+}
+
+private struct ControlDestination: View {
+    @EnvironmentObject private var viewModel: ConnectionsViewModel
+    
+    var body: some View {
+        if let computer = viewModel.selectedConnection {
+            ControlView(
+                host: computer.host,
+                displayName: computer.name,
+                username: viewModel.username,
+                password: viewModel.password
+            )
+            .environmentObject(SavedConnections())
+        }
+    }
+}
+
+// MARK: - Previews
+
+#Preview("Live SSH Connection") {
     ConnectionsView()
+}
+
+@MainActor
+private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
+    override init() {
+        super.init()
+    }
+    
+    override func startNetworkScan() {
+        // Override to prevent actual scanning
+    }
+    
+    override func selectComputer(_ computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func deleteConnection(hostname: String) {
+        // Override to prevent actual deletion
+    }
+    
+    override func editConnection(_ computer: Connection) {
+        // Override to prevent actual editing
+    }
+    
+    override func connectWithCredentials(computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func connectWithNewCredentials(computer: Connection) {
+        // Override to prevent actual connections
+    }
+    
+    override func onAppear() {
+        // Override to prevent initialization
+    }
+    
+    override func onDisappear() {
+        // Override to prevent cleanup
+    }
+}
+
+#Preview("With Mock Data") {
+    @Previewable @StateObject var mockViewModel = MockConnectionsViewModelForPreview()
+    
+    NavigationStack {
+    ConnectionsView()
+    }
+    .environmentObject(mockViewModel)
 }

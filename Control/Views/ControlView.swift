@@ -1,15 +1,20 @@
 import SwiftUI
 import Combine
 
-struct ControlView: View {
+struct ControlView: View, SSHConnectedView {
     let host: String
     let displayName: String
     let username: String
     let password: String
-    let enabledPlatforms: Set<String>
+    
+    // Always get platforms from savedConnections (reactive)
+    private var enabledPlatforms: Set<String> {
+        savedConnections.enabledPlatforms(host)
+    }
     
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
     @EnvironmentObject private var savedConnections: SavedConnections
@@ -20,27 +25,66 @@ struct ControlView: View {
     @State private var volumeChangeWorkItem: DispatchWorkItem?
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
-    @State private var showingConnectionLostAlert = false
+    @State private var _showingConnectionLostAlert = false
     @State private var showingThemeSettings: Bool = false
+    @State private var showingDebugLogs: Bool = false
     @State private var selectedPlatformIndex: Int = 0
-    @State private var showingError = false
-    @State private var connectionError: (title: String, message: String)?
+    @State private var _showingError = false
+    @State private var _connectionError: (title: String, message: String)?
+    @State private var showingSetupFlow = false
+    
+    // MARK: - SSHConnectedView Protocol Properties
+    var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
+    var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
+    var showingError: Binding<Bool> { $_showingError }
+    
+    // MARK: - SSH Connection Callbacks
+    func onSSHConnected() {
+        Task { await appController.updateAllStates() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+            isReady = true
+            viewLog("ControlView: Ready state activated", view: "ControlView")
+        }
+    }
+    
+    func onSSHConnectionFailed(_ error: Error) {
+        // Error handling is done automatically by the mixin
+    }
 
-    init(host: String, displayName: String, username: String, password: String, enabledPlatforms: Set<String> = Set()) {
+
+    private var isPhoneLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+    
+    init(host: String, displayName: String, username: String, password: String) {
         self.host = host
         self.displayName = displayName
         self.username = username
         self.password = password
-        self.enabledPlatforms = enabledPlatforms
         
-        // Filter platforms based on enabled set
-        let filteredPlatforms = PlatformRegistry.allPlatforms.filter { platform in
-            enabledPlatforms.isEmpty || enabledPlatforms.contains(platform.id)
+        // Create placeholder AppController - will be properly initialized in onAppear
+        _appController = StateObject(wrappedValue: AppController(sshClient: SSHConnectionManager.shared, platformRegistry: PlatformRegistry(platforms: [])))
+    }
+    
+    // Update AppController with current platforms
+    private func updateAppControllerPlatforms() {
+        var currentPlatforms = enabledPlatforms
+        
+        // If no platforms are saved for this host, use default enabled platforms
+        if currentPlatforms.isEmpty {
+            let defaultRegistry = PlatformRegistry()
+            currentPlatforms = defaultRegistry.enabledPlatforms
+            viewLog("ControlView: No saved platforms for host, using defaults: \(currentPlatforms)", view: "ControlView")
         }
-        let registry = PlatformRegistry(platforms: filteredPlatforms)
         
-        // Initialize with a temporary client - it will be replaced when we connect
-        _appController = StateObject(wrappedValue: AppController(sshClient: SSHClient(), platformRegistry: registry))
+        // Create new registry with all platforms, but update enabled platforms
+        let newRegistry = PlatformRegistry()
+        newRegistry.enabledPlatforms = currentPlatforms
+        
+        viewLog("ControlView: Updating AppController with \(newRegistry.activePlatforms.count) active platforms: \(newRegistry.activePlatforms.map { $0.name })", view: "ControlView")
+        
+        // Update the AppController's platform registry
+        appController.updatePlatformRegistry(newRegistry)
     }
     
     private var displayVolume: String {
@@ -120,8 +164,10 @@ struct ControlView: View {
                         .disabled(!volumeInitialized)
                     }
                 }
-                .frame(maxWidth: 500)
-                Spacer(minLength: 40)
+                .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
+                if !isPhoneLandscape {
+                    Spacer(minLength: 40)
+                }
             }
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
@@ -135,10 +181,16 @@ struct ControlView: View {
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
         .padding()
-        .navigationTitle(displayName)
+        .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
+        .id(enabledPlatforms) // Force recreation when platforms change
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(displayName)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -157,91 +209,131 @@ struct ControlView: View {
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
                     }
+                    Button {
+                        showingSetupFlow = true
+                    } label: {
+                        HStack{
+                            Text("Manage Apps")
+                            Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                        }
+                    }
+                    if DebugLogger.shared.isLoggingEnabled {
+                        Button {
+                            showingDebugLogs = true
+                        } label: {
+                            HStack {
+                                Text("Debug Logs")
+                                Image(systemName: "apple.terminal")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                            }
+                        }
+                    }
                 } label: {
                     Label("More", systemImage: "ellipsis")
                 }
             }
         }
         .onAppear {
-            // Set up connection lost handler
-            connectionManager.setConnectionLostHandler { @MainActor in
-                showingConnectionLostAlert = true
-            }
-            connectToSSH()
+            viewLog("ControlView: View appeared", view: "ControlView")
+            viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
+            viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
+            
+            // Update AppController with current platforms
+            updateAppControllerPlatforms()
+            
+            // Set up SSH connection
+            setupSSHConnection()
+            
             // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
                let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
+                viewLog("Restoring last viewed platform: \(lastPlatform) (index \(index))", view: "ControlView")
                 selectedPlatformIndex = index
+            } else {
+                viewLog("No previous platform preference, using default index 0", view: "ControlView")
             }
+        }
+        .navigationDestination(isPresented: $showingSetupFlow) {
+            SetupFlowView(
+                host: host,
+                displayName: displayName,
+                username: username,
+                password: password,
+                isReconfiguration: true,
+                onComplete: {
+                    showingSetupFlow = false
+                }
+            )
+            .environmentObject(savedConnections)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-            if newPhase == .active {
-                connectToSSH()
-            }
+            handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
         .onDisappear {
-            print("\n=== ControlView: Disappearing ===")
+            viewLog("ControlView: View disappeared", view: "ControlView")
             Task { @MainActor in
                 appController.cleanup()
-                connectionManager.disconnect()
             }
         }
         .onReceive(appController.$currentVolume) { newVolume in
             if let newVolume = newVolume {
+                viewLog("ControlView: Volume updated to \(Int(newVolume * 100))%", view: "ControlView")
                 volumeInitialized = true
                 volume = newVolume
+            } else {
+                viewLog("ControlView: Volume became nil - controls will be disabled", view: "ControlView")
             }
         }
-        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
-            Button("OK") {
-                dismiss()
+        .onReceive(appController.$isActive) { isActive in
+            viewLog("ControlView: AppController active state changed to \(isActive)", view: "ControlView")
+            if !isActive {
+                viewLog("🚨 ControlView: AppController became inactive - connection likely lost", view: "ControlView")
             }
+        }
+        .onReceive(connectionManager.$connectionState) { connectionState in
+            viewLog("ControlView: Connection state changed to \(connectionState)", view: "ControlView")
+            switch connectionState {
+            case .disconnected:
+                viewLog("🚨 ControlView: Connection is disconnected", view: "ControlView")
+            case .connecting:
+                viewLog("ControlView: Currently connecting...", view: "ControlView")
+            case .connected:
+                viewLog("✓ ControlView: Connection established", view: "ControlView")
+            case .failed(let error):
+                viewLog("❌ ControlView: Connection failed: \(error)", view: "ControlView")
+            }
+        }
+        .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
+            Button("OK") { dismiss() }
         } message: {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
-        .alert(connectionError?.title ?? "", isPresented: $showingError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(connectionError?.message ?? "")
-        }
+        .alert(isPresented: showingError) { connectionErrorAlert() }
         .sheet(isPresented: $showingThemeSettings){
             ThemePreferenceSheet()
                 .presentationDetents([.height(200)])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showingDebugLogs) {
+            DebugLogsView(isReadOnly: true)
+        }
     }
 
-    private func connectToSSH() {
-        connectionManager.handleConnection(
-            host: host,
-            username: username,
-            password: password,
-            onSuccess: { [weak appController] in
-                appController?.updateClient(connectionManager.client)
-                await appController?.updateAllStates()
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
-                    isReady = true
-                }
-            },
-            onError: { error in
-                if let sshError = error as? SSHError {
-                    connectionError = sshError.formatError(displayName: displayName)
-                } else {
-                    connectionError = (
-                        "Connection Error",
-                        "An unexpected error occurred: \(error.localizedDescription)"
-                    )
-                }
-                showingError = true
-            }
-        )
-    }
+
 
     private func adjustVolume(by amount: Int) {
-        guard volumeInitialized else { return }
+        guard volumeInitialized else { 
+            viewLog("⚠️ ControlView: Volume adjustment attempted before initialization", view: "ControlView")
+            return 
+        }
+        
+        let oldVolume = Int(volume * 100)
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
+        
+        viewLog("ControlView: Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
+        
         volume = Float(newVolume) / 100.0
         Task {
             await appController.setVolume(volume)
@@ -249,7 +341,11 @@ struct ControlView: View {
     }
     
     private func debounceVolumeChange() {
-        guard volumeInitialized else { return }
+        guard volumeInitialized else { 
+            viewLog("⚠️ ControlView: Volume change attempted before initialization", view: "ControlView")
+            return 
+        }
+        
         volumeChangeWorkItem?.cancel()
         let workItem = DispatchWorkItem {
             Task {

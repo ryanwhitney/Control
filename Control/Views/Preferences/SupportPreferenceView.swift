@@ -3,27 +3,31 @@ import MultiBlur
 
 struct SupportPreferenceView: View {
     @State private var showMailComposer = false
+    @State private var showingDebugLogs = false
+    @StateObject private var debugLogger = DebugLogger.shared
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(spacing:16){
+        ScrollView {
+            VStack(spacing:16){
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 8){
                     Text("Found an issue?")
                         .font(.headline)
-                    Text("This app includes zero analytics or tracking. If you run into any bug or issues, please let me know and I'll do my best to fix it.")
+                    Text("This app includes zero analytics or tracking. If you run into any  issues, please let me know and I'll do my best to fix it.")
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 8){
                     Text("App or feature requests")
                         .font(.headline)
-                    Text("Control comes with support for few popular Mac apps, but more can be added. Feel free to request additional apps or features.")
+                    Text("Control comes with support for a few popular Mac apps, but more can be added. Feel free to request additional apps or features.")
                         .foregroundStyle(.secondary)
                 }
                 Button {
                     showMailComposer = true
                 } label: {
                     HStack {
+                        Image(systemName: "envelope")
                         Text("Contact Support")
                             .multiblur([(10,0.25), (50,0.35)])
                     }
@@ -57,14 +61,13 @@ struct SupportPreferenceView: View {
                 } label: {
                     HStack {
                         Text("View Control On GitHub")
-                            .multiblur([(10,0.25), (50,0.35)])
-
-
+                        Image(systemName: "arrow.up.right")
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
                     .foregroundStyle(.indigo)
                     .fontWeight(.bold)
+                    .multiblur([(10,0.25), (50,0.35)])
                 }
                 .background(Color.indigo.opacity(0.025))
                 .cornerRadius(12)
@@ -76,12 +79,56 @@ struct SupportPreferenceView: View {
             .padding()
             .background(Color.black.opacity(0.25))
             .cornerRadius(10)
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8){
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Debug Logs")
+                            .font(.headline)
+                        Spacer()
+                        Text(debugLogger.isLoggingEnabled ? "Enabled" : "Disabled")
+                            .font(.caption)
+                            .foregroundStyle(debugLogger.isLoggingEnabled ? .green : .secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(debugLogger.isLoggingEnabled ? .green.opacity(0.1) : .secondary.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+
+                    Text("Enable logging to help diagnose connection or app issues.")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    showingDebugLogs = true
+                } label: {
+                    HStack {
+                        Text("Open Debug Logs")
+                        Image(systemName: "chevron.right")
+                    }
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(.red)
+                    .fontWeight(.bold)
+                    .multiblur([(10,0.25), (50,0.35)])
+                }
+                .background(Color.red.opacity(0.025))
+                .cornerRadius(12)
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .frame(maxWidth: .infinity)
+            }
+            .padding()
+            .background(Color.black.opacity(0.25))
+            .cornerRadius(10)
+            
             HStack{
                 Spacer()
                 VersionView()
                 Spacer()
             }
             Spacer()
+            }
+            .padding()
         }
         .sheet(isPresented: $showMailComposer) {
             MailComposer(
@@ -91,7 +138,9 @@ struct SupportPreferenceView: View {
                 body: "\n\n---------\nAbove, please describe the issue you're having or any other feedback you'd like to share. Thanks!"
             )
         }
-        .padding()
+        .sheet(isPresented: $showingDebugLogs) {
+            DebugLogsView()
+        }
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarTitle("Support")
 

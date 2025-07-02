@@ -13,6 +13,7 @@ enum SSHError: Error {
     case noSession
 }
 
+
 class SSHClient: SSHClientProtocol {
     private var group: EventLoopGroup
     private var connection: Channel?
@@ -33,15 +34,21 @@ class SSHClient: SSHClientProtocol {
         // Reset connection state
         hasCompletedConnection = false
         
+        let connectionId = UUID().uuidString.prefix(8)
+        sshLog("🆔 [\(connectionId)] SSHClient: Starting connection process")
+        sshLog("Host: \(host.prefix(10))***")
+        sshLog("Username: \(username.prefix(3))***")
+        
         // Only clean up if we have an active connection
         if connection != nil {
+            sshLog("Cleaning up existing connection before reconnecting")
             disconnect()
         }
         
         // Set up timeout
         let timeout = DispatchWorkItem { [weak self] in
             guard let self = self, !self.hasCompletedConnection else { return }
-            print("❌ Connection timed out")
+            sshLog("❌ [\(connectionId)] Connection timed out after 5 seconds")
             self.hasCompletedConnection = true
             self.disconnect()
             completion(.failure(SSHError.timeout))
@@ -53,58 +60,71 @@ class SSHClient: SSHClientProtocol {
         authDelegate.onAuthFailure = { [weak self] in
             guard let self = self, !self.hasCompletedConnection else { return }
             timeout.cancel()
+            sshLog("❌ [\(connectionId)] Authentication failed")
             self.hasCompletedConnection = true
             self.disconnect()
             completion(.failure(SSHError.authenticationFailed))
         }
         self.authDelegate = authDelegate
         
-        // Create and configure bootstrap
+        // Create and configure bootstrap with explicit timeout
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
+            .channelOption(ChannelOptions.connectTimeout, value: .seconds(4)) // Shorter than our 5-second timeout
             .channelInitializer { [weak self] channel in
                 self?.setupChannel(channel, authDelegate: authDelegate) ?? channel.eventLoop.makeFailedFuture(SSHError.channelError("Failed to setup channel"))
             }
         
         // Attempt connection
-        print("Connecting to \(host):22...")
+        let isLocal = host.contains(".local")
+        let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
+        let hostRedacted = String(host.prefix(3)) + "***"
+        
+        sshLog("Attempting TCP connection: \(connectionType)")
+        sshLog("Target: \(hostRedacted):22")
+        
         bootstrap.connect(host: host, port: 22).whenComplete { [weak self] result in
+            guard let self = self, !self.hasCompletedConnection else { 
+                sshLog("⚠️ [\(connectionId)] Connection attempt completed but already handled, ignoring result")
+                return 
+            }
             timeout.cancel()
             
             switch result {
             case .success(let channel):
-                if self?.hasCompletedConnection == false {
-                    self?.connection = channel
-                    self?.createSession { [weak self] sessionResult in
-                        switch sessionResult {
-                        case .success:
-                            if self?.hasCompletedConnection == false {
-                                timeout.cancel()
-                                if authDelegate.authFailed {
-                                    self?.hasCompletedConnection = true
-                                    completion(.failure(SSHError.authenticationFailed))
-                                } else {
-                                    self?.hasCompletedConnection = true
-                                    completion(.success(()))
-                                }
-                            }
-                        case .failure(let error):
-                            if self?.hasCompletedConnection == false {
-                                timeout.cancel()
-                                self?.hasCompletedConnection = true
-                                completion(.failure(error))
-                            }
+                sshLog("✓ [\(connectionId)] TCP connection established")
+                self.connection = channel
+                self.createSession { [weak self] sessionResult in
+                    guard let self = self, !self.hasCompletedConnection else { 
+                        sshLog("⚠️ [\(connectionId)] Session creation completed but already handled, ignoring result")
+                        return 
+                    }
+                    
+                    switch sessionResult {
+                    case .success:
+                        if authDelegate.authFailed {
+                            sshLog("❌ [\(connectionId)] Authentication failed during session creation")
+                            self.hasCompletedConnection = true
+                            completion(.failure(SSHError.authenticationFailed))
+                        } else {
+                            sshLog("✓ [\(connectionId)] SSH connection fully established")
+                            self.hasCompletedConnection = true
+                            completion(.success(()))
                         }
+                    case .failure(let error):
+                        sshLog("❌ [\(connectionId)] Session creation failed: \(error)")
+                        self.hasCompletedConnection = true
+                        completion(.failure(error))
                     }
                 }
                 
             case .failure(let error):
-                if self?.hasCompletedConnection == false {
-                    timeout.cancel()
-                    self?.hasCompletedConnection = true
-                    completion(.failure(error))
-                }
+                sshLog("❌ [\(connectionId)] TCP connection failed: \(error.localizedDescription)")
+                self.hasCompletedConnection = true
+                
+                // Use centralized error processing (handles NIOConnectionError and timeouts)
+                completion(.failure(self.processError(error)))
             }
         }
     }
@@ -131,24 +151,72 @@ class SSHClient: SSHClientProtocol {
     
     private func processError(_ error: Error) -> Error {
         let errorString = error.localizedDescription.lowercased()
-        print("Processing error: \(errorString)")
+        let errorTypeName = String(describing: type(of: error))
+        sshLog("Processing SSH error: \(errorString)")
+        sshLog("Error type: \(errorTypeName)")
+        
+        // Handle NIOConnectionError specifically
+        if errorString.contains("nioconnectionerror") || errorTypeName.contains("NIOConnectionError") {
+            sshLog("Error classified as: NIO connection error")
+            
+            // Check for timeout specifically in NIOConnectionError
+            if errorString.contains("connecttimeout") || errorString.contains("timeout") {
+                sshLog("NIOConnectionError contains timeout - converting to SSHError.timeout")
+                return SSHError.timeout
+            } else if errorString.contains("dnsaerror") || errorString.contains("dnsaaaerror") {
+                sshLog("DNS resolution failed")
+                return SSHError.connectionFailed("Could not find the device on your network")
+            } else {
+                sshLog("Generic NIOConnectionError - treating as network connection failed")
+                return SSHError.connectionFailed("Network connection failed")
+            }
+        }
+        
+        // Network connectivity issues
+        if errorString.contains("network is unreachable") ||
+           errorString.contains("host is unreachable") ||
+           errorString.contains("no route to host") ||
+           errorString.contains("connection timed out") {
+            sshLog("Error classified as: Network connectivity issue")
+            return SSHError.connectionFailed("Network connectivity lost")
+        }
+        
+        // DNS resolution failures
+        if errorString.contains("dns") || 
+           errorString.contains("unknown host") ||
+           errorString.contains("nodename nor servname provided") {
+            sshLog("Error classified as: DNS resolution failure")
+            return SSHError.connectionFailed("Could not find the device on your network")
+        }
         
         // Authentication failures
         if errorString.contains("auth failed") || 
            errorString.contains("permission denied") {
+            sshLog("Error classified as: Authentication failure")
             return SSHError.authenticationFailed
         }
         
         // Connection failures
         if let posixError = error as? POSIXError {
+            sshLog("POSIX error detected: \(posixError.code)")
             switch posixError.code {
             case .ECONNREFUSED:
+                sshLog("Error classified as: Connection refused (Remote Login disabled)")
                 return SSHError.connectionFailed("Remote Login is not enabled")
             case .EHOSTUNREACH:
+                sshLog("Error classified as: Host unreachable")
                 return SSHError.connectionFailed("Computer is not reachable")
             case .ETIMEDOUT:
+                sshLog("Error classified as: Timeout")
                 return SSHError.timeout
+            case .ENETUNREACH:
+                sshLog("Error classified as: Network unreachable")
+                return SSHError.connectionFailed("Network connectivity lost")
+            case .ENOTCONN:
+                sshLog("Error classified as: Not connected")
+                return SSHError.connectionFailed("Connection was lost")
             default:
+                sshLog("Error classified as: Network error (\(posixError.code))")
                 return SSHError.connectionFailed("Network error: \(posixError.localizedDescription)")
             }
         }
@@ -157,23 +225,25 @@ class SSHClient: SSHClientProtocol {
         if errorString.contains("connection reset") ||
            errorString.contains("eof") ||
            errorString.contains("broken pipe") {
+            sshLog("Error classified as: Connection interrupted")
             return SSHError.connectionFailed("Connection was interrupted")
         }
         
         // If we get here, it's likely a connection issue
+        sshLog("Error classified as: Generic connection failure")
         return SSHError.connectionFailed("Could not establish connection")
     }
     
     private func createSession(completion: @escaping (Result<Void, Error>) -> Void) {
         guard let connection = connection else {
-            print("No active connection for session creation")
+            sshLog("❌ No active connection for session creation")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
         
         let promise = connection.eventLoop.makePromise(of: Channel.self)
         
-        print("Creating SSH session...")
+        sshLog("Creating SSH session...")
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { handler -> EventLoopFuture<Channel> in
             handler.createChannel(promise) { channel, channelType in
                 guard channelType == .session else {
@@ -188,11 +258,11 @@ class SSHClient: SSHClientProtocol {
         }.whenComplete { [weak self] result in
             switch result {
             case .success(let channel):
-                print("✓ SSH session created")
+                sshLog("✓ SSH session created successfully")
                 self?.session = channel
                 completion(.success(()))
             case .failure(let error):
-                print("SSH session creation failed: \(error)")
+                sshLog("❌ SSH session creation failed: \(error)")
                 completion(.failure(self?.processError(error) ?? error))
             }
         }
@@ -200,12 +270,13 @@ class SSHClient: SSHClientProtocol {
     
     func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         guard let session = session else {
-            print("No active session")
+            sshLog("❌ No active session for command execution")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
         
-        print("$ \(description ?? "Running AppleScript command")")
+        let commandDesc = description ?? "Running AppleScript command"
+        sshLog("Executing: \(commandDesc)")
         
         session.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler -> EventLoopFuture<String> in
             let promise = session.eventLoop.makePromise(of: String.self)
@@ -218,13 +289,18 @@ class SSHClient: SSHClientProtocol {
         }.whenComplete { result in
             switch result {
             case .success(let output):
+                sshLog("✓ Command completed successfully")
+                if !output.isEmpty {
+                    sshLog("Command output: \(output)")
+                }
                 completion(.success(output))
             case .failure(let error):
                 let errorString = error.localizedDescription.lowercased()
                 if errorString.contains("channel setup rejected") || errorString.contains("open failed") {
-                    print("Channel setup was rejected by the server")
+                    sshLog("❌ Command failed: Server rejected channel setup")
                     completion(.failure(SSHError.channelError("Server rejected channel setup")))
                 } else {
+                    sshLog("❌ Command failed: \(error)")
                     completion(.failure(error))
                 }
             }
@@ -232,15 +308,24 @@ class SSHClient: SSHClientProtocol {
     }
     
     func executeCommandWithNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommandDirectly(command, description: description, completion: completion)
+    }
+    
+    /// Execute command directly without heartbeat checks - used by the heartbeat mechanism itself
+    func executeCommandBypassingHeartbeat(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommandDirectly(command, description: description, completion: completion)
+    }
+    
+    /// Direct execution method that bypasses heartbeat checks (used by heartbeat itself)
+    private func executeCommandDirectly(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         guard let connection = connection else {
-            print("No active connection")
+            sshLog("❌ No active connection for new channel command")
             completion(.failure(SSHError.channelNotConnected))
             return
         }
         
-        if let description = description {
-            print("$ \(description)")
-        }
+        let commandDesc = description ?? "Running command with new channel"
+        sshLog("Executing with new channel: \(commandDesc)")
         
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
         var commandChannel: Channel?
@@ -264,7 +349,7 @@ class SSHClient: SSHClientProtocol {
                 commandChannel = channel
                 return channel
             }.flatMapError { error in
-                print("Channel creation failed: \(error)")
+                sshLog("❌ Channel creation failed: \(error)")
                 // Check for TCP shutdown and other fatal errors
                 let errorString = error.localizedDescription.lowercased()
                 if errorString.contains("tcp shutdown") ||
@@ -272,7 +357,7 @@ class SSHClient: SSHClientProtocol {
                    errorString.contains("broken pipe") ||
                    errorString.contains("connection closed") ||
                    errorString.contains("eof") {
-                    print("Fatal connection error detected: \(error)")
+                    sshLog("🚨 Fatal connection error detected - connection lost")
                     self.disconnect()
                     return connection.eventLoop.makeFailedFuture(SSHError.channelError("Connection lost"))
                 }
@@ -286,10 +371,11 @@ class SSHClient: SSHClientProtocol {
                 
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
-                    // Add timeout for command execution
-                    channel.eventLoop.scheduleTask(in: .seconds(5)) {
+                    // Add timeout for command execution - shorter for heartbeat commands
+                    let timeoutSeconds = (command.contains("heartbeat-")) ? 3 : 5
+                    channel.eventLoop.scheduleTask(in: .seconds(Int64(timeoutSeconds))) {
                         if let pendingPromise = handler.pendingCommandPromise {
-                            print("Command execution timed out")
+                            sshLog("⏰ Command execution timed out after \(timeoutSeconds) seconds")
                             pendingPromise.fail(SSHError.timeout)
                             channel.close(promise: nil)
                         }
@@ -305,15 +391,13 @@ class SSHClient: SSHClientProtocol {
             
             switch result {
             case .success(let output):
-                if let description = description {
-                    print("$ \(description)")
-                }
+                sshLog("✓ New channel command completed successfully")
                 if !output.isEmpty {
-                    print("Received output: \(output)")
+                    sshLog("Command output: \(output)")
                 }
                 completion(.success(output))
             case .failure(let error):
-                print("SSH Error: \(error)")
+                sshLog("❌ New channel command failed: \(error)")
                 // Check if the error indicates a disconnection
                 let errorString = error.localizedDescription.lowercased()
                 if errorString.contains("eof") || 
@@ -321,7 +405,7 @@ class SSHClient: SSHClientProtocol {
                    errorString.contains("broken pipe") ||
                    errorString.contains("connection closed") ||
                    errorString.contains("tcp shutdown") {
-                    print("Connection appears to be closed - disconnecting")
+                    sshLog("🚨 Connection appears to be closed - cleaning up")
                     self.disconnect()
                     completion(.failure(SSHError.channelError("Connection lost")))
                 } else {
@@ -332,22 +416,43 @@ class SSHClient: SSHClientProtocol {
     }
     
     func disconnect() {
-        print("\n=== SSHClient: Disconnecting ===")
-        // Cancel any pending promises before closing channels
+        sshLog("SSHClient: Starting disconnect process")
+        
+        // Reset connection completion state
+        hasCompletedConnection = false
+        
+        // Send exit command to gracefully close remote session if possible
         if let session = session {
+            sshLog("Sending exit command to gracefully close remote session")
+            let exitPromise = session.eventLoop.makePromise(of: Void.self)
+            let exitRequest = SSHChannelRequestEvent.ExecRequest(command: "exit", wantReply: false)
+            session.triggerUserOutboundEvent(exitRequest).whenComplete { _ in
+                exitPromise.succeed(())
+            }
+            
+            // Don't wait too long for exit command
+            session.eventLoop.scheduleTask(in: .milliseconds(500)) {
+                exitPromise.succeed(())
+            }
+            
+            // Cancel any pending promises after exit attempt
             session.pipeline.handler(type: SSHCommandHandler.self).whenSuccess { handler in
                 if let promise = handler.pendingCommandPromise {
-                    print("Cancelling pending command promise")
+                    sshLog("Cancelling pending command promise")
                     promise.fail(SSHError.channelError("Connection closed"))
                 }
             }
         }
         
+        // Clean up auth delegate
+        authDelegate = nil
+        
+        // Close session and connection
         session?.close(promise: nil)
         session = nil
         connection?.close(promise: nil)
         connection = nil
-        print("✓ Disconnected and cleaned up resources")
+        sshLog("✓ SSHClient disconnected and cleaned up")
     }
 }
 

@@ -4,39 +4,42 @@ extension SSHError {
         case .authenticationFailed:
             return (
                 "Authentication Failed",
-                """
-                The username or password provided was incorrect.\n
-                Please check your credentials and try again.
-                """
+                "The username or password provided was incorrect. Please check your credentials and try again."
             )
-        case .connectionFailed(let reason):
+        case .connectionFailed(_):
             return (
-                "Connection Failed",
-                """
-                \(reason)
-                
-                Please check that:\n
-                • Both devices are on the same network\n
-                • Remote Login is enabled in your Mac's System Settings 
-                """
+                "Failed to connect to \(displayName)",
+                "Ensure that both devices are on the same network and Remote Login is enabled on your Mac."
             )
         case .timeout:
             return (
-                "Couldn't connect to \(displayName)",
+                "Connection Timeout",
                 """
-                Please check your network connection and ensure both devices are on the same network.
+                The connection to \(displayName) timed out.
+                
+                Please check that:
+                • Both devices are on the same network
+                • Remote Login is enabled on your Mac
+                • Your Mac isn't sleeping or locked
                 """
             )
         case .channelError(let details):
-            return (
-                "Connection Error",
-                """
-                Failed to establish a secure connection with \(displayName).
-                Please try again in a few moments.
-                
-                Technical details: \(details)
-                """
-            )
+            if details.contains("Connection lost") || details.contains("Invalid heartbeat response") {
+                return (
+                    "Lost connection to \(displayName)",
+                    "Please check that both devices are still on the same network and your Mac is awake and responsive."
+                )
+            } else {
+                return (
+                    "Connection Error",
+                    """
+                    Failed to establish a secure connection with \(displayName).
+                    Please try again in a few moments.
+                    
+                    Technical details: \(details)
+                    """
+                )
+            }
         case .channelNotConnected:
             return (
                 "Connection Error",

@@ -2,8 +2,10 @@ import Foundation
 
 struct ChromeApp: AppPlatform {
     let id = "chrome"
-    let name = "Google Chrome Canary"
+    let name = "Google Chrome"
     let defaultEnabled = false
+    let experimental = true
+    let reasonForExperimental = "Only works with YouTube videos in Chrome. Requires Chrome to be running and may be unreliable."
 
     var supportedActions: [ActionConfig] {
         [
@@ -25,7 +27,7 @@ struct ChromeApp: AppPlatform {
 
     // Retrieves the current media status
     private let statusScript = """
-    tell application "Google Chrome Canary"
+    tell application "Google Chrome"
         set windowCount to number of windows
         if windowCount is 0 then
             return "No windows open|||No media playing|||false"
@@ -75,7 +77,7 @@ struct ChromeApp: AppPlatform {
         switch action {
         case .playPauseToggle:
             return """
-            tell application "Google Chrome Canary"
+            tell application "Google Chrome"
                 set windowCount to number of windows
                 if windowCount is 0 then return
             
@@ -94,7 +96,7 @@ struct ChromeApp: AppPlatform {
 
         case .skipForward(let seconds):
             return """
-            tell application "Google Chrome Canary"
+            tell application "Google Chrome"
                 if (count of windows) > 0 then
                     tell active tab of front window
                         execute javascript "
@@ -109,8 +111,8 @@ struct ChromeApp: AppPlatform {
             """
 
         case .skipBackward(let seconds):
-            return """
-            tell application "Google Chrome Canary"
+                        return """
+            tell application "Google Chrome"
                 if (count of windows) > 0 then
                     tell active tab of front window
                         execute javascript "

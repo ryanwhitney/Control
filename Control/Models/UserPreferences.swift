@@ -11,10 +11,17 @@ class UserPreferences: ObservableObject {
         }
     }
     
+    @Published var lastSeenWhatsNewVersion: String {
+        didSet {
+            UserDefaults.standard.set(lastSeenWhatsNewVersion, forKey: "lastSeenWhatsNewVersion")
+        }
+    }
+    
     static let shared = UserPreferences()
     
     private init() {
         self.tintColor = UserDefaults.standard.string(forKey: "appTintColor") ?? "green"
+        self.lastSeenWhatsNewVersion = UserDefaults.standard.string(forKey: "lastSeenWhatsNewVersion") ?? ""
     }
     
     var tintColorValue: Color {
@@ -31,5 +38,21 @@ class UserPreferences: ObservableObject {
         case "cyan": return .cyan
         default: return .green
         }
+    }
+    
+    // Update to show the what's new screen
+    private let whatsNewContentVersion = "1.10"
+
+    var shouldShowWhatsNew: Bool {
+        return lastSeenWhatsNewVersion != whatsNewContentVersion
+    }
+    
+    func markWhatsNewAsSeen() {
+        lastSeenWhatsNewVersion = whatsNewContentVersion
+    }
+    
+    // Force what's new screen to show again
+    func resetWhatsNew() {
+        lastSeenWhatsNewVersion = ""
     }
 } 

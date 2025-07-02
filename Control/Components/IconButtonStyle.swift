@@ -2,6 +2,9 @@ import SwiftUI
 import UIKit
 
 struct IconButtonStyle: ButtonStyle {
+    @State private var bounceCount = 0
+    @State private var isAnimating = false
+    
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
@@ -10,11 +13,28 @@ struct IconButtonStyle: ButtonStyle {
             .frame(width: 60, height: 60)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
-            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-            .opacity(configuration.isPressed ? 0.7 : 1.0)
-            .animation(.spring(duration: 0.2), value: configuration.isPressed)
+            .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
+            .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
+            .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.05), value: isAnimating)
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded { _ in
+                        bounceCount += 1
+                        isAnimating = true
+                        Task {
+                            // End opacity fade before bounce completes
+                            try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                            await MainActor.run {
+                                isAnimating = false
+                            }
+                        }
+                    }
+            )
     }
 }
+
+
 
 struct IconButtonStyle_Previews: PreviewProvider {
     static var previews: some View {

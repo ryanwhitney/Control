@@ -1,29 +1,58 @@
 import SwiftUI
 import MultiBlur
 
-struct ChooseAppsView: View {
+struct ChooseAppsView: View, SSHConnectedView {
     let host: String
     let displayName: String
     let username: String
     let password: String
+    let initialSelection: Set<String>?
     let onComplete: (Set<String>) -> Void
+    
+    private var isReconfiguration: Bool {
+        initialSelection != nil
+    }
 
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
+    
+    private var availablePlatforms: [any AppPlatform] {
+        let nonExperimental = platformRegistry.nonExperimentalPlatforms
+        let enabledExperimental = platformRegistry.experimentalPlatforms.filter { 
+            platformRegistry.enabledExperimentalPlatforms.contains($0.id) 
+        }
+        return nonExperimental + enabledExperimental
+    }
 
     @State private var selectedPlatforms: Set<String> = []
-    @State private var showingConnectionLostAlert = false
+    @State private var _showingConnectionLostAlert = false
+    @State private var _showingError = false
+    @State private var _connectionError: (title: String, message: String)?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
+    
+    // MARK: - SSHConnectedView Protocol Properties
+    var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
+    var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
+    var showingError: Binding<Bool> { $_showingError }
+    
+    // MARK: - SSH Connection Callbacks
+    func onSSHConnected() {
+        // Connection successful - no specific action needed
+    }
+    
+    func onSSHConnectionFailed(_ error: Error) {
+        // Error handling is done automatically by the mixin
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 HStack{EmptyView()}.frame(height: headerHeight)
                 VStack(spacing: 8) {
-                    ForEach(platformRegistry.platforms, id: \.id) { platform in
+                    ForEach(availablePlatforms, id: \.id) { platform in
                         HStack {
                             Toggle(isOn: Binding(
                                 get: { selectedPlatforms.contains(platform.id) },
@@ -35,8 +64,15 @@ struct ChooseAppsView: View {
                                     }
                                 }
                             )) {
-                                Text(platform.name)
-                                    .padding()
+                                HStack {
+                                    Text(platform.name)
+                                    if platform.experimental {
+                                        Image(systemName: "flask.fill")
+                                            .foregroundStyle(.tint)
+                                            .font(.caption)
+                                    }
+                                }
+                                .padding()
                             }
                             .padding(.trailing)
                             .foregroundStyle(.primary)
@@ -57,6 +93,11 @@ struct ChooseAppsView: View {
                 }
                 .padding()
             }
+            .mask(
+                LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
+            )
+            .background(Color(.systemBackground))
+            .cornerRadius(12)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
             
@@ -70,7 +111,7 @@ struct ChooseAppsView: View {
                     .foregroundStyle(.tint, .quaternary)
                     .padding(.bottom, -20)
                     .accessibilityHidden(true)
-                Text("Which apps would you like to control?")
+                Text("Choose apps to control")
                     .font(.title2)
                     .bold()
                     .padding(.horizontal)
@@ -79,6 +120,7 @@ struct ChooseAppsView: View {
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
+            .accessibilityAddTraits(.isHeader)
             .frame(maxWidth:.infinity)
             .multilineTextAlignment(.center)
             .background(GeometryReader {
@@ -95,9 +137,10 @@ struct ChooseAppsView: View {
                 Spacer()
                 BottomButtonPanel{
                     Button(action: {
+                        viewLog("Selected platforms: \(selectedPlatforms)", view: "ChooseAppsView")
                         onComplete(selectedPlatforms)
                     }) {
-                        Text("Continue")
+                        Text(isReconfiguration ? "Update" : "Continue")
                             .padding(.vertical, 11)
                             .frame(maxWidth: .infinity)
                             .tint(.accentColor)
@@ -117,47 +160,38 @@ struct ChooseAppsView: View {
             }
         }
         .toolbarBackground(.black, for: .navigationBar)
+        .navigationTitle("")
+        .navigationBarBackButtonHidden(false)
         .onAppear {
-            // Initialize selected platforms based on their defaultEnabled property
-            selectedPlatforms = Set(platformRegistry.platforms.filter { $0.defaultEnabled }.map { $0.id })
+            viewLog("ChooseAppsView: View appeared", view: "ChooseAppsView")
+            updateSelectedPlatforms()
             
-            // Set up connection lost handler
-            connectionManager.setConnectionLostHandler { @MainActor in
-                showingConnectionLostAlert = true
-            }
-            connectToSSH()
+            // Set up SSH connection
+            setupSSHConnection()
         }
-        .onChange(of: scenePhase, { oldPhase, newPhase in
-            if newPhase == .active {
-                connectToSSH()
-            }
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-        })
+        .onChange(of: initialSelection) { _, newValue in
+            updateSelectedPlatforms()
+        }
+        .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
-            print("\n=== ChooseAppsView: Disappearing ===")
-            Task { @MainActor in
-                connectionManager.disconnect()
-            }
+            viewLog("ChooseAppsView: View disappeared", view: "ChooseAppsView")
         }
-        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
-            Button("OK") {
-                dismiss()
-            }
+        .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
+            Button("OK") { dismiss() }
         } message: {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
-    }
-    
-    private func connectToSSH() {
-        connectionManager.handleConnection(
-            host: host,
-            username: username,
-            password: password,
-            onSuccess: { },
-            onError: { _ in }
-        )
+        .alert(isPresented: showingError) { connectionErrorAlert() }
     }
 
+    private func updateSelectedPlatforms() {
+        // Initialize selected platforms based on initialSelection or defaultEnabled property
+        if let initialSelection = initialSelection {
+            selectedPlatforms = initialSelection
+        } else {
+            selectedPlatforms = Set(availablePlatforms.filter { $0.defaultEnabled }.map { $0.id })
+        }
+    }
 }
 
 struct headerSizePreferenceKey: PreferenceKey {
@@ -174,6 +208,7 @@ struct headerSizePreferenceKey: PreferenceKey {
             displayName: ProcessInfo.processInfo.environment["ENV_NAME"] ?? "",
             username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
             password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
+            initialSelection: nil,
             onComplete: { _ in }
         )
     }

@@ -21,7 +21,7 @@ enum PlatformPermissionState: Equatable {
     }
 }
 
-struct PermissionsView: View {
+struct PermissionsView: View, SSHConnectedView {
     let host: String
     let displayName: String
     let username: String
@@ -29,17 +29,31 @@ struct PermissionsView: View {
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
 
-    @StateObject private var connectionManager = SSHConnectionManager()
+    @StateObject internal var connectionManager = SSHConnectionManager.shared
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
     @State private var headerHeight: CGFloat = 0
     @State private var showAppList: Bool = false
-    @State private var showingConnectionLostAlert = false
-    @State private var showingError = false
-    @State private var connectionError: (title: String, message: String)?
+    @State private var _showingConnectionLostAlert = false
+    @State private var _showingError = false
+    @State private var _connectionError: (title: String, message: String)?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
+    
+    // MARK: - SSHConnectedView Protocol Properties
+    var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
+    var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
+    var showingError: Binding<Bool> { $_showingError }
+    
+    // MARK: - SSH Connection Callbacks
+    func onSSHConnected() {
+        // Connection successful - no specific action needed
+    }
+    
+    func onSSHConnectionFailed(_ error: Error) {
+        // Error handling is done automatically by the mixin
+    }
 
     var body: some View {
         ZStack {
@@ -61,37 +75,21 @@ struct PermissionsView: View {
                 }
             }
 
-            // Set up connection lost handler
-            connectionManager.setConnectionLostHandler { @MainActor in
-                showingConnectionLostAlert = true
-            }
-
-            // Connect to SSH
-            connectToSSH()
+            // Set up SSH connection
+            setupSSHConnection()
 
             // If permissions are already granted, show success right away
             if allPermissionsGranted {
                 permissionsGranted = true
             }
         }
-        .onChange(of: scenePhase, { oldPhase, newPhase in
-            if newPhase == .active {
-                connectToSSH()
-            }
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
-        })
-        .alert("Connection Lost", isPresented: $showingConnectionLostAlert) {
-            Button("OK") {
-                dismiss()
-            }
+        .onChange(of: scenePhase, handleScenePhaseChange)
+        .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
+            Button("OK") { dismiss() }
         } message: {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
-        .alert(connectionError?.title ?? "", isPresented: $showingError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(connectionError?.message ?? "")
-        }
+        .alert(isPresented: showingError) { connectionErrorAlert() }
         .onChange(of: allPermissionsGranted) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 withAnimation(.spring()) {
@@ -116,26 +114,6 @@ struct PermissionsView: View {
         }
     }
 
-    private func connectToSSH() {
-        connectionManager.handleConnection(
-            host: host,
-            username: username,
-            password: password,
-            onSuccess: { },
-            onError: { error in
-                if let sshError = error as? SSHError {
-                    connectionError = sshError.formatError(displayName: displayName)
-                } else {
-                    connectionError = (
-                        "Connection Error",
-                        "An unexpected error occurred: \(error.localizedDescription)"
-                    )
-                }
-                showingError = true
-            }
-        )
-    }
-
     private var successView: some View {
         VStack {
             Image(systemName: "checkmark.circle.fill")
@@ -157,19 +135,17 @@ struct PermissionsView: View {
                 ScrollView(showsIndicators: false) {
                     HStack{EmptyView()}.frame(height: headerHeight)
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(enabledPlatforms), id: \.self) { platformId in
-                            if let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) {
-                                HStack {
-                                    Text(platform.name)
-                                    Spacer()
-                                    permissionStatusIcon(for: platformId)
-                                }
-                                .padding()
-                                .background(.ultraThinMaterial.opacity(0.5))
-                                .cornerRadius(12)
-                                .opacity(permissionStates[platformId] != .initial ? 1 : 0.5)
-                                .animation(.spring(), value: permissionStates[platformId])
+                        ForEach(PlatformRegistry.allPlatforms.filter { enabledPlatforms.contains($0.id) }, id: \.id) { platform in
+                            HStack {
+                                Text(platform.name)
+                                Spacer()
+                                permissionStatusIcon(for: platform.id)
                             }
+                            .padding()
+                            .background(.ultraThinMaterial.opacity(0.5))
+                            .cornerRadius(12)
+                            .opacity(permissionStates[platform.id] != .initial ? 1 : 0.5)
+                            .animation(.spring(), value: permissionStates[platform.id])
                         }
                     }
                     .opacity(showAppList ? 1 : 0)
@@ -202,12 +178,12 @@ struct PermissionsView: View {
                         .bold()
                         .padding(.horizontal)
                         .padding(.top)
-
                     Text("Control can only access apps you approve.")
                         .multilineTextAlignment(.center)
                         .foregroundColor(.secondary)
                         .padding(.horizontal)
                 }
+                .accessibilityAddTraits(.isHeader)
                 .frame(maxWidth:.infinity)
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
@@ -228,6 +204,7 @@ struct PermissionsView: View {
             }
         }
         .toolbarBackground(.black, for: .navigationBar)
+        .navigationTitle("")
     }
 
     struct headerSizePreferenceKey: PreferenceKey {
@@ -314,11 +291,13 @@ struct PermissionsView: View {
     }
 
     private func checkAllPermissions() async {
-
-
+        viewLog("PermissionsView: Starting permission check for all platforms", view: "PermissionsView")
+        viewLog("Enabled platforms: \(enabledPlatforms)", view: "PermissionsView")
+        
         // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
+                viewLog("Resetting failed state for \(platformId)", view: "PermissionsView")
                 permissionStates[platformId] = .initial
             }
         }
@@ -333,123 +312,119 @@ struct PermissionsView: View {
                 }
             }
         }
+        
+        viewLog("Permission check complete. Results:", view: "PermissionsView")
+        for platformId in enabledPlatforms {
+            viewLog("  \(platformId): \(permissionStates[platformId] ?? .initial)", view: "PermissionsView")
+        }
     }
 
     func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        let wrappedCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(command)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
+        let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
 
         return await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+            connectionManager.executeCommand(wrappedCommand, description: description) { result in
                 continuation.resume(returning: result)
             }
         }
     }
 
     private func checkPermission(for platformId: String) async {
-        guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { return }
+        guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { 
+            viewLog("❌ Platform not found: \(platformId)", view: "PermissionsView")
+            return 
+        }
 
+        viewLog("Starting permission check for \(platform.name)", view: "PermissionsView")
         permissionStates[platformId] = .checking
 
         // First activate the app
-        let activateCommand = """
-        osascript << 'APPLESCRIPT'
+        let activateScript = """
         tell application "\(platform.name)"
             activate
         end tell
-        APPLESCRIPT
         """
+        let activateCommand = ShellCommandUtilities.wrapAppleScriptForBash(activateScript)
 
-        _ = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+        viewLog("Activating \(platform.name)...", view: "PermissionsView")
+        let activateResult = await withCheckedContinuation { continuation in
+            connectionManager.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
+        }
+        
+        switch activateResult {
+        case .success:
+            viewLog("✓ \(platform.name) activated successfully", view: "PermissionsView")
+        case .failure(let error):
+            viewLog("⚠️ \(platform.name) activation failed: \(error)", view: "PermissionsView")
         }
 
         // Add a small delay to allow the app to fully activate
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
         // Then check permissions by fetching state
-        let stateCommand = """
-        osascript << 'APPLESCRIPT'
-        try
-            \(platform.fetchState())
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT
-        """
+        let stateCommand = ShellCommandUtilities.wrapAppleScriptForBash(platform.fetchState())
 
+        viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in
-            connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+            connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
 
         switch stateResult {
         case .success(let output):
+            viewLog("Permission check result for \(platform.name):", view: "PermissionsView")
+            viewLog("Output: \(output)", view: "PermissionsView")
+            
             if output.contains("Not authorized to send Apple events") {
+                viewLog("❌ \(platform.name): Permission denied", view: "PermissionsView")
                 permissionStates[platformId] = .failed("Permission needed")
             } else {
+                viewLog("✓ \(platform.name): Permission granted", view: "PermissionsView")
                 permissionStates[platformId] = .granted
             }
-        case .failure:
+        case .failure(let error):
+            viewLog("Initial permission check failed for \(platform.name): \(error)", view: "PermissionsView")
             // Keep checking - no response likely means waiting for user to accept permissions
             // Keep the checking state and start a retry loop
             var attempts = 0
             while attempts < 60 { // Try for up to 30 seconds
 
-
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
 
+                viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
                 let retryResult = await withCheckedContinuation { continuation in
-                    connectionManager.client.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                    connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
                         continuation.resume(returning: result)
                     }
                 }
 
                 switch retryResult {
                 case .success(let output):
+                    viewLog("Retry successful for \(platform.name)", view: "PermissionsView")
+                    viewLog("Output: \(output)", view: "PermissionsView")
+                    
                     if output.contains("Not authorized to send Apple events") {
+                        viewLog("❌ \(platform.name): Permission still denied after retry", view: "PermissionsView")
                         permissionStates[platformId] = .failed("Permission needed")
                     } else {
+                        viewLog("✓ \(platform.name): Permission granted after retry", view: "PermissionsView")
                         permissionStates[platformId] = .granted
                     }
                     return
-                case .failure:
+                case .failure(let error):
+                    viewLog("Retry \(attempts + 1) failed for \(platform.name): \(error)", view: "PermissionsView")
                     attempts += 1
                 }
             }
 
             // If we get here, we've timed out waiting for a response
+            viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts", view: "PermissionsView")
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 }
 
 #Preview {
