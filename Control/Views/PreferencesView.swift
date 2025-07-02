@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var preferences = UserPreferences.shared
     
     var body: some View {
         NavigationStack {
@@ -47,6 +48,7 @@ struct PreferencesView: View {
             }
         }
         .background(.ultraThinMaterial)
+        .tint(preferences.tintColorValue)
     }
 }
 
