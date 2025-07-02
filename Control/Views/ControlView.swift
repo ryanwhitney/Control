@@ -214,7 +214,7 @@ struct ControlView: View, SSHConnectedView {
                     } label: {
                         HStack{
                             Text("Manage Apps")
-                            Image(systemName: "square.fill.on.square.fill")
+                            Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
                     }
