@@ -409,6 +409,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         executeCommand(command, description: description, completion: completion)
     }
     
+    /// Execute command directly without heartbeat verification (used for batch operations)
+    nonisolated func executeCommandBypassingHeartbeat(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        client.executeCommandBypassingHeartbeat(command, description: description, completion: completion)
+    }
+    
     // MARK: - SSHClientProtocol Conformance
     
     /// Protocol-required connect method with completion handler
@@ -422,8 +427,4 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             }
         }
     }
-    
-
-    
-    // executeCommandWithNewChannel is already implemented above with heartbeat protection
 } 

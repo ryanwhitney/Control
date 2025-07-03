@@ -8,6 +8,12 @@ class AppController: ObservableObject {
     @Published var isActive = true
     static var debugMode = true // Add debug flag for troubleshooting
     
+    // Add batch operation flag to reduce heartbeats
+    private var isBatchOperation = false
+    
+    // Track initial comprehensive update completion
+    @Published var hasCompletedInitialUpdate = false
+    
     @Published var states: [String: AppState] = [:]
     @Published var lastKnownStates: [String: AppState] = [:]
     @Published var currentVolume: Float?
@@ -33,6 +39,7 @@ class AppController: ObservableObject {
         appControllerLog("AppController: Resetting state")
         isActive = true
         isUpdating = false
+        hasCompletedInitialUpdate = false
         // Don't reset states - they'll update naturally when we get new data
     }
     
@@ -82,6 +89,13 @@ class AppController: ObservableObject {
             return
         }
         
+        // Mark as batch operation to reduce heartbeats
+        isBatchOperation = true
+        defer { 
+            isBatchOperation = false
+            appControllerLog("✓ State update complete")
+        }
+        
         // Update system volume first
         await updateSystemVolume()
         
@@ -96,7 +110,29 @@ class AppController: ObservableObject {
             let isRunning = await checkIfRunning(platform)
             if isRunning {
                 appControllerLog("✓ \(platform.name) is running, fetching state")
-                await updateState(for: platform)
+                // Directly fetch state since we already know it's running
+                let result = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
+                
+                switch result {
+                case .success(let output):
+                    if output.contains("Not authorized to send Apple events") {
+                        let newState = AppState(
+                            title: "Permissions Required",
+                            subtitle: "Grant permission in System Settings > Privacy > Automation",
+                            isPlaying: nil,
+                            error: nil
+                        )
+                        updateStateIfChanged(platform.id, newState)
+                    } else {
+                        let newState = platform.parseState(output)
+                        updateStateIfChanged(platform.id, newState)
+                    }
+                case .failure(let error):
+                    var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
+                    currentState.error = error.localizedDescription
+                    states[platform.id] = currentState
+                    lastKnownStates[platform.id] = currentState
+                }
             } else {
                 appControllerLog("\(platform.name) is not running")
                 let newState = AppState(
@@ -109,7 +145,12 @@ class AppController: ObservableObject {
             }
         }
         
-        appControllerLog("✓ State update complete")
+        // Send single verification heartbeat at end of batch operation
+        if isActive {
+            appControllerLog("📦 Batch operation complete, sending single verification heartbeat")
+            _ = await executeCommand("true", description: "Batch operation verification")
+            hasCompletedInitialUpdate = true
+        }
     }
     
     func updateState(for platform: any AppPlatform) async {
@@ -217,10 +258,10 @@ class AppController: ObservableObject {
         let combinedScript = """
         try
             \(actionScript)
-            delay 0.1
+            delay 0.03
             \(statusScript)
         on error errMsg
-            delay 0.1
+            delay 0.03
             \(statusScript)
         end try
         """
@@ -346,27 +387,54 @@ class AppController: ObservableObject {
                 return
             }
             
-            // Always use new channel for reliability - revert the session reuse optimization
-            self.sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
-                switch result {
-                case .success(let output):
-                    appControllerLog("✓ Command executed successfully")
-                    if !output.isEmpty {
-                        appControllerLog("Command output: \(output)")
+            // Use heartbeat-optimized execution during batch operations
+            if self.isBatchOperation && !(description?.contains("verification") ?? false) {
+                // During batch operations, skip individual heartbeats except for verification commands
+                self.sshClient.executeCommandBypassingHeartbeat(wrappedCommand, description: description) { result in
+                    switch result {
+                    case .success(let output):
+                        appControllerLog("✓ Command executed successfully (batch mode)")
+                        if !output.isEmpty {
+                            appControllerLog("Command output: \(output)")
+                        }
+                        continuation.resume(returning: result)
+                    case .failure(let error):
+                        appControllerLog("❌ Command failed: \(error)")
+                        
+                        // Check if this is a connection loss
+                        if let connectionManager = self.sshClient as? SSHConnectionManager,
+                           connectionManager.isConnectionLossError(error) {
+                            appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
+                            self.isActive = false
+                            connectionManager.handleConnectionLost()
+                        }
+                        
+                        continuation.resume(returning: result)
                     }
-                    continuation.resume(returning: result)
-                case .failure(let error):
-                    appControllerLog("❌ Command failed: \(error)")
-                    
-                    // Check if this is a connection loss
-                    if let connectionManager = self.sshClient as? SSHConnectionManager,
-                       connectionManager.isConnectionLossError(error) {
-                        appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
-                        self.isActive = false  // Prevent further commands
-                        connectionManager.handleConnectionLost()
+                }
+            } else {
+                // Always use new channel for reliability - revert the session reuse optimization
+                self.sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+                    switch result {
+                    case .success(let output):
+                        appControllerLog("✓ Command executed successfully")
+                        if !output.isEmpty {
+                            appControllerLog("Command output: \(output)")
+                        }
+                        continuation.resume(returning: result)
+                    case .failure(let error):
+                        appControllerLog("❌ Command failed: \(error)")
+                        
+                        // Check if this is a connection loss
+                        if let connectionManager = self.sshClient as? SSHConnectionManager,
+                           connectionManager.isConnectionLossError(error) {
+                            appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
+                            self.isActive = false  // Prevent further commands
+                            connectionManager.handleConnectionLost()
+                        }
+                        
+                        continuation.resume(returning: result)
                     }
-                    
-                    continuation.resume(returning: result)
                 }
             }
         }

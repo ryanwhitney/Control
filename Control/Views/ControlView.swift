@@ -116,6 +116,12 @@ struct ControlView: View, SSHConnectedView {
                     .onChange(of: selectedPlatformIndex) { _, newValue in
                         if let platform = appController.platforms[safe: newValue] {
                             savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+                            
+                            if appController.hasCompletedInitialUpdate {
+                                Task {
+                                    await appController.updateState(for: platform)
+                                }
+                            }
                         }
                     }
                     Spacer()
@@ -255,19 +261,6 @@ struct ControlView: View, SSHConnectedView {
                 viewLog("No previous platform preference, using default index 0", view: "ControlView")
             }
         }
-        .navigationDestination(isPresented: $showingSetupFlow) {
-            SetupFlowView(
-                host: host,
-                displayName: displayName,
-                username: username,
-                password: password,
-                isReconfiguration: true,
-                onComplete: {
-                    showingSetupFlow = false
-                }
-            )
-            .environmentObject(savedConnections)
-        }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
@@ -318,6 +311,19 @@ struct ControlView: View, SSHConnectedView {
         }
         .sheet(isPresented: $showingDebugLogs) {
             DebugLogsView(isReadOnly: true)
+        }
+        .navigationDestination(isPresented: $showingSetupFlow) {
+            SetupFlowView(
+                host: host,
+                displayName: displayName,
+                username: username,
+                password: password,
+                isReconfiguration: true,
+                onComplete: {
+                    showingSetupFlow = false
+                }
+            )
+            .environmentObject(savedConnections)
         }
     }
 
