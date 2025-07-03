@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Network
 
 @MainActor
 class SSHConnectionManager: ObservableObject, SSHClientProtocol {
@@ -7,6 +8,8 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private nonisolated let sshClient: SSHClient
     private var currentCredentials: Credentials?
     private var connectionLostHandler: (@MainActor () -> Void)?
+    private var pathMonitor: NWPathMonitor?
+    private let monitorQueue = DispatchQueue(label: "SSHPathMonitor")
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     
     static let shared = SSHConnectionManager()
@@ -36,6 +39,20 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     init() {
         connectionLog("SSHConnectionManager: Initializing")
         self.sshClient = SSHClient()
+        
+        // Start monitoring network path changes to detect sudden Wi-Fi drops
+        let monitor = NWPathMonitor()
+        self.pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            if path.status != .satisfied {
+                connectionLog("🚨 Network path no longer satisfied – assuming connection lost")
+                Task { @MainActor in
+                    self.handleConnectionLost()
+                }
+            }
+        }
+        monitor.start(queue: monitorQueue)
     }
     
     func setConnectionLostHandler(_ handler: @escaping @MainActor () -> Void) {
@@ -131,6 +148,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     deinit {
         sshClient.disconnect()
         backgroundDisconnectTimer?.cancel()
+        pathMonitor?.cancel()
     }
     
     func shouldReconnect(host: String, username: String, password: String) -> Bool {

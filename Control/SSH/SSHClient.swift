@@ -21,6 +21,9 @@ class SSHClient: SSHClientProtocol {
     private var authDelegate: PasswordAuthDelegate?
     private var hasCompletedConnection = false
     
+    // Adaptive timeout rolling averages keyed by command description
+    private static var commandAverages: [String: Double] = [:]
+    
     init() {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     }
@@ -244,6 +247,7 @@ class SSHClient: SSHClientProtocol {
         let promise = connection.eventLoop.makePromise(of: Channel.self)
         
         sshLog("Creating SSH session...")
+        let start = Date() // track duration for adaptive timeout updates
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { handler -> EventLoopFuture<Channel> in
             handler.createChannel(promise) { channel, channelType in
                 guard channelType == .session else {
@@ -265,6 +269,8 @@ class SSHClient: SSHClientProtocol {
                 sshLog("❌ SSH session creation failed: \(error)")
                 completion(.failure(self?.processError(error) ?? error))
             }
+            
+            // (Adaptive timeout not tracked for session creation)
         }
     }
     
@@ -330,6 +336,7 @@ class SSHClient: SSHClientProtocol {
         let childPromise = connection.eventLoop.makePromise(of: Channel.self)
         var commandChannel: Channel?
         
+        let start = Date() // track duration for adaptive timeout updates
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { sshHandler -> EventLoopFuture<Channel> in
             sshHandler.createChannel(childPromise) { (childChannel: Channel, channelType: SSHChannelType) -> EventLoopFuture<Void> in
                 guard channelType == .session else {
@@ -371,8 +378,12 @@ class SSHClient: SSHClientProtocol {
                 
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
-                    // Add timeout for command execution - shorter for heartbeat commands
-                    let timeoutSeconds = (command.contains("heartbeat-")) ? 3 : 5
+                    // Adaptive timeout: rolling average * 3, min 2, max 8
+                    let key = commandDesc.prefix(40).description
+                    let average = SSHClient.commandAverages[key] ?? 0.5
+                    var timeoutSeconds = max(average * 3.0, 2.0)
+                    timeoutSeconds = min(timeoutSeconds, 8.0)
+                    if command.contains("heartbeat-") { timeoutSeconds = 3 }
                     channel.eventLoop.scheduleTask(in: .seconds(Int64(timeoutSeconds))) {
                         if let pendingPromise = handler.pendingCommandPromise {
                             sshLog("⏰ Command execution timed out after \(timeoutSeconds) seconds")
@@ -411,6 +422,14 @@ class SSHClient: SSHClientProtocol {
                 } else {
                     completion(.failure(error))
                 }
+            }
+            
+            // Update rolling average on success
+            if case .success = result {
+                let duration = Date().timeIntervalSince(start)
+                let key = commandDesc.prefix(40).description
+                let prev = SSHClient.commandAverages[key] ?? duration
+                SSHClient.commandAverages[key] = prev * 0.7 + duration * 0.3
             }
         }
     }
@@ -501,7 +520,12 @@ class SSHCommandHandler: ChannelInboundHandler {
     
     func channelInactive(context: ChannelHandlerContext) {
         if let promise = pendingCommandPromise {
-            promise.fail(SSHError.channelError("Connection closed"))
+            if hasReceivedOutput {
+                promise.fail(SSHError.channelError("Connection closed"))
+            } else {
+                // No output received but channel closed cleanly – treat as success with empty output
+                promise.succeed("")
+            }
             pendingCommandPromise = nil
         }
         context.fireChannelInactive()

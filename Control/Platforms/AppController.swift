@@ -18,6 +18,9 @@ class AppController: ObservableObject {
     @Published var lastKnownStates: [String: AppState] = [:]
     @Published var currentVolume: Float?
     
+    // Track last per-platform state refresh to avoid redundant work/log noise
+    private var lastStateRefresh: [String: Date] = [:]
+    
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
@@ -91,57 +94,22 @@ class AppController: ObservableObject {
         
         // Mark as batch operation to reduce heartbeats
         isBatchOperation = true
-        defer { 
+        defer {
             isBatchOperation = false
             appControllerLog("✓ State update complete")
         }
         
-        // Update system volume first
+        // Update system volume first (sequential – very fast)
         await updateSystemVolume()
         
-        // Then check which apps are running
-        for platform in platforms {
-            guard isActive else { 
-                appControllerLog("⚠️ Controller became inactive during updates, stopping")
-                break 
-            }
-            
-            appControllerLog("Checking platform: \(platform.name)")
-            let isRunning = await checkIfRunning(platform)
-            if isRunning {
-                appControllerLog("✓ \(platform.name) is running, fetching state")
-                // Directly fetch state since we already know it's running
-                let result = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
-                
-                switch result {
-                case .success(let output):
-                    if output.contains("Not authorized to send Apple events") {
-                        let newState = AppState(
-                            title: "Permissions Required",
-                            subtitle: "Grant permission in System Settings > Privacy > Automation",
-                            isPlaying: nil,
-                            error: nil
-                        )
-                        updateStateIfChanged(platform.id, newState)
-                    } else {
-                        let newState = platform.parseState(output)
-                        updateStateIfChanged(platform.id, newState)
-                    }
-                case .failure(let error):
-                    var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
-                    currentState.error = error.localizedDescription
-                    states[platform.id] = currentState
-                    lastKnownStates[platform.id] = currentState
+        // Fetch states for every platform in parallel so the phone waits for
+        // just the slowest one instead of all in sequence.
+        await withTaskGroup(of: Void.self) { group in
+            for platform in platforms {
+                group.addTask { [weak self] in
+                    guard let self else { return }
+                    await self.updateState(for: platform)
                 }
-            } else {
-                appControllerLog("\(platform.name) is not running")
-                let newState = AppState(
-                    title: "Not running",
-                    subtitle: "",
-                    isPlaying: nil,
-                    error: nil
-                )
-                updateStateIfChanged(platform.id, newState)
             }
         }
         
@@ -155,6 +123,12 @@ class AppController: ObservableObject {
     
     func updateState(for platform: any AppPlatform) async {
         guard isActive else { return }
+        
+        // Prevent duplicate refreshes within 2 s
+        if let last = lastStateRefresh[platform.id], Date().timeIntervalSince(last) < 2 {
+            return
+        }
+        lastStateRefresh[platform.id] = Date()
         
         let isRunning = await checkIfRunning(platform)
         guard isRunning else {
@@ -258,10 +232,8 @@ class AppController: ObservableObject {
         let combinedScript = """
         try
             \(actionScript)
-            delay 0.03
             \(statusScript)
         on error errMsg
-            delay 0.03
             \(statusScript)
         end try
         """

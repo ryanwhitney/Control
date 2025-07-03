@@ -31,16 +31,18 @@ extension SSHConnectedView {
     /// Handle scene phase changes with health check logic
     @MainActor
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        viewLog("\(Self.self): Scene phase changed from \(oldPhase) to \(newPhase)", view: String(describing: Self.self))
+        let viewName = String(describing: Self.self)
+        viewLog("\(viewName): Scene phase changed from \(oldPhase) to \(newPhase)", view: viewName)
         
         if newPhase == .active {
             Task { @MainActor in
+                let viewName = String(describing: Self.self)
                 if connectionManager.connectionState == .connected {
                     do {
                         try await connectionManager.verifyConnectionHealth()
-                        viewLog("✓ \(Self.self): Connection health verified", view: String(describing: Self.self))
+                        viewLog("✓ \(viewName): Connection health verified", view: viewName)
                     } catch {
-                        viewLog("❌ \(Self.self): Connection health check failed: \(error)", view: String(describing: Self.self))
+                        viewLog("❌ \(viewName): Connection health check failed: \(error)", view: viewName)
                         connectToSSH()
                     }
                 } else {
@@ -78,9 +80,10 @@ extension SSHConnectedView {
         let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
         let hostRedacted = String(host.prefix(3)) + "***"
         
-        viewLog("Target: \(hostRedacted)", view: String(describing: Self.self))
-        viewLog("Protocol: \(connectionType)", view: String(describing: Self.self))
-        viewLog("Display name: \(String(displayName.prefix(3)))***", view: String(describing: Self.self))
+        let viewNameMeta = String(describing: Self.self)
+        viewLog("Target: \(hostRedacted)", view: viewNameMeta)
+        viewLog("Protocol: \(connectionType)", view: viewNameMeta)
+        viewLog("Display name: \(String(displayName.prefix(3)))***", view: viewNameMeta)
     }
     
     @MainActor
@@ -93,19 +96,20 @@ extension SSHConnectedView {
     
     @MainActor
     private func connectToSSH() {
-        viewLog("\(Self.self): Starting SSH connection", view: String(describing: Self.self))
-        viewLog("Connection manager state: \(connectionManager.connectionState)", view: String(describing: Self.self))
+        let viewName = String(describing: Self.self)
+        viewLog("\(viewName): Starting SSH connection", view: viewName)
+        viewLog("Connection manager state: \(connectionManager.connectionState)", view: viewName)
         
         connectionManager.handleConnection(
             host: host,
             username: username,
             password: password,
             onSuccess: { 
-                viewLog("✓ \(Self.self): SSH connection successful", view: String(describing: Self.self))
+                viewLog("✓ \(viewName): SSH connection successful", view: viewName)
                 onSSHConnected()
             },
             onError: { error in
-                viewLog("❌ \(Self.self): SSH connection failed: \(error)", view: String(describing: Self.self))
+                viewLog("❌ \(viewName): SSH connection failed: \(error)", view: viewName)
                 
                 if let sshError = error as? SSHError {
                     connectionError.wrappedValue = sshError.formatError(displayName: displayName)

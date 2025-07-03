@@ -23,6 +23,8 @@ struct ControlView: View, SSHConnectedView {
     @State private var volumeInitialized: Bool = false 
     @State private var errorMessage: String?
     @State private var volumeChangeWorkItem: DispatchWorkItem?
+    @State private var volumeTask: Task<Void, Never>?
+    @State private var lastVolumeCommandDate: Date = .distantPast
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var _showingConnectionLostAlert = false
@@ -146,13 +148,34 @@ struct ControlView: View, SSHConnectedView {
                                 set: { newValue in
                                     if volumeInitialized {
                                         volume = Float(newValue)
-                                        debounceVolumeChange()
+
+                                        // Throttle to at most once every 0.3 s AND ensure only one command is in-flight.
+                                        let now = Date()
+                                        if now.timeIntervalSince(lastVolumeCommandDate) > 0.2 && volumeTask == nil {
+                                            lastVolumeCommandDate = now
+                                            volumeTask = Task {
+                                                await appController.setVolume(volume)
+                                                // Mark task finished so next update can fire
+                                                await MainActor.run { volumeTask = nil }
+                                            }
+                                        }
                                     }
                                 }
                             ),
                             in: 0...1,
                             step: 0.01,
-                            onEditingChanged: { _ in }
+                            onEditingChanged: { isEditing in
+                                if !isEditing && volumeInitialized {
+                                    // Send a final command with the last slider position, but wait for
+                                    // any running volumeTask to complete first to avoid overlap.
+                                    Task {
+                                        if let currentTask = volumeTask {
+                                            _ = await currentTask.result // wait for completion
+                                        }
+                                        await appController.setVolume(volume)
+                                    }
+                                }
+                            }
                         )
                         .accessibilityLabel("Volume Slider")
                         .accessibilityValue("system volume \(Int(volume * 100))%")
@@ -345,22 +368,6 @@ struct ControlView: View, SSHConnectedView {
         Task {
             await appController.setVolume(volume)
         }
-    }
-    
-    private func debounceVolumeChange() {
-        guard volumeInitialized else { 
-            viewLog("⚠️ ControlView: Volume change attempted before initialization", view: "ControlView")
-            return 
-        }
-        
-        volumeChangeWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            Task {
-                await appController.setVolume(volume)
-            }
-        }
-        volumeChangeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
     }
 }
 
