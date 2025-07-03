@@ -170,6 +170,7 @@ struct ControlView: View, SSHConnectedView {
                         .disabled(!volumeInitialized)
                     }
                 }
+                .padding()
                 .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
                 if !isPhoneLandscape {
                     Spacer(minLength: 40)
@@ -186,7 +187,7 @@ struct ControlView: View, SSHConnectedView {
                 .animation(.spring(), value: connectionManager.connectionState)
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
-        .padding()
+        .padding(.vertical)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
