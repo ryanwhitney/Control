@@ -22,8 +22,7 @@ struct ControlView: View, SSHConnectedView {
     @State private var volume: Float = 0.5
     @State private var volumeInitialized: Bool = false 
     @State private var errorMessage: String?
-    @State private var volumeChangeWorkItem: DispatchWorkItem?
-    @State private var volumeTask: Task<Void, Never>?
+    @State private var volumeChangeWorkItem: DispatchWorkItem? // unused but keep for other logic
     @State private var lastVolumeCommandDate: Date = .distantPast
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
@@ -148,16 +147,10 @@ struct ControlView: View, SSHConnectedView {
                                 set: { newValue in
                                     if volumeInitialized {
                                         volume = Float(newValue)
-
-                                        // Throttle to at most once every 0.3 s AND ensure only one command is in-flight.
                                         let now = Date()
-                                        if now.timeIntervalSince(lastVolumeCommandDate) > 0.2 && volumeTask == nil {
+                                        if now.timeIntervalSince(lastVolumeCommandDate) > 0.4 {
                                             lastVolumeCommandDate = now
-                                            volumeTask = Task {
-                                                await appController.setVolume(volume)
-                                                // Mark task finished so next update can fire
-                                                await MainActor.run { volumeTask = nil }
-                                            }
+                                            Task { await appController.setVolume(volume) }
                                         }
                                     }
                                 }
@@ -166,14 +159,8 @@ struct ControlView: View, SSHConnectedView {
                             step: 0.01,
                             onEditingChanged: { isEditing in
                                 if !isEditing && volumeInitialized {
-                                    // Send a final command with the last slider position, but wait for
-                                    // any running volumeTask to complete first to avoid overlap.
-                                    Task {
-                                        if let currentTask = volumeTask {
-                                            _ = await currentTask.result // wait for completion
-                                        }
-                                        await appController.setVolume(volume)
-                                    }
+                                    // Send the final value immediately
+                                    Task { await appController.setVolume(volume) }
                                 }
                             }
                         )
@@ -365,8 +352,12 @@ struct ControlView: View, SSHConnectedView {
         viewLog("ControlView: Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
         
         volume = Float(newVolume) / 100.0
-        Task {
-            await appController.setVolume(volume)
+        let now = Date()
+        if now.timeIntervalSince(lastVolumeCommandDate) > 0.3 {
+            lastVolumeCommandDate = now
+            Task {
+                await appController.setVolume(volume)
+            }
         }
     }
 }

@@ -278,8 +278,9 @@ class AppController: ObservableObject {
             return
         }
         
-        let script = "set volume output volume \(Int(volume * 100))"
-        let result = await executeCommand(script, description: "System: set volume(\(Int(volume * 100)))")
+        let target = Int(volume * 100)
+        let script = "set volume output volume \(target)"
+        let result = await executeCommand(script, description: "System: set volume(\(target))", bypassHeartbeat: true)
         
         switch result {
         case .success(let output):
@@ -339,7 +340,7 @@ class AppController: ObservableObject {
     }
     
     // Keep this simpler version for single commands (permissions checks, etc)
-    private func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
+    private func executeCommand(_ command: String, description: String? = nil, bypassHeartbeat: Bool = false) async -> Result<String, Error> {
         if let description = description {
             appControllerLog("Executing command: \(description)")
         } else {
@@ -360,8 +361,8 @@ class AppController: ObservableObject {
             }
             
             // Use heartbeat-optimized execution during batch operations
-            if self.isBatchOperation && !(description?.contains("verification") ?? false) {
-                // During batch operations, skip individual heartbeats except for verification commands
+            if self.isBatchOperation || bypassHeartbeat {
+                // During batch operations or when bypass explicitly requested, skip heartbeats
                 self.sshClient.executeCommandBypassingHeartbeat(wrappedCommand, description: description) { result in
                     switch result {
                     case .success(let output):

@@ -13,6 +13,24 @@ enum SSHError: Error {
     case noSession
 }
 
+// Concurrency limiter for simultaneous SSH channels
+actor ChannelLimiter {
+    private let maxConcurrent: Int
+    private var current: Int = 0
+    init(max: Int) { self.maxConcurrent = max }
+    func acquire() async {
+        while current >= maxConcurrent {
+            await Task.yield()
+        }
+        current += 1
+    }
+    func release() {
+        current = max(0, current - 1)
+    }
+}
+
+// Shared global limiter – tweak `max` if the server allows more channels
+private let sshChannelLimiter = ChannelLimiter(max: 4)
 
 class SSHClient: SSHClientProtocol {
     private var group: EventLoopGroup
@@ -314,7 +332,15 @@ class SSHClient: SSHClientProtocol {
     }
     
     func executeCommandWithNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommandDirectly(command, description: description, completion: completion)
+        // Gate concurrent channel creations so we don't exceed the server's limit
+        Task {
+            await sshChannelLimiter.acquire()
+            executeCommandDirectly(command, description: description) { result in
+                completion(result)
+                // Release permit after command is done
+                Task { await sshChannelLimiter.release() }
+            }
+        }
     }
     
     /// Execute command directly without heartbeat checks - used by the heartbeat mechanism itself
@@ -381,7 +407,7 @@ class SSHClient: SSHClientProtocol {
                     // Adaptive timeout: rolling average * 3, min 2, max 8
                     let key = commandDesc.prefix(40).description
                     let average = SSHClient.commandAverages[key] ?? 0.5
-                    var timeoutSeconds = max(average * 3.0, 2.0)
+                    var timeoutSeconds = max(average * 3.0, command.contains("set volume") ? 1.5 : 2.0)
                     timeoutSeconds = min(timeoutSeconds, 8.0)
                     if command.contains("heartbeat-") { timeoutSeconds = 3 }
                     channel.eventLoop.scheduleTask(in: .seconds(Int64(timeoutSeconds))) {
