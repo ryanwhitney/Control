@@ -22,21 +22,29 @@ struct MusicApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
-    tell application "Music"
-        if player state is stopped then
-            return "Nothing playing |||    ||| stopped ||| false"
-        end if
-        set trackName to name of current track
-        set artistName to artist of current track
-        set playerState to player state as text
-        set isPlaying to player state is playing
-        return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
+    // Template status script that can optionally inject action AppleScript
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "Music"
+            \(actionLines)
+            if player state is stopped then
+                return "Nothing playing |||    ||| stopped ||| false"
+            end if
+            set trackName to name of current track
+            set artistName to artist of current track
+            set playerState to player state as text
+            set isPlaying to player state is playing
+            return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
+        end tell
+        """
+    }
+
+    func fetchState() -> String { statusScript() }
+
+    // Override the default helper to make use of the shared template so the
+    // action and status execute inside the same `tell application` block.
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {
@@ -60,23 +68,11 @@ struct MusicApp: AppPlatform {
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "Music"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .previousTrack:
-            return """
-            tell application "Music"
-                previous track
-            end tell
-            """
+            return "previous track"
         case .nextTrack:
-            return """
-            tell application "Music"
-                next track
-            end tell
-            """
+            return "next track"
         default:
             return ""
         }

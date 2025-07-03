@@ -22,24 +22,25 @@ struct QuickTimeApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
-    tell application "QuickTime Player"
-        if not (exists document 1) then
-            return "Nothing playing |||   |||false"
-        end if
-        set docName to name of document 1
-        if playing of document 1 then
-            set playState to "playing"
-        else
-            set playState to "paused"
-        end if
-        return docName & "|||   |||" & (playing of document 1 as text)
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "QuickTime Player"
+            \(actionLines)
+            if not (exists document 1) then
+                return "Nothing playing |||   |||false"
+            end if
+            set docName to name of document 1
+            if playing of document 1 then
+                set playState to "playing"
+            else
+                set playState to "paused"
+            end if
+            return docName & "|||   |||" & (playing of document 1 as text)
+        end tell
+        """
     }
+    
+    func fetchState() -> String { statusScript() }
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
@@ -63,43 +64,41 @@ struct QuickTimeApp: AppPlatform {
         switch action {
         case .skipBackward:
             return """
-            tell application "QuickTime Player"
-                if not (exists document 1) then return
-                set theDocument to document 1
-                set currentTime to current time of theDocument
-                set newTime to currentTime - 5
-                if newTime < 0 then set newTime to 0
-                set current time of theDocument to newTime
-            end tell
+            if not (exists document 1) then return
+            set theDocument to document 1
+            set currentTime to current time of theDocument
+            set newTime to currentTime - 5
+            if newTime < 0 then set newTime to 0
+            set current time of theDocument to newTime
             """
         case .skipForward:
             return """
-            tell application "QuickTime Player"
-                if not (exists document 1) then return
-                set theDocument to document 1
-                set currentTime to current time of theDocument
-                set videoDuration to duration of theDocument
-                set newTime to currentTime + 5
-                if newTime > videoDuration then set newTime to videoDuration - 0.01
-                set current time of theDocument to newTime
-            end tell
+            if not (exists document 1) then return
+            set theDocument to document 1
+            set currentTime to current time of theDocument
+            set videoDuration to duration of theDocument
+            set newTime to currentTime + 5
+            if newTime > videoDuration then set newTime to videoDuration - 0.01
+            set current time of theDocument to newTime
             """
         case .playPauseToggle:
             return """
-            tell application "QuickTime Player"
-                if exists document 1 then
-                    tell document 1
-                        if playing then
-                            pause
-                        else
-                            play
-                        end if
-                    end tell
-                end if
-            end tell
+            if exists document 1 then
+                tell document 1
+                    if playing then
+                        pause
+                    else
+                        play
+                    end if
+                end tell
+            end if
             """
         default:
             return ""
         }
+    }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
 } 

@@ -24,45 +24,50 @@ struct VLCApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
-    tell application "VLC"
-        try
-            -- Check if VLC is currently running
-            if not running then
-                return "Not running |||  |||  stopped  |||false"
-            end if
-            
-            -- Check playback status
-            if playing then
-                -- Attempt to get the name of the current media item
-                try
-                    set mediaName to name of current item
-                on error
-                    set mediaName to "Unknown media"
-                end try
-                return  mediaName & "|||   ||| true ||| true"
-            else
-                try
-                    set mediaName to name of current item
-                    return mediaName & "|||   ||| false ||| false "
-                on error
-                    return "Nothing playing |||   ||| false ||| false"
-                end try
-            end if
-            
-        on error errMsg
-            -- Handle errors gracefully
-            if errMsg contains "Not authorized to send Apple events" then
-                error errMsg
-            else
-                return "Error: " & errMsg & "||| false |||false"
-            end if
-        end try
-    end tell
-    """
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "VLC"
+            \(actionLines)
+            try
+                -- Check if VLC is currently running
+                if not running then
+                    return "Not running |||  |||  stopped  |||false"
+                end if
+                
+                -- Check playback status
+                if playing then
+                    -- Attempt to get the name of the current media item
+                    try
+                        set mediaName to name of current item
+                    on error
+                        set mediaName to "Unknown media"
+                    end try
+                    return  mediaName & "|||   ||| true ||| true"
+                else
+                    try
+                        set mediaName to name of current item
+                        return mediaName & "|||   ||| false ||| false "
+                    on error
+                        return "Nothing playing |||   ||| false ||| false"
+                    end try
+                end if
+                
+            on error errMsg
+                -- Handle errors gracefully
+                if errMsg contains "Not authorized to send Apple events" then
+                    error errMsg
+                else
+                    return "Error: " & errMsg & "||| false |||false"
+                end if
+            end try
+        end tell
+        """
+    }
     
-    func fetchState() -> String {
-        return statusScript
+    func fetchState() -> String { statusScript() }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {
@@ -86,35 +91,15 @@ struct VLCApp: AppPlatform {
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "VLC"
-                play
-            end tell
-            """
+            return "play"
         case .skipBackward:
-            return """
-            tell application "VLC"
-                step backward
-            end tell
-            """
+            return "step backward"
         case .skipForward:
-            return """
-            tell application "VLC"
-                step forward
-            end tell
-            """
+            return "step forward"
         case .previousTrack:
-            return """
-            tell application "VLC"
-                previous
-            end tell
-            """
+            return "previous"
         case .nextTrack:
-            return """
-            tell application "VLC"
-                next
-            end tell
-            """
+            return "next"
         }
     }
 } 

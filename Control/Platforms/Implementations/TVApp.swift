@@ -22,52 +22,57 @@ struct TVApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
-    tell application "TV"
-        -- Grab the raw player state: can be "playing", "paused", or "stopped".
-        set rawState to player state as text
-        
-        -- Try to get the current track, which might fail if truly no track is loaded.
-        set currentTrack to missing value
-        try
-            set currentTrack to name of current track
-            set currentProperties to properties of current track
-        end try
-        try
-            set frontWindow to name of front window
-        end try
-        
-        if currentTrack is not missing value then
-            set trackName to currentTrack
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "TV"
+            \(actionLines)
+            -- Grab the raw player state: can be \"playing\", \"paused\", or \"stopped\".
+            set rawState to player state as text
             
-            if media kind of currentProperties is TV show then
-                set showName to show of current track
-            else
-                set showName to ""
-            end if
+            -- Try to get the current track, which might fail if truly no track is loaded.
+            set currentTrack to missing value
+            try
+                set currentTrack to name of current track
+                set currentProperties to properties of current track
+            end try
+            try
+                set frontWindow to name of front window
+            end try
             
-            if rawState is "playing" then
-                -- Standard playing scenario
-                return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
-            else if rawState is "paused" or rawState is "stopped" then
-                -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
-                return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
-            end if
-        else if frontWindow is not "TV" then
-            if rawState is "playing" then
-                return frontWindow & "|||  |||" & "playing" & "|||" & "true"
+            if currentTrack is not missing value then
+                set trackName to currentTrack
+                
+                if media kind of currentProperties is TV show then
+                    set showName to show of current track
+                else
+                    set showName to ""
+                end if
+                
+                if rawState is \"playing\" then
+                    -- Standard playing scenario
+                    return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
+                else if rawState is \"paused\" or rawState is \"stopped\" then
+                    -- If there's a valid track but the state is \"stopped\" or \"paused,\" treat it as paused
+                    return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
+                end if
+            else if frontWindow is not "TV" then
+                if rawState is \"playing\" then
+                    return frontWindow & "|||  |||" & "playing" & "|||" & "true"
+                else
+                    return frontWindow & "|||  |||" & "paused" & "|||" & "false"
+                end if
             else
-                return frontWindow & "|||  |||" & "paused" & "|||" & "false"
+                -- If we can't retrieve a track, there's truly no video playing.
+                return "Nothing playing |||   ||| stopped ||| false"
             end if
-        else
-            -- If we can't retrieve a track, there's truly no video playing.
-            return "Nothing playing |||   ||| stopped ||| false"
-        end if
-    end tell
-    """
+        end tell
+        """
+    }
     
-    func fetchState() -> String {
-        return statusScript
+    func fetchState() -> String { statusScript() }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {
@@ -91,55 +96,37 @@ struct TVApp: AppPlatform {
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "TV"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .skipBackward:
             return """
-            tell application "TV"
             activate
             try
-            set currentPosition to player position
-            if currentPosition is not missing value then
-            set player position to currentPosition - 10
-            else
-            -- Fallback for streaming content
-            tell application "System Events"
-                -- Target the TV app directly
-                tell process "TV"
-                    key code 123 -- Right Arrow
-                end tell
-            end tell
-            end if
+                set currentPosition to player position
+                if currentPosition is not missing value then
+                    set player position to currentPosition - 10
+                else
+                    -- Fallback for streaming content
+                    tell application "System Events"
+                        tell process "TV" to key code 123 -- Left Arrow
+                    end tell
+                end if
             on error errMsg
-            return "Error: " & errMsg
+                return "Error: " & errMsg
             end try
-            end tell
-
             """
         case .skipForward:
             return """
-            tell application "TV"
             activate
             try
-            set currentPosition to player position
-            if currentPosition is not missing value then
-            set player position to currentPosition + 10
-            else
-            -- Fallback for streaming content
-            tell application "System Events"
-                -- Target the TV app directly
-                tell process "TV"
-                    key code 124 -- Right Arrow
-                end tell
-            end tell
-            end if
+                set currentPosition to player position
+                if currentPosition is not missing value then
+                    set player position to currentPosition + 10
+                else
+                    tell application "System Events" to tell process "TV" to key code 124 -- Right Arrow
+                end if
             on error errMsg
-            return "Error: " & errMsg
+                return "Error: " & errMsg
             end try
-            end tell
             """
         default:
             return ""

@@ -85,6 +85,7 @@ protocol AppPlatform: Identifiable {
     func isRunningScript() -> String
     func isInstalledScript() -> String
     func activateScript() -> String
+    func actionWithStatus(_ action: AppAction) -> String
 }
 
 extension AppPlatform {

@@ -22,25 +22,27 @@ struct SpotifyApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
-    tell application "Spotify"
-        if not running then
-            return "Not running |||  |||stopped|||false"
-        end if
-        try
-            set trackName to name of current track
-            set artistName to artist of current track
-            set playerState to player state as text
-            set isPlaying to player state is playing
-            return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
-        end try
-        return "Nothing playing  |||  |||" & false & "|||" & false
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
+    // Template status script that can optionally inject action AppleScript
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "Spotify"
+            \(actionLines)
+            if not running then
+                return "Not running |||  |||stopped|||false"
+            end if
+            try
+                set trackName to name of current track
+                set artistName to artist of current track
+                set playerState to player state as text
+                set isPlaying to player state is playing
+                return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
+            end try
+            return "Nothing playing  |||  |||" & false & "|||" & false
+        end tell
+        """
     }
+    
+    func fetchState() -> String { statusScript() }
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
@@ -63,25 +65,17 @@ struct SpotifyApp: AppPlatform {
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "Spotify"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .previousTrack:
-            return """
-            tell application "Spotify"
-                previous track
-            end tell
-            """
+            return "previous track"
         case .nextTrack:
-            return """
-            tell application "Spotify"
-                next track
-            end tell
-            """
+            return "next track"
         default:
             return ""
         }
+    }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
 }

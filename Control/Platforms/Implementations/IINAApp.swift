@@ -24,8 +24,11 @@ struct IINAApp: AppPlatform {
         """
     }
     
-    private let statusScript = """
+    // Template status script that can optionally inject action AppleScript
+    private func statusScript(actionLines: String = "") -> String {
+        """
         tell application "System Events"
+            \(actionLines)
             set isRunning to exists (processes where name is "IINA")
             if not isRunning then
                 return "Not running |||  |||  stopped  |||false"
@@ -74,9 +77,12 @@ struct IINAApp: AppPlatform {
             return cleanTitle & "|||   ||| " & isPlaying & " ||| " & isPlaying
         end tell
         """
-    
-    func fetchState() -> String {
-        return statusScript
+    }
+
+    func fetchState() -> String { statusScript() }
+
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {
@@ -102,48 +108,38 @@ struct IINAApp: AppPlatform {
         case .playPauseToggle:
             return """
             tell application "IINA" to activate
-            tell application "System Events"
-                tell process "IINA"
-                    key code 49 -- spacebar
-                end tell
+            tell process "IINA"
+                key code 49 -- spacebar
             end tell
             """
         case .skipBackward:
             return """
             tell application "IINA" to activate
-            tell application "System Events"
-                tell process "IINA"
-                    key code 123 -- left arrow
-                end tell
+            tell process "IINA"
+                key code 123 -- left arrow
             end tell
             """
         case .skipForward:
             return """
             tell application "IINA" to activate
-            tell application "System Events"
-                tell process "IINA"
-                    key code 124 -- right arrow
-                end tell
+            tell process "IINA"
+                key code 124 -- right arrow
             end tell
             """
         case .previousTrack:
             return """
             tell application "IINA" to activate
-            tell application "System Events"
-                tell process "IINA"
-                    key code 123 using {command down} -- cmd+left
-                end tell
+            tell process "IINA"
+                key code 123 using {command down} -- cmd+left
             end tell
             """
         case .nextTrack:
             return """
             tell application "IINA" to activate
-            tell application "System Events"
-                tell process "IINA"
-                    key code 124 using {command down} -- cmd+right
-                end tell
+            tell process "IINA"
+                key code 124 using {command down} -- cmd+right
             end tell
             """
-            }
+        }
     }
 }

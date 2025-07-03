@@ -225,18 +225,9 @@ class AppController: ObservableObject {
         
         appControllerLog("AppController: Executing action \(action) on \(platform.name)")
         
-        // Combine action and status fetch into single script
-        let actionScript = platform.executeAction(action)
-        let statusScript = platform.fetchState()
-        
-        let combinedScript = """
-        try
-            \(actionScript)
-            \(statusScript)
-        on error errMsg
-            \(statusScript)
-        end try
-        """
+        // Leverage the shared helper on the platform to combine the action and
+        // status script into a single AppleScript round-trip.
+        let combinedScript = platform.actionWithStatus(action)
         
         let result = await executeCommand(combinedScript, description: "\(platform.name): executeAction(.\(action))")
         

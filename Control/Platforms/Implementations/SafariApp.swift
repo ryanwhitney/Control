@@ -24,35 +24,40 @@ struct SafariApp: AppPlatform {
         """
     }
 
-    private let statusScript = """
-    tell application "Safari"
-    set windowCount to count of windows
-    if windowCount is 0 then
-        return "Nothing playing |||   ||| false ||| false"
-    end if
-    try
-        set currentTab to current tab of window 1
-        set videoScript to "
-                (function() {
-                    var video = document.querySelector('video');
-                    if (!video) return 'Nothing playing |||   ||| false ||| false';
-                    var title = document.title.replace(' - YouTube', '') || 'Unknown Video';
-                    var siteName = window.location.hostname.replace('www.', '');
-                    var isPlaying = !video.paused && !video.ended;
-    
-                    return title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
-                })();
-            "
-        set videoInfo to do JavaScript videoScript in currentTab
-        return videoInfo
-    end try
-    
-    return "Nothing playing |||   ||| false ||| false"
-    end tell
-    """
+    private func statusScript(actionLines: String = "") -> String {
+        """
+        tell application "Safari"
+            \(actionLines)
+            set windowCount to count of windows
+            if windowCount is 0 then
+                return "Nothing playing |||   ||| false ||| false"
+            end if
+            try
+                set currentTab to current tab of window 1
+                set videoScript to "
+                        (function() {
+                            var video = document.querySelector('video');
+                            if (!video) return 'Nothing playing |||   ||| false ||| false';
+                            var title = document.title.replace(' - YouTube', '') || 'Unknown Video';
+                            var siteName = window.location.hostname.replace('www.', '');
+                            var isPlaying = !video.paused && !video.ended;
+        
+                            return title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
+                        })();
+                    "
+                set videoInfo to do JavaScript videoScript in currentTab
+                return videoInfo
+            end try
+            
+            return "Nothing playing |||   ||| false ||| false"
+        end tell
+        """
+    }
 
-    func fetchState() -> String {
-        return statusScript
+    func fetchState() -> String { statusScript() }
+
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(actionLines: executeAction(action))
     }
 
     func parseState(_ output: String) -> AppState {
@@ -83,58 +88,52 @@ struct SafariApp: AppPlatform {
         switch action {
         case .playPauseToggle:
             return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                try
-                    set currentTab to current tab of window 1
-                    do JavaScript "
-                        (function() {
-                            var video = document.querySelector('video');
-                            if (video) {
-                                if (video.paused || video.ended) {
-                                    video.play();
-                                } else {
-                                    video.pause();
-                                }
+            set windowCount to count of windows
+            if windowCount is 0 then return
+            try
+                set currentTab to current tab of window 1
+                do JavaScript "
+                    (function() {
+                        var video = document.querySelector('video');
+                        if (video) {
+                            if (video.paused || video.ended) {
+                                video.play();
+                            } else {
+                                video.pause();
                             }
-                        })();
-                    " in currentTab
-                end try
-            end tell
+                        }
+                    })();
+                " in currentTab
+            end try
             """
         case .skipForward(let seconds):
             return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                try
-                    set currentTab to current tab of window 1
-                    do JavaScript "
-                        (function() {
-                            const media = document.querySelector('video, audio');
-                            if (media) media.currentTime += \(seconds);
-                        })();
-                    " in currentTab
-                end try
-            end tell
+            set windowCount to count of windows
+            if windowCount is 0 then return
+            try
+                set currentTab to current tab of window 1
+                do JavaScript "
+                    (function() {
+                        const media = document.querySelector('video, audio');
+                        if (media) media.currentTime += \(seconds);
+                    })();
+                " in currentTab
+            end try
             """
         case .skipBackward(let seconds):
             return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                
-                try
-                    set currentTab to current tab of window 1
-                    do JavaScript "
-                        (function() {
-                            const media = document.querySelector('video, audio');
-                            if (media) media.currentTime -= \(seconds);
-                        })();
-                    " in currentTab
-                end try
-            end tell
+            set windowCount to count of windows
+            if windowCount is 0 then return
+            
+            try
+                set currentTab to current tab of window 1
+                do JavaScript "
+                    (function() {
+                        const media = document.querySelector('video, audio');
+                        if (media) media.currentTime -= \(seconds);
+                    })();
+                " in currentTab
+            end try
             """
         default:
             return ""
