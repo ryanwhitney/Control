@@ -83,13 +83,17 @@ class AppController: ObservableObject {
     }
     
     func updateAllStates() async {
-        appControllerLog("AppController: Starting comprehensive state update")
-        appControllerLog("Controller active: \(isActive)")
-        appControllerLog("Number of platforms: \(platforms.count)")
+        appControllerLog("AppController: Starting comprehensive state update (\(platforms.count) platforms)")
         
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping state update")
             return
+        }
+        
+        // If this is the initial update, give channels a moment to fully initialize
+        if !hasCompletedInitialUpdate {
+            appControllerLog("Initial state update - waiting for channels to stabilize")
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second for initial setup
         }
         
         // Mark as batch operation to reduce heartbeats
@@ -115,8 +119,7 @@ class AppController: ObservableObject {
         
         // Send single verification heartbeat at end of batch operation
         if isActive {
-            appControllerLog("📦 Batch operation complete, sending single verification heartbeat")
-            _ = await executeCommand("true", channelKey: "system", description: "Batch operation verification")
+            _ = await executeCommand("true", channelKey: "system", description: "Batch verification")
             hasCompletedInitialUpdate = true
         }
     }
@@ -195,9 +198,7 @@ class AppController: ObservableObject {
     }
     
     private func checkIfRunning(_ platform: any AppPlatform) async -> Bool {
-        appControllerLog("AppController: Checking if \(platform.name) is running")
         guard isActive else {
-            appControllerLog("⚠️ Controller not active, returning false")
             return false
         }
         
@@ -209,8 +210,9 @@ class AppController: ObservableObject {
         
         switch result {
         case .success(let output):
-            let isRunning = output.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
-            appControllerLog(isRunning ? "✓ \(platform.name) is running" : "⚠️ \(platform.name) is not running")
+            let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Handle both boolean results (true/false) and string results ("true"/"false")
+            let isRunning = trimmedOutput == "true" || trimmedOutput == "\"true\""
             return isRunning
         case .failure(let error):
             appControllerLog("❌ Failed to check if \(platform.name) is running: \(error)")
@@ -224,17 +226,14 @@ class AppController: ObservableObject {
             return 
         }
         
-        appControllerLog("AppController: Executing action \(action) on \(platform.name)")
-        
         // Leverage the shared helper on the platform to combine the action and
         // status script into a single AppleScript round-trip.
         let combinedScript = platform.actionWithStatus(action)
         
-        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.name): executeAction(.\(action))")
+        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.name): \(action)")
         
         switch result {
         case .success(let output):
-            appControllerLog("✓ Action executed successfully")
             let lines = output.components(separatedBy: .newlines)
             if let firstLine = lines.first,
                firstLine.contains("Not authorized to send Apple events") {
@@ -248,7 +247,6 @@ class AppController: ObservableObject {
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
-                appControllerLog("State updated for \(platform.name)")
                 states[platform.id] = newState
             }
         case .failure(let error):
@@ -264,7 +262,6 @@ class AppController: ObservableObject {
     }
     
     func setVolume(_ volume: Float) async {
-        appControllerLog("AppController: Setting system volume to \(Int(volume * 100))%")
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping volume change")
             return
@@ -272,14 +269,11 @@ class AppController: ObservableObject {
         
         let target = Int(volume * 100)
         let script = "set volume output volume \(target)"
-        let result = await executeCommand(script, channelKey: "system", description: "System: set volume(\(target))", bypassHeartbeat: true)
+        let result = await executeCommand(script, channelKey: "system", description: "Set volume(\(target)%)", bypassHeartbeat: true)
         
         switch result {
         case .success(let output):
-            appControllerLog("✓ Volume set successfully")
-            if !output.isEmpty {
-                appControllerLog("Volume command output: \(output)")
-            }
+            appControllerLog("✓ Volume set to \(target)%")
         case .failure(let error):
             appControllerLog("❌ Failed to set volume: \(error)")
             // Check if this is a connection loss
@@ -293,32 +287,25 @@ class AppController: ObservableObject {
     }
     
     private func updateSystemVolume() async {
-        appControllerLog("AppController: Updating system volume")
         guard isActive else {
-            appControllerLog("⚠️ Controller not active, skipping volume update")
             return
         }
         
-        let script = """
-        output volume of (get volume settings)
-        """
-        
-        let result = await executeCommand(script, channelKey: "system", description: "System: get volume")
+        let script = "output volume of (get volume settings)"
+
+        let result = await executeCommand(script, channelKey: "system", description: "Get volume")
         
         switch result {
         case .success(let output):
             if let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 currentVolume = volume / 100.0
                 appControllerLog("✓ Current volume: \(Int(volume))%")
-                appControllerLog("Volume controls should now be enabled")
             } else {
                 appControllerLog("⚠️ Could not parse volume from output: '\(output)'")
-                appControllerLog("🚨 Volume controls will remain disabled due to parse failure")
                 currentVolume = nil
             }
         case .failure(let error):
             appControllerLog("❌ Failed to get current volume: \(error)")
-            appControllerLog("🚨 Volume controls will remain disabled due to command failure")
             currentVolume = nil
             
             // Check if this is a connection loss
@@ -333,18 +320,18 @@ class AppController: ObservableObject {
     
     // Keep this simpler version for single commands (permissions checks, etc)
     private func executeCommand(_ command: String, channelKey: String, description: String? = nil, bypassHeartbeat: Bool = false) async -> Result<String, Error> {
-        if let description = description {
-            appControllerLog("Executing command: \(description)")
-        } else {
-            appControllerLog("Executing command")
-        }
-
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping command")
             return .failure(SSHError.channelError("Controller not active"))
         }
         
-        let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
+        let wrappedCommand: String
+        if channelKey == "system" {
+            // System commands (volume) should use pure AppleScript, not bash-wrapped
+            wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
+        } else {
+            wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
+        }
         
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
@@ -358,10 +345,6 @@ class AppController: ObservableObject {
                 self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                     switch result {
                     case .success(let output):
-                        appControllerLog("✓ Command executed successfully (batch mode)")
-                        if !output.isEmpty {
-                            appControllerLog("Command output: \(output)")
-                        }
                         continuation.resume(returning: result)
                     case .failure(let error):
                         appControllerLog("❌ Command failed: \(error)")
@@ -382,10 +365,6 @@ class AppController: ObservableObject {
                 self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                     switch result {
                     case .success(let output):
-                        appControllerLog("✓ Command executed successfully")
-                        if !output.isEmpty {
-                            appControllerLog("Command output: \(output)")
-                        }
                         continuation.resume(returning: result)
                     case .failure(let error):
                         appControllerLog("❌ Command failed: \(error)")
@@ -394,7 +373,7 @@ class AppController: ObservableObject {
                         if let connectionManager = self.sshClient as? SSHConnectionManager,
                            connectionManager.isConnectionLossError(error) {
                             appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
-                            self.isActive = false  // Prevent further commands
+                            self.isActive = false
                             connectionManager.handleConnectionLost()
                         }
                         

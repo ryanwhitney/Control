@@ -18,10 +18,7 @@ struct VLCApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "VLC")
-        return isAppOpen as text
-        """
+        "tell application \"System Events\" to exists (processes where name is \"VLC\")"
     }
     
     private func statusScript(actionLines: String = "") -> String {

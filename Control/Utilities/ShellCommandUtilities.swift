@@ -20,13 +20,13 @@ struct ShellCommandUtilities {
         let escapedScript = escapeBashString(appleScript)
         
         return """
-        bash -c "osascript << 'APPLESCRIPT'
-        try
-            \(escapedScript)
-        on error errMsg
-            return errMsg
-        end try
-        APPLESCRIPT"
+        bash -c \"osascript << 'APPLESCRIPT'\n        try\n            \(escapedScript)\n        on error errMsg\n            return errMsg\n        end try\n        APPLESCRIPT\""
         """
+    }
+    
+    /// Returns raw AppleScript intended to be streamed into a long-lived `osascript -` process.
+    /// Nothing is escaped or wrapped — the caller is responsible for adding any sentinel afterwards.
+    static func appleScriptForStreaming(_ appleScript: String) -> String {
+        return appleScript
     }
 } 

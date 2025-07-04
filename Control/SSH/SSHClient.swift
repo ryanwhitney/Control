@@ -48,35 +48,50 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     
     /// Retrieve an existing executor for `key` or create a new one if necessary.
     private func executor(for key: String) async throws -> ChannelExecutor {
+        sshLog("📡 SSHClient: Getting executor for key '\(key)'")
         if let existing = dedicatedExecutors[key] {
+            sshLog("📡 SSHClient: Using existing executor for key '\(key)'")
             return existing
         }
         
+        sshLog("📡 SSHClient: Creating new executor for key '\(key)'")
         // Ensure we have an active SSH TCP connection.
         guard let connection = self.connection else {
+            sshLog("📡 SSHClient: ❌ No active connection for executor creation")
             throw SSHError.channelNotConnected
         }
         
         // Create a single ChannelExecutor which will internally open its own interactive shell.
-        let executor = ChannelExecutor(connection: connection)
+        let usesAppleScript = true  // All channels now use AppleScript for consistency
+        sshLog("📡 SSHClient: Creating ChannelExecutor with usesAppleScript=\(usesAppleScript) for key '\(key)'")
+        let executor = ChannelExecutor(connection: connection, interactiveAppleScript: usesAppleScript)
         dedicatedExecutors[key] = executor
+        sshLog("📡 SSHClient: ✓ Executor created and stored for key '\(key)'")
         return executor
     }
     
     /// Async helper that runs a command on a dedicated channel and returns the Result.
     private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?) async -> Result<String, Error> {
+        sshLog("📡 SSHClient: Performing command on dedicated channel '\(channelKey)'")
+        if let description = description {
+            sshLog("📡 SSHClient: Command description: \(description)")
+        }
         do {
             let exec = try await executor(for: channelKey)
+            sshLog("📡 SSHClient: Got executor, running command")
             return await exec.run(command: command, description: description)
         } catch {
+            sshLog("📡 SSHClient: ❌ Failed to get executor or run command: \(error)")
             return .failure(error)
         }
     }
     
     // Protocol-facing entry point (completion-handler style)
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        sshLog("📡 SSHClient: executeCommandOnDedicatedChannel called for key '\(channelKey)'")
         Task {
             let result = await performOnDedicatedChannel(channelKey, command: command, description: description)
+            sshLog("📡 SSHClient: Command completed with result: \(result)")
             completion(result)
         }
     }

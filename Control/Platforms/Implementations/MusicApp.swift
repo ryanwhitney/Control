@@ -16,10 +16,7 @@ struct MusicApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Music")
-        return isAppOpen as text
-        """
+        "tell application \"System Events\" to exists (processes where name is \"Music\")"
     }
     
     // Template status script that can optionally inject action AppleScript

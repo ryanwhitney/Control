@@ -18,10 +18,7 @@ struct IINAApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "IINA")
-        return isAppOpen as text
-        """
+        "tell application \"System Events\" to exists (processes where name is \"IINA\")"
     }
     
     // Template status script that can optionally inject action AppleScript

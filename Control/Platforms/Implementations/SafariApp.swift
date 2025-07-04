@@ -18,10 +18,7 @@ struct SafariApp: AppPlatform {
     }
 
     func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Safari")
-        return isAppOpen as text
-        """
+        "tell application \"System Events\" to exists (processes where name is \"Safari\")"
     }
 
     private func statusScript(actionLines: String = "") -> String {

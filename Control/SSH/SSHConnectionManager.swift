@@ -322,8 +322,9 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             completion(.failure(SSHError.timeout))
         }
         
-        sshLog("⏰ [\(commandId)] Starting 6-second proactive timeout monitor")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: timeoutTask)
+        let timeoutSeconds: Double = 10.0
+        sshLog("⏰ [\(commandId)] Starting \(Int(timeoutSeconds))-second proactive timeout monitor")
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutTask)
         
         // Choose execution path
         if bypassHeartbeat {
