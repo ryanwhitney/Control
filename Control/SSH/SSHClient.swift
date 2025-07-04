@@ -32,7 +32,7 @@ actor ChannelLimiter {
 // Shared global limiter – tweak `max` if the server allows more channels
 private let sshChannelLimiter = ChannelLimiter(max: 4)
 
-class SSHClient: SSHClientProtocol {
+class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var session: Channel?
@@ -41,6 +41,45 @@ class SSHClient: SSHClientProtocol {
     
     // Adaptive timeout rolling averages keyed by command description
     private static var commandAverages: [String: Double] = [:]
+    
+    // MARK: - Dedicated Channel Support
+    /// Executors keyed by logical channel name (e.g. "system", "music", etc.)
+    private var dedicatedExecutors: [String: ChannelExecutor] = [:]
+    
+    /// Retrieve an existing executor for `key` or create a new one if necessary.
+    private func executor(for key: String) async throws -> ChannelExecutor {
+        if let existing = dedicatedExecutors[key] {
+            return existing
+        }
+        
+        // Ensure we have an active SSH TCP connection.
+        guard let connection = self.connection else {
+            throw SSHError.channelNotConnected
+        }
+        
+        // Create a single ChannelExecutor which will internally open its own interactive shell.
+        let executor = ChannelExecutor(connection: connection)
+        dedicatedExecutors[key] = executor
+        return executor
+    }
+    
+    /// Async helper that runs a command on a dedicated channel and returns the Result.
+    private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?) async -> Result<String, Error> {
+        do {
+            let exec = try await executor(for: channelKey)
+            return await exec.run(command: command, description: description)
+        } catch {
+            return .failure(error)
+        }
+    }
+    
+    // Protocol-facing entry point (completion-handler style)
+    func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        Task {
+            let result = await performOnDedicatedChannel(channelKey, command: command, description: description)
+            completion(result)
+        }
+    }
     
     init() {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -265,7 +304,6 @@ class SSHClient: SSHClientProtocol {
         let promise = connection.eventLoop.makePromise(of: Channel.self)
         
         sshLog("Creating SSH session...")
-        let start = Date() // track duration for adaptive timeout updates
         connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { handler -> EventLoopFuture<Channel> in
             handler.createChannel(promise) { channel, channelType in
                 guard channelType == .session else {
@@ -345,7 +383,17 @@ class SSHClient: SSHClientProtocol {
     
     /// Execute command directly without heartbeat checks - used by the heartbeat mechanism itself
     func executeCommandBypassingHeartbeat(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommandDirectly(command, description: description, completion: completion)
+        // Heartbeats can be triggered in parallel from different contexts. Protect the server's
+        // channel limit by acquiring a permit from the shared limiter before opening a new
+        // exec-style channel.
+        Task {
+            await sshChannelLimiter.acquire()
+            executeCommandDirectly(command, description: description) { result in
+                completion(result)
+                // Always release the permit when the command completes.
+                Task { await sshChannelLimiter.release() }
+            }
+        }
     }
     
     /// Direct execution method that bypasses heartbeat checks (used by heartbeat itself)
@@ -465,6 +513,13 @@ class SSHClient: SSHClientProtocol {
         
         // Reset connection completion state
         hasCompletedConnection = false
+        
+        // Close and clear any dedicated channels
+        for (key, executor) in dedicatedExecutors {
+            sshLog("Closing dedicated channel for key: \(key)")
+            Task { await executor.close() }
+        }
+        dedicatedExecutors.removeAll()
         
         // Send exit command to gracefully close remote session if possible
         if let session = session {

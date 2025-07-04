@@ -116,7 +116,7 @@ class AppController: ObservableObject {
         // Send single verification heartbeat at end of batch operation
         if isActive {
             appControllerLog("📦 Batch operation complete, sending single verification heartbeat")
-            _ = await executeCommand("true", description: "Batch operation verification")
+            _ = await executeCommand("true", channelKey: "system", description: "Batch operation verification")
             hasCompletedInitialUpdate = true
         }
     }
@@ -151,7 +151,7 @@ class AppController: ObservableObject {
             return
         }
         
-        let result = await executeCommand(platform.fetchState(), description: "\(platform.name): fetch status")
+        let result = await executeCommand(platform.fetchState(), channelKey: platform.id, description: "\(platform.name): fetch status")
         
         switch result {
         case .success(let output):
@@ -203,6 +203,7 @@ class AppController: ObservableObject {
         
         let result = await executeCommand(
             platform.isRunningScript(),
+            channelKey: platform.id,
             description: "\(platform.name): check if running"
         )
         
@@ -229,7 +230,7 @@ class AppController: ObservableObject {
         // status script into a single AppleScript round-trip.
         let combinedScript = platform.actionWithStatus(action)
         
-        let result = await executeCommand(combinedScript, description: "\(platform.name): executeAction(.\(action))")
+        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.name): executeAction(.\(action))")
         
         switch result {
         case .success(let output):
@@ -271,7 +272,7 @@ class AppController: ObservableObject {
         
         let target = Int(volume * 100)
         let script = "set volume output volume \(target)"
-        let result = await executeCommand(script, description: "System: set volume(\(target))", bypassHeartbeat: true)
+        let result = await executeCommand(script, channelKey: "system", description: "System: set volume(\(target))", bypassHeartbeat: true)
         
         switch result {
         case .success(let output):
@@ -302,7 +303,7 @@ class AppController: ObservableObject {
         output volume of (get volume settings)
         """
         
-        let result = await executeCommand(script, description: "System: get volume")
+        let result = await executeCommand(script, channelKey: "system", description: "System: get volume")
         
         switch result {
         case .success(let output):
@@ -331,7 +332,7 @@ class AppController: ObservableObject {
     }
     
     // Keep this simpler version for single commands (permissions checks, etc)
-    private func executeCommand(_ command: String, description: String? = nil, bypassHeartbeat: Bool = false) async -> Result<String, Error> {
+    private func executeCommand(_ command: String, channelKey: String, description: String? = nil, bypassHeartbeat: Bool = false) async -> Result<String, Error> {
         if let description = description {
             appControllerLog("Executing command: \(description)")
         } else {
@@ -353,8 +354,8 @@ class AppController: ObservableObject {
             
             // Use heartbeat-optimized execution during batch operations
             if self.isBatchOperation || bypassHeartbeat {
-                // During batch operations or when bypass explicitly requested, skip heartbeats
-                self.sshClient.executeCommandBypassingHeartbeat(wrappedCommand, description: description) { result in
+                // During batch operations or when bypass explicitly requested, still use the dedicated channel but let the manager decide heartbeat behaviour
+                self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                     switch result {
                     case .success(let output):
                         appControllerLog("✓ Command executed successfully (batch mode)")
@@ -378,7 +379,7 @@ class AppController: ObservableObject {
                 }
             } else {
                 // Always use new channel for reliability - revert the session reuse optimization
-                self.sshClient.executeCommandWithNewChannel(wrappedCommand, description: description) { result in
+                self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                     switch result {
                     case .success(let output):
                         appControllerLog("✓ Command executed successfully")

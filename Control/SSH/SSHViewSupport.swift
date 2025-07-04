@@ -35,14 +35,14 @@ extension SSHConnectedView {
         viewLog("\(viewName): Scene phase changed from \(oldPhase) to \(newPhase)", view: viewName)
         
         if newPhase == .active {
+            let currentViewName = viewName
             Task { @MainActor in
-                let viewName = String(describing: Self.self)
                 if connectionManager.connectionState == .connected {
                     do {
                         try await connectionManager.verifyConnectionHealth()
-                        viewLog("✓ \(viewName): Connection health verified", view: viewName)
+                        viewLog("✓ \(currentViewName): Connection health verified", view: currentViewName)
                     } catch {
-                        viewLog("❌ \(viewName): Connection health check failed: \(error)", view: viewName)
+                        viewLog("❌ \(currentViewName): Connection health check failed: \(error)", view: currentViewName)
                         connectToSSH()
                     }
                 } else {
@@ -88,8 +88,9 @@ extension SSHConnectedView {
     
     @MainActor
     private func setConnectionLostHandler() {
+        let viewNameMeta = String(describing: Self.self)
         connectionManager.setConnectionLostHandler { @MainActor in
-            viewLog("⚠️ \(Self.self): Connection lost handler triggered", view: String(describing: Self.self))
+            viewLog("⚠️ \(viewNameMeta): Connection lost handler triggered", view: viewNameMeta)
             showingConnectionLostAlert.wrappedValue = true
         }
     }

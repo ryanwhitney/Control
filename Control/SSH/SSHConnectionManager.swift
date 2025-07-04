@@ -295,15 +295,9 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return isConnectionLoss
     }
     
-    /// Execute a command with proactive timeout-based connection monitoring
-    /// 
-    /// This method includes a heartbeat mechanism that:
-    /// - Starts a timeout timer when the command is sent
-    /// - Triggers reconnection if no response (success OR failure) within 6 seconds
-    /// - Prevents silent hangs by detecting dead connections proactively
-    /// - Sends heartbeat verification after successful commands
-    nonisolated func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        sshLog("SSHConnectionManager: Executing command with proactive timeout monitoring")
+    /// Execute a command with proactive timeout-based connection monitoring, allowing selection of a dedicated channel.
+    nonisolated func executeCommand(onChannel channelKey: String = "system", _ command: String, description: String? = nil, bypassHeartbeat: Bool = false, completion: @escaping (Result<String, Error>) -> Void) {
+        sshLog("SSHConnectionManager: Executing command on channel \(channelKey) with proactive timeout monitoring")
         if let description = description {
             sshLog("Command: \(description)")
         }
@@ -331,8 +325,19 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         sshLog("⏰ [\(commandId)] Starting 6-second proactive timeout monitor")
         DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: timeoutTask)
         
-        // Execute the command
-        client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
+        // Choose execution path
+        if bypassHeartbeat {
+            client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
+                guard !hasCompleted else { return }
+                hasCompleted = true
+                timeoutTask.cancel()
+                completion(result)
+            }
+            return
+        }
+        
+        // Execute the command on dedicated channel with heartbeat verification
+        client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
             guard !hasCompleted else { 
                 sshLog("⚠️ [\(commandId)] Command completed but timeout already triggered, ignoring result")
                 return 
@@ -346,7 +351,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             switch result {
             case .success(let output):
                 sshLog("✓ [\(commandId)] Command succeeded, sending verification heartbeat")
-                // Command succeeded, send verification heartbeat
+                // Command succeeded, send verification heartbeat unless bypass requested
                 self?.sendPostCommandHeartbeat { heartbeatResult in
                     switch heartbeatResult {
                     case .success:
@@ -363,7 +368,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 }
             case .failure(let error):
                 sshLog("❌ [\(commandId)] Command failed: \(error)")
-                // Command failed, check if it's a connection issue
                 if self?.isConnectionLossError(error) == true {
                     sshLog("🚨 [\(commandId)] Connection loss detected during command execution")
                     Task { @MainActor [weak self] in
@@ -373,6 +377,21 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 completion(.failure(error))
             }
         }
+    }
+    
+    // Backward-compatibility wrapper
+    nonisolated func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: false, completion: completion)
+    }
+    
+    /// Compatibility alias for existing code (kept for minimal external diff)
+    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: false, completion: completion)
+    }
+    
+    /// Execute command directly without heartbeat verification (used for batch operations)
+    nonisolated func executeCommandBypassingHeartbeat(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: true, completion: completion)
     }
     
     /// Send a heartbeat command to verify connection health after normal commands
@@ -422,16 +441,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    /// Compatibility alias for existing code
-    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(command, description: description, completion: completion)
-    }
-    
-    /// Execute command directly without heartbeat verification (used for batch operations)
-    nonisolated func executeCommandBypassingHeartbeat(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        client.executeCommandBypassingHeartbeat(command, description: description, completion: completion)
-    }
-    
     // MARK: - SSHClientProtocol Conformance
     
     /// Protocol-required connect method with completion handler
@@ -444,5 +453,10 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 completion(.failure(error))
             }
         }
+    }
+    
+    /// Protocol conformance – executes on a dedicated channel (default heartbeat behaviour)
+    nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommand(onChannel: channelKey, command, description: description, bypassHeartbeat: false, completion: completion)
     }
 } 
