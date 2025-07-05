@@ -26,7 +26,7 @@ struct TVApp: AppPlatform {
             try
                 set rawState to player state as text
                 if rawState is "stopped" then
-                    return "Nothing playing|||   |||stopped|||false"
+                    return "Nothing playing|||   |||false"
                 end if
                 
                 set trackName to ""
@@ -45,13 +45,13 @@ struct TVApp: AppPlatform {
                 end if
                 
                 if trackName is "" then
-                    return "Nothing playing|||   |||stopped|||false"
+                    return "Nothing playing|||   |||false"
                 end if
                 
                 set isPlaying to (rawState is "playing")
-                return trackName & "|||   |||" & rawState & "|||" & isPlaying
+                return trackName & "|||   |||" & isPlaying
             on error errMsg
-                return "Error|||   |||error|||false"
+                return "Error|||   |||false"
             end try
         end tell
         """
@@ -73,11 +73,11 @@ struct TVApp: AppPlatform {
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
+        if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }

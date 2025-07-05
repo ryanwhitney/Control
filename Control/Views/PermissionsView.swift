@@ -319,16 +319,6 @@ struct PermissionsView: View, SSHConnectedView {
         }
     }
 
-    func executeCommand(_ command: String, description: String? = nil) async -> Result<String, Error> {
-        let wrappedCommand = ShellCommandUtilities.wrapAppleScriptForBash(command)
-
-        return await withCheckedContinuation { continuation in
-            connectionManager.executeCommand(wrappedCommand, description: description) { result in
-                continuation.resume(returning: result)
-            }
-        }
-    }
-
     private func checkPermission(for platformId: String) async {
         guard let platform = PlatformRegistry.allPlatforms.first(where: { $0.id == platformId }) else { 
             viewLog("❌ Platform not found: \(platformId)", view: "PermissionsView")
@@ -344,11 +334,10 @@ struct PermissionsView: View, SSHConnectedView {
             activate
         end tell
         """
-        let activateCommand = ShellCommandUtilities.wrapAppleScriptForBash(activateScript)
 
         viewLog("Activating \(platform.name)...", view: "PermissionsView")
         let activateResult = await withCheckedContinuation { continuation in
-            connectionManager.executeCommandWithNewChannel(activateCommand, description: "\(platform.name): activate") { result in
+            connectionManager.executeCommandOnDedicatedChannel(platformId, activateScript, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -364,11 +353,11 @@ struct PermissionsView: View, SSHConnectedView {
         try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
         // Then check permissions by fetching state
-        let stateCommand = ShellCommandUtilities.wrapAppleScriptForBash(platform.fetchState())
+        let stateScript = platform.fetchState()
 
         viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in
-            connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status") { result in
+            connectionManager.executeCommandOnDedicatedChannel(platformId, stateScript, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -396,7 +385,7 @@ struct PermissionsView: View, SSHConnectedView {
 
                 viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
                 let retryResult = await withCheckedContinuation { continuation in
-                    connectionManager.executeCommandWithNewChannel(stateCommand, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                    connectionManager.executeCommandOnDedicatedChannel(platformId, stateScript, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
                         continuation.resume(returning: result)
                     }
                 }

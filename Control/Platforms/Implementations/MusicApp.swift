@@ -25,13 +25,13 @@ struct MusicApp: AppPlatform {
         tell application "Music"
             \(actionLines)
             if player state is stopped then
-                return "Nothing playing |||    ||| stopped ||| false"
+                return "Nothing playing |||    ||| false"
             end if
             set trackName to name of current track
             set artistName to artist of current track
             set playerState to player state as text
             set isPlaying to player state is playing
-            return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
+            return trackName & "|||" & artistName & "|||" & isPlaying
         end tell
         """
     }
@@ -46,11 +46,11 @@ struct MusicApp: AppPlatform {
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
+        if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }

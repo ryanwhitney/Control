@@ -355,29 +355,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    // Backward-compatibility wrapper
-    nonisolated func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: false, completion: completion)
-    }
-    
-    /// Compatibility alias for existing code (kept for minimal external diff)
-    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: false, completion: completion)
-    }
-    
-    /// Execute command directly without heartbeat verification (used for batch operations)
-    nonisolated func executeCommandBypassingHeartbeat(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: true, completion: completion)
-    }
-    
-
-    
     /// Verifies that the connection is alive and responsive
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let healthCommand = "echo \"health-check-$(date +%s)\""
             
-            client.executeCommandWithNewChannel(healthCommand, description: "Connection health check") { result in
+            client.executeCommandOnDedicatedChannel("system", healthCommand, description: "Connection health check") { result in
                 switch result {
                 case .success(let output):
                     if output.contains("health-check-") {
@@ -407,7 +390,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     
     /// Protocol conformance – executes on a dedicated channel (default heartbeat behaviour)
-    nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(onChannel: channelKey, command, description: description, bypassHeartbeat: false, completion: completion)
+    nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        client.executeCommandOnDedicatedChannel(channelKey, command, description: description, completion: completion)
     }
 } 

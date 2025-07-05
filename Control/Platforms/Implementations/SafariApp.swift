@@ -23,7 +23,7 @@ struct SafariApp: AppPlatform {
     }
 
     private func jsForStatus() -> String {
-        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found|||Safari|||stopped|||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; const state = playing ? 'playing' : 'paused'; return title + '|||' + site + '|||' + state + '|||' + playing; })();"
+        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found|||Safari|||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '|||' + site + '|||' + playing; })();"
     }
 
     private func jsForAction(_ action: AppAction) -> String {
@@ -48,7 +48,7 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open|||Safari|||stopped|||false"
+                return "No windows open|||Safari|||false"
             end if
             return do JavaScript "\(js)" in current tab of front window
         end tell
@@ -63,7 +63,7 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open|||Safari|||stopped|||false"
+                return "No windows open|||Safari|||false"
             end if
             do JavaScript "\(actionJs)" in current tab of front window
             delay 0.3
@@ -75,11 +75,11 @@ struct SafariApp: AppPlatform {
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         
-        if components.count >= 4 {
+        if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }

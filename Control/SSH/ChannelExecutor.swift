@@ -33,12 +33,13 @@ actor ChannelExecutor {
     private unowned let connection: Channel
     private var shellChannel: Channel?
     private let shellHandler: StreamingShellHandler
-    private let interactiveAppleScript: Bool
+    private let channelKey: String
     
-    init(connection: Channel, interactiveAppleScript: Bool) {
-        print("🔧 ChannelExecutor: Initializing \(interactiveAppleScript ? "AppleScript" : "shell") executor")
+    init(connection: Channel, channelKey: String) {
+        sshLog("🔧 [\(channelKey)] ChannelExecutor: Initializing AppleScript executor")
         self.connection = connection
-        self.interactiveAppleScript = interactiveAppleScript
+        self.channelKey = channelKey
+        
         // Create a single interactive shell session
         let promise = connection.eventLoop.makePromise(of: Channel.self)
         let handler = StreamingShellHandler()
@@ -58,23 +59,21 @@ actor ChannelExecutor {
                 Task { [weak self] in
                     await self?.setShellChannel(chan)
                 }
-                if interactiveAppleScript {
-                    return setupInteractiveShell(channel: chan, command: "/usr/bin/osascript -s s -l AppleScript -i")
-                } else {
-                    return setupInteractiveShell(channel: chan, command: "/bin/sh -l")
-                }
+                // Always use the interactive AppleScript shell
+                return setupInteractiveShell(channel: chan, command: "/usr/bin/osascript -s s -l AppleScript -i")
             }
-            .whenComplete { result in
+            .whenComplete { [weak self] result in
+                guard let self = self else { return }
                 switch result {
                 case .success:
-                    print("🔧 ChannelExecutor: ✓ Interactive \(interactiveAppleScript ? "AppleScript" : "shell") ready")
+                    sshLog("🔧 [\(self.channelKey)] ChannelExecutor: ✓ Interactive AppleScript ready")
                     // Send test ping to verify the interactive session is working
                     Task { [weak self] in
                         try? await Task.sleep(nanoseconds: 500_000_000) // Wait 500ms for shell to stabilize
                         await self?.sendTestPing()
                     }
                 case .failure(let error):
-                    print("🔧 ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
+                    sshLog("🔧 [\(self.channelKey)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
                 }
             }
     }
@@ -82,18 +81,12 @@ actor ChannelExecutor {
     /// Send a simple test command to verify the interactive session is responsive
     private func sendTestPing() async {
         guard let channel = shellChannel else {
-            print("🔧 ChannelExecutor: No shell channel for test ping")
+            sshLog("🔧 [\(channelKey)] ChannelExecutor: No shell channel for test ping")
             return
         }
         
         let testSentinel = ">>>VOLCTL_PING_\(UUID().uuidString.prefix(4))<<<"
-        let testPayload: String
-        
-        if interactiveAppleScript {
-            testPayload = "1 + 1\n\n\"\(testSentinel)\"\n\n"
-        } else {
-            testPayload = "echo 'test-ok'; printf '\\n%s\\n' \(testSentinel)\n"
-        }
+        let testPayload = "1 + 1\n\n\"\(testSentinel)\"\n\n"
         
         // Set up the test command in the handler
         let promise = channel.eventLoop.makePromise(of: String.self)
@@ -110,7 +103,7 @@ actor ChannelExecutor {
             }
             // Test ping successful - no need to log
         } catch {
-            print("🔧 ChannelExecutor: ❌ Test ping failed: \(error)")
+            sshLog("🔧 [\(channelKey)] ChannelExecutor: ❌ Test ping failed: \(error)")
         }
     }
     
@@ -118,7 +111,7 @@ actor ChannelExecutor {
     /// The promise is fulfilled when the command finishes (or fails).
     func run(command: String, description: String?) async -> Result<String, Error> {
         if let description = description {
-            print("🔧 ChannelExecutor: \(description)")
+            sshLog("🔧 [\(channelKey)] \(description)")
         }
         
         // Ensure the interactive shell channel is ready. Wait up to 3s (150 × 20 ms yields).
@@ -129,7 +122,7 @@ actor ChannelExecutor {
         }
 
         guard let chan = self.shellChannel else {
-            print("🔧 ChannelExecutor: ❌ No shell channel available")
+            sshLog("🔧 [\(channelKey)] ChannelExecutor: ❌ No shell channel available")
             return .failure(SSHError.noSession)
         }
         
@@ -143,26 +136,16 @@ actor ChannelExecutor {
             let promise = chan.eventLoop.makePromise(of: String.self)
             self.shellHandler.addCommand(sentinel: sentinel, promise: promise)
             
-            let payload: String
-            if self.interactiveAppleScript {
-                // For interactive AppleScript, send the command, blank line to execute, then sentinel
-                let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
-                payload = "\(command)\n\n\"\(escapedSentinel)\"\n\n"
-                // Only log the description, not the full command
-                if let desc = description {
-                    print("🔧 ChannelExecutor: \(desc)")
-                }
-            } else {
-                payload = "\(command); printf '\\n%s\\n' \(sentinel)\n"
-            }
+            // For interactive AppleScript, send the command, blank line to execute, then sentinel
+            let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
+            let payload = "\(command)\n\n\"\(escapedSentinel)\"\n\n"
             
             let buffer = chan.allocator.buffer(string: payload)
-            let writePromise = chan.eventLoop.makePromise(of: Void.self)
-            chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: writePromise)
+            chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: nil)
             
             // Add timeout to the promise
             let timeoutTask = chan.eventLoop.scheduleTask(in: .seconds(8)) {
-                print("🔧 ChannelExecutor: ⏰ Command timed out after 8 seconds")
+                sshLog("🔧 [\(self.channelKey)] ChannelExecutor: ⏰ Command timed out after 8 seconds")
                 promise.fail(SSHError.timeout)
             }
             
@@ -175,7 +158,7 @@ actor ChannelExecutor {
     
     /// Close shell channel
     func close() {
-        print("🔧 ChannelExecutor: Closing shell channel")
+        sshLog("🔧 [\(channelKey)] ChannelExecutor: Closing shell channel")
         if let chan = self.shellChannel {
             chan.close(promise: nil)
         }
@@ -191,7 +174,7 @@ actor ChannelExecutor {
 private class ErrorHandler: ChannelInboundHandler {
     typealias InboundIn = Any
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        print("🔧 ErrorHandler: ❌ Error caught: \(error)")
+        sshLog("🔧 ErrorHandler: ❌ Error caught: \(error)")
         context.close(promise: nil)
     }
 }

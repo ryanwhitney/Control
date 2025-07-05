@@ -6,7 +6,6 @@ class AppController: ObservableObject {
     private var platformRegistry: PlatformRegistry
     private var isUpdating = false
     @Published var isActive = true
-    static var debugMode = true // Add debug flag for troubleshooting
     
     // Add batch operation flag to reduce heartbeats
     private var isBatchOperation = false
@@ -26,7 +25,7 @@ class AppController: ObservableObject {
     }
     
     init(sshClient: SSHClientProtocol, platformRegistry: PlatformRegistry) {
-        appControllerLog("AppController: Initializing")
+        appControllerLog("AppController: Initializing with \(platformRegistry.activePlatforms.count) active platforms")
         self.sshClient = sshClient
         self.platformRegistry = platformRegistry
         
@@ -43,7 +42,6 @@ class AppController: ObservableObject {
         isActive = true
         isUpdating = false
         hasCompletedInitialUpdate = false
-        // Don't reset states - they'll update naturally when we get new data
     }
     
     func cleanup() {
@@ -58,9 +56,7 @@ class AppController: ObservableObject {
     }
     
     func updatePlatformRegistry(_ newRegistry: PlatformRegistry) {
-        appControllerLog("AppController: Updating platform registry")
-        appControllerLog("Previous platform count: \(platformRegistry.platforms.count)")
-        appControllerLog("New platform count: \(newRegistry.platforms.count)")
+        appControllerLog("AppController: Updating platform registry to \(newRegistry.activePlatforms.map { $0.name })")
         
         self.platformRegistry = newRegistry
         
@@ -77,9 +73,6 @@ class AppController: ObservableObject {
         
         // Ensure controller is active for the new platforms
         isActive = true
-        appControllerLog("✓ AppController reactivated for new platform registry")
-        
-        appControllerLog("✓ Platform registry updated with platforms: \(platformRegistry.platforms.map { $0.name })")
     }
     
     func updateAllStates() async {
@@ -92,7 +85,6 @@ class AppController: ObservableObject {
         
         // If this is the initial update, give channels a moment to fully initialize
         if !hasCompletedInitialUpdate {
-            appControllerLog("Initial state update - waiting for channels to stabilize (shortened)")
             // A shorter 0.5-second pause is typically enough for the dedicated
             // AppleScript channels to finish their interactive shell handshake.
             // Reducing this delay brings the system-volume fetch forward and
@@ -104,6 +96,7 @@ class AppController: ObservableObject {
         isBatchOperation = true
         defer {
             isBatchOperation = false
+            hasCompletedInitialUpdate = true
             appControllerLog("✓ State update complete")
         }
         
@@ -119,12 +112,6 @@ class AppController: ObservableObject {
                     await self.updateState(for: platform)
                 }
             }
-        }
-        
-        // Send single verification heartbeat at end of batch operation
-        if isActive {
-            _ = await executeCommand("true", channelKey: "system", description: "Batch verification")
-            hasCompletedInitialUpdate = true
         }
     }
     
@@ -162,7 +149,6 @@ class AppController: ObservableObject {
         
         switch result {
         case .success(let output):
-            appControllerLog("📊 \(platform.name) status response: [\(output)]")
             
             if output.contains("Not authorized to send Apple events") {
                 let newState = AppState(
@@ -183,7 +169,7 @@ class AppController: ObservableObject {
                 }
             } else {
                 let newState = platform.parseState(output)
-                appControllerLog("📊 \(platform.name) parsed state: title=[\(newState.title)], subtitle=[\(newState.subtitle)], isPlaying=\(String(describing: newState.isPlaying))")
+                appControllerLog("📊 \(platform.name) parsed state: title=[\(newState.title.redacted())], isPlaying=\(String(describing: newState.isPlaying))")
                 
                 // Only update if we don't have a previous state or if the state has changed
                 let currentState = states[platform.id]
@@ -233,11 +219,8 @@ class AppController: ObservableObject {
         switch result {
         case .success(let output):
             let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            appControllerLog("📊 \(platform.name) isRunning response: [\(trimmedOutput)]")
-            
-            // Handle both boolean results (true/false) and string results ("true"/"false")
             let isRunning = trimmedOutput == "true" || trimmedOutput == "\"true\""
-            appControllerLog("📊 \(platform.name) isRunning parsed: \(isRunning)")
+            appControllerLog("📊 \(platform.name) isRunning: \(isRunning)")
             return isRunning
         case .failure(let error):
             appControllerLog("❌ Failed to check if \(platform.name) is running: \(error)")
@@ -272,8 +255,7 @@ class AppController: ObservableObject {
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
-                appControllerLog("📊 \(platform.name) action response: [\(lastLine)]")
-                appControllerLog("📊 \(platform.name) parsed state after action: title=[\(newState.title)], subtitle=[\(newState.subtitle)], isPlaying=\(String(describing: newState.isPlaying))")
+                appControllerLog("📊 \(platform.name) parsed state after action: title=[\(newState.title.redacted())], isPlaying=\(String(describing: newState.isPlaying))")
                 states[platform.id] = newState
             }
         case .failure(let error):
@@ -289,10 +271,7 @@ class AppController: ObservableObject {
     }
     
     func setVolume(_ volume: Float) async {
-        guard isActive else {
-            appControllerLog("⚠️ Controller not active, skipping volume change")
-            return
-        }
+        guard isActive else { return }
         
         let target = Int(volume * 100)
         let script = "set volume output volume \(target)"
@@ -300,7 +279,8 @@ class AppController: ObservableObject {
         
         switch result {
         case .success(_):
-            appControllerLog("✓ Volume set to \(target)%")
+            // Success is implied, no need to log
+            break
         case .failure(let error):
             appControllerLog("❌ Failed to set volume: \(error)")
             // Check if this is a connection loss
@@ -326,7 +306,7 @@ class AppController: ObservableObject {
         case .success(let output):
             if let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 currentVolume = volume / 100.0
-                appControllerLog("✓ Current volume: \(Int(volume))%")
+                appControllerLog("✓ System volume: \(Int(volume))%")
             } else {
                 appControllerLog("⚠️ Could not parse volume from output: '\(output)'")
                 currentVolume = nil
@@ -352,13 +332,7 @@ class AppController: ObservableObject {
             return .failure(SSHError.channelError("Controller not active"))
         }
         
-        let wrappedCommand: String
-        if channelKey == "system" {
-            // System commands (volume) should use pure AppleScript, not bash-wrapped
-            wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
-        } else {
-            wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
-        }
+        let wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
         
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
@@ -366,47 +340,19 @@ class AppController: ObservableObject {
                 return
             }
             
-            // Use heartbeat-optimized execution during batch operations
-            if self.isBatchOperation || bypassHeartbeat {
-                // During batch operations or when bypass explicitly requested, still use the dedicated channel but let the manager decide heartbeat behaviour
-                self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
-                    switch result {
-                    case .success(let output):
-                        continuation.resume(returning: result)
-                    case .failure(let error):
-                        appControllerLog("❌ Command failed: \(error)")
-                        
-                        // Check if this is a connection loss
-                        if let connectionManager = self.sshClient as? SSHConnectionManager,
-                           connectionManager.isConnectionLossError(error) {
-                            appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
-                            self.isActive = false
-                            connectionManager.handleConnectionLost()
-                        }
-                        
-                        continuation.resume(returning: result)
+            self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
+                if case .failure(let error) = result {
+                    appControllerLog("❌ Command failed: \(error)")
+                    
+                    // Check if this is a connection loss
+                    if let connectionManager = self.sshClient as? SSHConnectionManager,
+                       connectionManager.isConnectionLossError(error) {
+                        appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
+                        self.isActive = false
+                        connectionManager.handleConnectionLost()
                     }
                 }
-            } else {
-                // Always use new channel for reliability - revert the session reuse optimization
-                self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
-                    switch result {
-                    case .success(let output):
-                        continuation.resume(returning: result)
-                    case .failure(let error):
-                        appControllerLog("❌ Command failed: \(error)")
-                        
-                        // Check if this is a connection loss
-                        if let connectionManager = self.sshClient as? SSHConnectionManager,
-                           connectionManager.isConnectionLossError(error) {
-                            appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
-                            self.isActive = false
-                            connectionManager.handleConnectionLost()
-                        }
-                        
-                        continuation.resume(returning: result)
-                    }
-                }
+                continuation.resume(returning: result)
             }
         }
     }

@@ -36,7 +36,7 @@ struct IINAApp: AppPlatform {
         tell application "System Events"
             \(actionLines)
             if not (exists (processes where name is "IINA")) then
-                return "Not running|||   |||stopped|||false"
+                return "Not running|||   |||false"
             end if
         set isPlaying to false
             try
@@ -49,9 +49,9 @@ struct IINAApp: AppPlatform {
             tell process "IINA"
                 if (count of windows) > 0 then
                     set windowTitle to name of front window
-                    return windowTitle & "|||   |||" & isPlaying & "|||false"
+                    return windowTitle & "|||   |||" & isPlaying
                 else
-                    return "No window|||   |||" & isPlaying & "|||false"
+                    return "No window|||   |||" & isPlaying
                 end if
             end tell
         end tell
@@ -68,9 +68,15 @@ struct IINAApp: AppPlatform {
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
+        if components.count >= 3 {
+            var title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            // IINA often includes the full path after a dash, so we strip it.
+            if let range = title.range(of: "  —  ") {
+                title = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
             return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
+                title: title,
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
                 isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
