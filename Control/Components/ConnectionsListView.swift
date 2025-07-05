@@ -14,7 +14,7 @@ struct ConnectionsListView: View {
     var body: some View {
         List {
             Section(header: Text("On Your Network".capitalized)) {
-                ForEach(viewModel.networkComputers, id: \.host) { computer in
+                ForEach(viewModel.networkComputers) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
@@ -31,7 +31,7 @@ struct ConnectionsListView: View {
 
                 if viewModel.networkComputers.isEmpty || viewModel.isSearching {
                     HStack {
-                        Text(statusText)
+                        Text(viewModel.showStatusRow ? statusText : "")
                             .foregroundColor(.secondary)
                             .font(.subheadline)
                         Spacer()
@@ -51,7 +51,7 @@ struct ConnectionsListView: View {
             }
 
             Section(header: Text("Recent".capitalized)) {
-                ForEach(viewModel.savedComputers, id: \.host) { computer in
+                ForEach(viewModel.savedComputers) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
@@ -86,10 +86,11 @@ struct ConnectionsListView: View {
             .opacity(viewModel.savedComputers.isEmpty ? 0 : 1)
             .accessibilityLabel("Recent connections")
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.networkComputers.map(\.id))
-        .animation(.easeInOut(duration: 0.3), value: viewModel.savedComputers.map(\.id))
-        .animation(.easeInOut(duration: 0.3), value: viewModel.isSearching)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.showProgressIndicator)
+        .animation(.spring(duration: 0.3), value: viewModel.networkComputers.map(\.id))
+        .animation(.spring(duration: 0.3), value: viewModel.savedComputers.map(\.id))
+        .animation(.spring(duration: 0.3), value: viewModel.isSearching)
+        .animation(.spring(duration: 0.2), value: viewModel.showProgressIndicator)
+        .animation(.spring(duration: 0.2), value: viewModel.showStatusRow)
     }
 }
 

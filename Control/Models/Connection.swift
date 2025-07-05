@@ -29,7 +29,7 @@ extension Connection {
         let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
         
         return Connection(
-            id: service.name,
+            id: "net-" + cleanHostname,
             name: service.name.replacingOccurrences(of: "\\032", with: ""),
             host: cleanHostname,
             type: .bonjour(service),
@@ -39,7 +39,7 @@ extension Connection {
     
     static func fromSavedConnection(_ saved: SavedConnections.SavedConnection) -> Connection {
         return Connection(
-            id: saved.hostname,
+            id: "saved-" + saved.hostname,
             name: saved.name ?? saved.hostname,
             host: saved.hostname,
             type: .manual,

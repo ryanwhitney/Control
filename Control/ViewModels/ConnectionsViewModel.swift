@@ -22,6 +22,7 @@ class ConnectionsViewModel: ObservableObject {
     @Published var savedComputers: [Connection] = []
     @Published var isSearching = false
     @Published var showProgressIndicator = false
+    @Published var showStatusRow = false
 
     private var currentScanResults: [Connection] = []
     private var scanStartTime: Date?
@@ -224,7 +225,15 @@ class ConnectionsViewModel: ObservableObject {
         } else {
             viewLog("Skipping scan - already scanning", view: "ConnectionsViewModel")
         }
-
+        
+        if !showStatusRow {
+            Task {
+                // delay showing immediately to prevent the default value from flashing
+                try await Task.sleep(nanoseconds: 50_000_000)
+                showStatusRow = true
+            }
+        }
+        
         if preferences.shouldShowWhatsNew {
             Task {
                 try await Task.sleep(nanoseconds: 500_000_000)
