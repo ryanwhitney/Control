@@ -14,7 +14,7 @@ struct ConnectionsListView: View {
     var body: some View {
         List {
             Section(header: Text("On Your Network".capitalized)) {
-                ForEach(viewModel.networkComputers, id: \.host) { computer in
+                ForEach(viewModel.networkComputers) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
@@ -51,7 +51,7 @@ struct ConnectionsListView: View {
             }
 
             Section(header: Text("Recent".capitalized)) {
-                ForEach(viewModel.savedComputers, id: \.host) { computer in
+                ForEach(viewModel.savedComputers) { computer in
                     ComputerRowView(
                         computer: computer,
                         isConnecting: viewModel.connectingComputer?.id == computer.id
