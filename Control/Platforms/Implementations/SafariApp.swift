@@ -18,130 +18,87 @@ struct SafariApp: AppPlatform {
     }
 
     func isRunningScript() -> String {
-        """
-        tell application "System Events"
-            if exists (processes where name is "Safari") then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
+        // A simple, direct check. If this fails, the issue is fundamental.
+        "tell application \"System Events\" to return (exists (processes where name is \"Safari\"))"
     }
 
-    private func statusScript(actionLines: String = "") -> String {
-        """
+    private func jsForStatus() -> String {
+        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found|||Safari|||stopped|||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; const state = playing ? 'playing' : 'paused'; return title + '|||' + site + '|||' + state + '|||' + playing; })();"
+    }
+
+    private func jsForAction(_ action: AppAction) -> String {
+        let innerJs: String
+        switch action {
+        case .playPauseToggle:
+            innerJs = "const v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); }"
+        case .skipForward(let seconds):
+            innerJs = "const v = document.querySelector('video'); if (v) v.currentTime += \(seconds);"
+        case .skipBackward(let seconds):
+            innerJs = "const v = document.querySelector('video'); if (v) v.currentTime -= \(seconds);"
+        default:
+            return ""
+        }
+        // Wrap in an IIFE for robust execution, which was missing before.
+        return "(function() { \(innerJs) })();"
+    }
+
+    func fetchState() -> String {
+        let js = jsForStatus()
+        // Re-add window check for robustness.
+        return """
         tell application "Safari"
-            \(actionLines)
-            set windowCount to count of windows
-            if windowCount is 0 then
-                return "Nothing playing |||   ||| false ||| false"
+            if (count of windows) is 0 then
+                return "No windows open|||Safari|||stopped|||false"
             end if
-            try
-                set currentTab to current tab of window 1
-                set videoScript to "
-                        (function() {
-                            var video = document.querySelector('video');
-                            if (!video) return 'Nothing playing |||   ||| false ||| false';
-                            var title = document.title.replace(' - YouTube', '') || 'Unknown Video';
-                            var siteName = window.location.hostname.replace('www.', '');
-                            var isPlaying = !video.paused && !video.ended;
-        
-                            return title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
-                        })();
-                    "
-                set videoInfo to do JavaScript videoScript in currentTab
-                return videoInfo
-            end try
-            
-            return "Nothing playing |||   ||| false ||| false"
+            return do JavaScript "\(js)" in current tab of front window
         end tell
         """
     }
-
-    func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        let actionJs = jsForAction(action)
+        let statusJs = jsForStatus()
+        
+        // Build a single, direct script with the window check.
+        return """
+        tell application "Safari"
+            if (count of windows) is 0 then
+                return "No windows open|||Safari|||stopped|||false"
+            end if
+            do JavaScript "\(actionJs)" in current tab of front window
+            delay 0.3
+            return do JavaScript "\(statusJs)" in current tab of front window
+        end tell
+        """
     }
 
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         
         if components.count >= 4 {
-            let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            let isPlayingStr = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            let isPlaying = isPlayingStr == "true"
-            
             return AppState(
-                title: title,
-                subtitle: subtitle,
-                isPlaying: isPlaying,
+                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
+                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
+                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
                 error: nil
             )
         }
+        
+        // Handle cases where the script might return fewer components
+        if !output.isEmpty && !output.contains("|||") {
+            return AppState(title: output, subtitle: "Safari", isPlaying: nil)
+        }
+        
         return AppState(
-            title: "",
-            subtitle: "",
+            title: "Error",
+            subtitle: "Could not parse Safari state",
             isPlaying: nil,
-            error: "Failed to parse Safari state"
+            error: output
         )
     }
 
+    // This function is not used when actionWithStatus is implemented, but is required by the protocol.
     func executeAction(_ action: AppAction) -> String {
-        switch action {
-        case .playPauseToggle:
-            return """
-            set windowCount to count of windows
-            if windowCount is 0 then return
-            try
-                set currentTab to current tab of window 1
-                do JavaScript "
-                    (function() {
-                        var video = document.querySelector('video');
-                        if (video) {
-                            if (video.paused || video.ended) {
-                                video.play();
-                            } else {
-                                video.pause();
-                            }
-                        }
-                    })();
-                " in currentTab
-            end try
-            """
-        case .skipForward(let seconds):
-            return """
-            set windowCount to count of windows
-            if windowCount is 0 then return
-            try
-                set currentTab to current tab of window 1
-                do JavaScript "
-                    (function() {
-                        const media = document.querySelector('video, audio');
-                        if (media) media.currentTime += \(seconds);
-                    })();
-                " in currentTab
-            end try
-            """
-        case .skipBackward(let seconds):
-            return """
-            set windowCount to count of windows
-            if windowCount is 0 then return
-            
-            try
-                set currentTab to current tab of window 1
-                do JavaScript "
-                    (function() {
-                        const media = document.querySelector('video, audio');
-                        if (media) media.currentTime -= \(seconds);
-                    })();
-                " in currentTab
-            end try
-            """
-        default:
-            return ""
-        }
+        return ""
     }
 }
