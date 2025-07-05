@@ -31,7 +31,7 @@ struct ConnectionsListView: View {
 
                 if viewModel.networkComputers.isEmpty || viewModel.isSearching {
                     HStack {
-                        Text(statusText)
+                        Text(viewModel.showStatusRow ? statusText : "")
                             .foregroundColor(.secondary)
                             .font(.subheadline)
                         Spacer()
@@ -86,10 +86,11 @@ struct ConnectionsListView: View {
             .opacity(viewModel.savedComputers.isEmpty ? 0 : 1)
             .accessibilityLabel("Recent connections")
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.networkComputers.map(\.id))
-        .animation(.easeInOut(duration: 0.3), value: viewModel.savedComputers.map(\.id))
-        .animation(.easeInOut(duration: 0.3), value: viewModel.isSearching)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.showProgressIndicator)
+        .animation(.spring(duration: 0.3), value: viewModel.networkComputers.map(\.id))
+        .animation(.spring(duration: 0.3), value: viewModel.savedComputers.map(\.id))
+        .animation(.spring(duration: 0.3), value: viewModel.isSearching)
+        .animation(.spring(duration: 0.2), value: viewModel.showProgressIndicator)
+        .animation(.spring(duration: 0.2), value: viewModel.showStatusRow)
     }
 }
 
