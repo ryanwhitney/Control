@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "v2.png",
+      "filename" : "control-appicon.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "v2 1.png",
+      "filename" : "control-appicon 1.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "v2 2.png",
+      "filename" : "control-appicon-tinted.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
