@@ -92,8 +92,12 @@ class AppController: ObservableObject {
         
         // If this is the initial update, give channels a moment to fully initialize
         if !hasCompletedInitialUpdate {
-            appControllerLog("Initial state update - waiting for channels to stabilize")
-            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second for initial setup
+            appControllerLog("Initial state update - waiting for channels to stabilize (shortened)")
+            // A shorter 0.5-second pause is typically enough for the dedicated
+            // AppleScript channels to finish their interactive shell handshake.
+            // Reducing this delay brings the system-volume fetch forward and
+            // makes the UI feel snappier without sacrificing reliability.
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         }
         
         // Mark as batch operation to reduce heartbeats
@@ -158,6 +162,8 @@ class AppController: ObservableObject {
         
         switch result {
         case .success(let output):
+            appControllerLog("📊 \(platform.name) status response: [\(output)]")
+            
             if output.contains("Not authorized to send Apple events") {
                 let newState = AppState(
                     title: "Permissions Required",
@@ -177,6 +183,8 @@ class AppController: ObservableObject {
                 }
             } else {
                 let newState = platform.parseState(output)
+                appControllerLog("📊 \(platform.name) parsed state: title=[\(newState.title)], subtitle=[\(newState.subtitle)], isPlaying=\(String(describing: newState.isPlaying))")
+                
                 // Only update if we don't have a previous state or if the state has changed
                 let currentState = states[platform.id]
                 let shouldUpdate = currentState == nil ||
@@ -189,11 +197,25 @@ class AppController: ObservableObject {
                 }
             }
         case .failure(let error):
-            // For errors, we might want to keep the previous state and just add an error
-            var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
-            currentState.error = error.localizedDescription
-            states[platform.id] = currentState
-            lastKnownStates[platform.id] = currentState
+            appControllerLog("❌ \(platform.name) status fetch failed: \(error)")
+            
+            // For AppleScript errors, show a more user-friendly message
+            if error.localizedDescription.contains("AppleScript error") {
+                let newState = AppState(
+                    title: "Script Error",
+                    subtitle: "Unable to get status",
+                    isPlaying: nil,
+                    error: error.localizedDescription
+                )
+                states[platform.id] = newState
+                lastKnownStates[platform.id] = newState
+            } else {
+                // For other errors, we might want to keep the previous state and just add an error
+                var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
+                currentState.error = error.localizedDescription
+                states[platform.id] = currentState
+                lastKnownStates[platform.id] = currentState
+            }
         }
     }
     
@@ -211,8 +233,11 @@ class AppController: ObservableObject {
         switch result {
         case .success(let output):
             let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            appControllerLog("📊 \(platform.name) isRunning response: [\(trimmedOutput)]")
+            
             // Handle both boolean results (true/false) and string results ("true"/"false")
             let isRunning = trimmedOutput == "true" || trimmedOutput == "\"true\""
+            appControllerLog("📊 \(platform.name) isRunning parsed: \(isRunning)")
             return isRunning
         case .failure(let error):
             appControllerLog("❌ Failed to check if \(platform.name) is running: \(error)")
@@ -247,6 +272,8 @@ class AppController: ObservableObject {
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
+                appControllerLog("📊 \(platform.name) action response: [\(lastLine)]")
+                appControllerLog("📊 \(platform.name) parsed state after action: title=[\(newState.title)], subtitle=[\(newState.subtitle)], isPlaying=\(String(describing: newState.isPlaying))")
                 states[platform.id] = newState
             }
         case .failure(let error):
@@ -272,7 +299,7 @@ class AppController: ObservableObject {
         let result = await executeCommand(script, channelKey: "system", description: "Set volume(\(target)%)", bypassHeartbeat: true)
         
         switch result {
-        case .success(let output):
+        case .success(_):
             appControllerLog("✓ Volume set to \(target)%")
         case .failure(let error):
             appControllerLog("❌ Failed to set volume: \(error)")

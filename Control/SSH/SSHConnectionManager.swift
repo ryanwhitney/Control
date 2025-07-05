@@ -297,7 +297,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     
     /// Execute a command with proactive timeout-based connection monitoring, allowing selection of a dedicated channel.
     nonisolated func executeCommand(onChannel channelKey: String = "system", _ command: String, description: String? = nil, bypassHeartbeat: Bool = false, completion: @escaping (Result<String, Error>) -> Void) {
-        sshLog("SSHConnectionManager: Executing command on channel \(channelKey) with proactive timeout monitoring")
+        sshLog("SSHConnectionManager: Executing command on channel \(channelKey)")
         if let description = description {
             sshLog("Command: \(description)")
         }
@@ -313,7 +313,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             
             let elapsed = Date().timeIntervalSince(startTime)
             sshLog("⏰ [\(commandId)] Command timed out after \(String(format: "%.1f", elapsed))s with no response")
-            sshLog("💓 [\(commandId)] Proactive heartbeat timeout - connection appears dead")
             
             // Connection appears dead - trigger reconnection
             Task { @MainActor [weak self] in
@@ -322,22 +321,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             completion(.failure(SSHError.timeout))
         }
         
-        let timeoutSeconds: Double = 10.0
-        sshLog("⏰ [\(commandId)] Starting \(Int(timeoutSeconds))-second proactive timeout monitor")
+        let timeoutSeconds: Double = 15.0
+        sshLog("⏰ [\(commandId)] Starting \(Int(timeoutSeconds))-second timeout monitor")
         DispatchQueue.global().asyncAfter(deadline: .now() + timeoutSeconds, execute: timeoutTask)
         
-        // Choose execution path
-        if bypassHeartbeat {
-            client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
-                guard !hasCompleted else { return }
-                hasCompleted = true
-                timeoutTask.cancel()
-                completion(result)
-            }
-            return
-        }
-        
-        // Execute the command on dedicated channel with heartbeat verification
+        // Execute the command on dedicated channel WITHOUT heartbeat verification
+        // Heartbeats were causing channel exhaustion and connection failures
         client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
             guard !hasCompleted else { 
                 sshLog("⚠️ [\(commandId)] Command completed but timeout already triggered, ignoring result")
@@ -351,22 +340,8 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             
             switch result {
             case .success(let output):
-                sshLog("✓ [\(commandId)] Command succeeded, sending verification heartbeat")
-                // Command succeeded, send verification heartbeat unless bypass requested
-                self?.sendPostCommandHeartbeat { heartbeatResult in
-                    switch heartbeatResult {
-                    case .success:
-                        sshLog("💓 [\(commandId)] Post-command heartbeat successful")
-                        completion(.success(output))
-                    case .failure(let heartbeatError):
-                        sshLog("💓 [\(commandId)] Post-command heartbeat failed: \(heartbeatError)")
-                        // Heartbeat failed - connection is likely dead
-                        Task { @MainActor [weak self] in
-                            self?.handleConnectionLost()
-                        }
-                        completion(.failure(heartbeatError))
-                    }
-                }
+                sshLog("✓ [\(commandId)] Command succeeded")
+                completion(.success(output))
             case .failure(let error):
                 sshLog("❌ [\(commandId)] Command failed: \(error)")
                 if self?.isConnectionLossError(error) == true {
@@ -395,47 +370,22 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         executeCommand(onChannel: "system", command, description: description, bypassHeartbeat: true, completion: completion)
     }
     
-    /// Send a heartbeat command to verify connection health after normal commands
-    private nonisolated func sendPostCommandHeartbeat(completion: @escaping (Result<Void, Error>) -> Void) {
-        let heartbeatId = UUID().uuidString.prefix(8)
-        let heartbeatCommand = "echo \"heartbeat-\(heartbeatId)-$(date +%s)\""
-        sshLog("💓 Sending post-command heartbeat: \(heartbeatId)")
-        
-        client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Post-command heartbeat") { result in
-            switch result {
-            case .success(let output):
-                if output.contains("heartbeat-\(heartbeatId)") {
-                    sshLog("💓 Heartbeat verified: connection is alive")
-                    completion(.success(()))
-                } else {
-                    sshLog("💓 Heartbeat invalid response: \(output)")
-                    completion(.failure(SSHError.channelError("Invalid heartbeat response")))
-                }
-            case .failure(let error):
-                sshLog("💓 Heartbeat failed: \(error)")
-                completion(.failure(error))
-            }
-        }
-    }
+
     
     /// Verifies that the connection is alive and responsive
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
             let healthCommand = "echo \"health-check-$(date +%s)\""
-            sshLog("💓 Executing connection health check")
             
             client.executeCommandWithNewChannel(healthCommand, description: "Connection health check") { result in
                 switch result {
                 case .success(let output):
                     if output.contains("health-check-") {
-                        sshLog("💓 Connection health check successful")
                         continuation.resume()
                     } else {
-                        sshLog("💓 Connection health check invalid response")
                         continuation.resume(throwing: SSHError.channelError("Invalid health check response"))
                     }
                 case .failure(let error):
-                    sshLog("💓 Connection health check failed: \(error)")
                     continuation.resume(throwing: error)
                 }
             }

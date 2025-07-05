@@ -16,7 +16,15 @@ struct QuickTimeApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"QuickTime Player\")"
+        """
+        tell application "System Events"
+            if exists (processes where name is "QuickTime Player") then
+                return "true"
+            else
+                return "false"
+            end if
+        end tell
+        """
     }
     
     private func statusScript(actionLines: String = "") -> String {

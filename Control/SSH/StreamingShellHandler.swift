@@ -55,6 +55,11 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         // Handle stderr separately
         if payload.type == .stdErr {
             print("🔍 StreamingShellHandler: ❌ Stderr: '\(string.trimmingCharacters(in: .whitespacesAndNewlines))'")
+            // If we have a pending command and receive stderr, it's likely an error
+            if !queue.isEmpty {
+                let pending = queue.removeFirst()
+                pending.promise.fail(SSHError.channelError("AppleScript stderr: \(string.trimmingCharacters(in: .whitespacesAndNewlines))"))
+            }
             return
         }
         
@@ -69,11 +74,19 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         let currentBuffer = queue[0].buffer
         let expectedSentinel = queue[0].sentinel
         
+        // Check if buffer is getting too large (possible stuck command)
+        if currentBuffer.count > 50000 {
+            print("🔍 StreamingShellHandler: ⚠️ Buffer overflow - command may be stuck")
+            let pending = queue.removeFirst()
+            pending.promise.fail(SSHError.channelError("Buffer overflow - response too large"))
+            return
+        }
+        
         // Try both formats:
         // 1. Interactive osascript format: => "sentinel"
-        // 2. Shell format: plain sentinel
+        // 2. Direct AppleScript result format with our sentinel
         let osascriptSentinelPattern = "=> \"\(expectedSentinel)\""
-        let shellSentinelPattern = expectedSentinel
+        let directSentinelPattern = "=> \"\(expectedSentinel)\""  // Same as osascript pattern
         
         var sentinelRange: Range<String.Index>?
         var isOsascriptFormat = false
@@ -82,9 +95,10 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         if let range = currentBuffer.range(of: osascriptSentinelPattern) {
             sentinelRange = range
             isOsascriptFormat = true
-        } else if let range = currentBuffer.range(of: shellSentinelPattern) {
+        } else if let range = currentBuffer.range(of: directSentinelPattern, options: .backwards) {
+            // This is also an AppleScript result format
             sentinelRange = range
-            isOsascriptFormat = false
+            isOsascriptFormat = true
         }
         
         if let sentinelRange = sentinelRange {
@@ -95,13 +109,18 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
             
             if isOsascriptFormat {
                 // Parse AppleScript output - look for => "result" lines
-                scriptOutput = extractAppleScriptResult(from: outputPart)
+                let (result, isError) = extractAppleScriptResult(from: outputPart)
+                if isError {
+                    // Complete with error
+                    let pending = queue.removeFirst()
+                    pending.promise.fail(SSHError.channelError("AppleScript error: \(result)"))
+                    return
+                }
+                scriptOutput = result
             } else {
                 // Parse shell/mixed output - look for AppleScript results or clean shell output
                 scriptOutput = extractCleanOutput(from: outputPart)
             }
-            
-            print("🔍 StreamingShellHandler: ✓ Result: '\(scriptOutput)'")
             
             // Complete the promise with the parsed output
             let pending = queue.removeFirst()
@@ -110,19 +129,46 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
     }
     
     /// Extract clean AppleScript result from => "result" format
-    private func extractAppleScriptResult(from output: String) -> String {
+    /// Returns (result, isError) tuple
+    private func extractAppleScriptResult(from output: String) -> (String, Bool) {
         let lines = output.components(separatedBy: .newlines)
         
         // Look for the last meaningful result line before the sentinel
         for line in lines.reversed() {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Check for AppleScript error indicators
+            if trimmed.hasPrefix("!!") || 
+               trimmed.contains("error \"") ||
+               trimmed.contains("can't go here") ||
+               trimmed.contains("is not defined") ||
+               trimmed.contains("doesn't understand") ||
+               trimmed.contains("Can't get") ||
+               trimmed.contains("Can't make") {
+                // This is an error message
+                return (trimmed, true)
+            }
+            
             if trimmed.hasPrefix("=> ") {
                 let content = String(trimmed.dropFirst(3))
+                // Check if the result itself is an error
+                if content.hasPrefix("!!") || 
+                   content.contains("error \"") ||
+                   content.contains("can't go here") ||
+                   content.contains("is not defined") {
+                    return (content, true)
+                }
+                
                 // Remove surrounding quotes if present
                 if content.hasPrefix("\"") && content.hasSuffix("\"") && content.count > 1 {
-                    return String(content.dropFirst().dropLast())
+                    let unquoted = String(content.dropFirst().dropLast())
+                    // One more check on the unquoted content
+                    if unquoted.hasPrefix("!!") || unquoted.contains("error") {
+                        return (unquoted, true)
+                    }
+                    return (unquoted, false)
                 } else {
-                    return content
+                    return (content, false)
                 }
             }
         }
@@ -130,6 +176,8 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         // If no => format found, look for any meaningful result
         for line in lines.reversed() {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Skip noise and check for errors
             if !trimmed.isEmpty && 
                !trimmed.hasPrefix("?>") && 
                !trimmed.hasPrefix(">>") && 
@@ -138,20 +186,26 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
                !trimmed.hasPrefix("[") &&
                !trimmed.hasPrefix("]") &&
                !trimmed.contains("Welcome to fish") &&
-               !trimmed.contains("osascript") &&
                !trimmed.hasPrefix("tell ") &&
                !trimmed.hasPrefix("end tell") &&
-               !trimmed.contains("do shell script") &&
-               !trimmed.contains("echo ") &&
                trimmed.count < 200 { // Avoid very long output
+                
+                // Check for error indicators
+                if trimmed.hasPrefix("!!") || 
+                   trimmed.contains("error") ||
+                   trimmed.contains("can't") ||
+                   trimmed.contains("is not defined") {
+                    return (trimmed, true)
+                }
+                
                 // Strip leading quote if present (common in AppleScript results)
                 if trimmed.hasPrefix("\"") {
-                    return String(trimmed.dropFirst())
+                    return (String(trimmed.dropFirst()), false)
                 }
-                return trimmed
+                return (trimmed, false)
             }
         }
-        return ""
+        return ("", false)
     }
     
     /// Extract clean output from mixed shell/AppleScript output
@@ -174,7 +228,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         for line in lines.reversed() {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             
-            // Skip all the noise
+            // Skip all the noise - but be more precise about what we filter
             if trimmed.isEmpty ||
                trimmed.hasPrefix("?>") ||
                trimmed.hasPrefix(">>") ||
@@ -189,9 +243,6 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
                trimmed.hasPrefix("bash -c") ||
                trimmed.hasPrefix("tell ") ||
                trimmed.hasPrefix("end tell") ||
-               trimmed.contains("do shell script") ||
-               trimmed.contains("osascript") ||
-               trimmed.contains("echo ") ||
                trimmed.contains("APPLESCRIPT") {
                 continue
             }

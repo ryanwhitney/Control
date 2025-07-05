@@ -18,51 +18,27 @@ struct IINAApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"IINA\")"
+        // Match Spotify's pattern for System Events
+        """
+        tell application "System Events"
+            if exists (processes where name is "IINA") then
+                return "true"
+            else
+                return "false"
+            end if
+        end tell
+        """
     }
     
-    // Template status script that can optionally inject action AppleScript
+    // Everything must be done through System Events since IINA has no AppleScript support
     private func statusScript(actionLines: String = "") -> String {
         """
         tell application "System Events"
             \(actionLines)
-            set isRunning to exists (processes where name is "IINA")
-            if not isRunning then
-                return "Not running |||  |||  stopped  |||false"
+            if not (exists (processes where name is "IINA")) then
+                return "Not running|||   |||stopped|||false"
             end if
-            
-            -- Try to get window title via System Events only
-            set windowTitle to ""
-            try
-            tell process "IINA"
-                if (count of windows) > 0 then
-                    set windowTitle to name of front window
-                end if
-            end tell
-            end try
-            
-            if windowTitle is "" then
-                return "Nothing playing |||   ||| false ||| false"
-            end if
-            
-            -- Check if window title indicates non-media windows
-            set nonMediaWindows to {"Window", "Preferences", "Log Viewer", "Choose Media Files", "Playback History"}
-            repeat with nonMediaWindow in nonMediaWindows
-                if windowTitle is nonMediaWindow then
-                    return "Nothing playing |||   ||| false ||| false"
-                end if
-            end repeat
-            
-            -- Try to parse title, fall back to full title if parsing fails
-            set cleanTitle to windowTitle
-            try
-                set AppleScript's text item delimiters to "  —  /"
-                set cleanTitle to first text item of windowTitle
-                set AppleScript's text item delimiters to ""
-            end try
-            
-            -- Now that we know media is loaded, check play/pause state
-            set isPlaying to false
+        set isPlaying to false
             try
                 tell application "IINA" to activate
                 tell process "IINA"
@@ -70,8 +46,14 @@ struct IINAApp: AppPlatform {
                     set isPlaying to (name of playPauseMenu contains "Pause")
                 end tell
             end try
-            
-            return cleanTitle & "|||   ||| " & isPlaying & " ||| " & isPlaying
+            tell process "IINA"
+                if (count of windows) > 0 then
+                    set windowTitle to name of front window
+                    return windowTitle & "|||   |||" & isPlaying & "|||false"
+                else
+                    return "No window|||   |||" & isPlaying & "|||false"
+                end if
+            end tell
         end tell
         """
     }
@@ -79,12 +61,14 @@ struct IINAApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        // Add delay after action like Spotify does
+        let delayScript = "delay 0.3\n"
+        return statusScript(actionLines: executeAction(action) + "\n" + delayScript)
     }
     
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
-        if components.count >= 3 {
+        if components.count >= 4 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
                 subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
@@ -101,42 +85,24 @@ struct IINAApp: AppPlatform {
     }
     
     func executeAction(_ action: AppAction) -> String {
+        // Actions need IINA to be frontmost
+        var cmd = "tell process \"IINA\" to set frontmost to true\n"
+        cmd += "delay 0.1\n"
+        
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "IINA" to activate
-            tell process "IINA"
-                key code 49 -- spacebar
-            end tell
-            """
+            cmd += "keystroke space"
         case .skipBackward:
-            return """
-            tell application "IINA" to activate
-            tell process "IINA"
-                key code 123 -- left arrow
-            end tell
-            """
+            cmd += "key code 123"
         case .skipForward:
-            return """
-            tell application "IINA" to activate
-            tell process "IINA"
-                key code 124 -- right arrow
-            end tell
-            """
+            cmd += "key code 124"
         case .previousTrack:
-            return """
-            tell application "IINA" to activate
-            tell process "IINA"
-                key code 123 using {command down} -- cmd+left
-            end tell
-            """
+            cmd += "key code 123 using {command down}"
         case .nextTrack:
-            return """
-            tell application "IINA" to activate
-            tell process "IINA"
-                key code 124 using {command down} -- cmd+right
-            end tell
-            """
+            cmd += "key code 124 using {command down}"
         }
+        
+        return cmd
     }
 }
+ 

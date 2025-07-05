@@ -18,7 +18,15 @@ struct SafariApp: AppPlatform {
     }
 
     func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"Safari\")"
+        """
+        tell application "System Events"
+            if exists (processes where name is "Safari") then
+                return "true"
+            else
+                return "false"
+            end if
+        end tell
+        """
     }
 
     private func statusScript(actionLines: String = "") -> String {
@@ -60,10 +68,10 @@ struct SafariApp: AppPlatform {
     func parseState(_ output: String) -> AppState {
         let components = output.components(separatedBy: "|||")
         
-        if components.count >= 3 {
+        if components.count >= 4 {
             let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
             let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            let isPlayingStr = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
+            let isPlayingStr = components[3].trimmingCharacters(in: .whitespacesAndNewlines)
             let isPlaying = isPlayingStr == "true"
             
             return AppState(

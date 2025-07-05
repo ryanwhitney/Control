@@ -86,11 +86,11 @@ actor ChannelExecutor {
             return
         }
         
-        let testSentinel = "__PING_\(UUID().uuidString.prefix(4))__"
+        let testSentinel = ">>>VOLCTL_PING_\(UUID().uuidString.prefix(4))<<<"
         let testPayload: String
         
         if interactiveAppleScript {
-            testPayload = "1 + 1\n\ndo shell script \"echo \(testSentinel)\"\n\n"
+            testPayload = "1 + 1\n\n\"\(testSentinel)\"\n\n"
         } else {
             testPayload = "echo 'test-ok'; printf '\\n%s\\n' \(testSentinel)\n"
         }
@@ -105,10 +105,10 @@ actor ChannelExecutor {
         
         // Wait for the test result with a timeout
         do {
-            let testResult = try await withTimeout(seconds: 3.0) {
+            _ = try await withTimeout(seconds: 3.0) {
                 return try await promise.futureResult.get()
             }
-            print("🔧 ChannelExecutor: ✓ Test ping successful")
+            // Test ping successful - no need to log
         } catch {
             print("🔧 ChannelExecutor: ❌ Test ping failed: \(error)")
         }
@@ -117,7 +117,6 @@ actor ChannelExecutor {
     /// Executes `command` by opening a fresh exec channel on the existing SSH connection.
     /// The promise is fulfilled when the command finishes (or fails).
     func run(command: String, description: String?) async -> Result<String, Error> {
-        let commandPreview = String(command.prefix(50))
         if let description = description {
             print("🔧 ChannelExecutor: \(description)")
         }
@@ -139,7 +138,7 @@ actor ChannelExecutor {
 
         return await withCheckedContinuation { continuation in
             let sentinelSuffix = String(UUID().uuidString.prefix(6))
-            let sentinel = "__END__\(sentinelSuffix)__"
+            let sentinel = ">>>VOLCTL_END_\(sentinelSuffix)<<<"
             
             let promise = chan.eventLoop.makePromise(of: String.self)
             self.shellHandler.addCommand(sentinel: sentinel, promise: promise)
@@ -148,12 +147,11 @@ actor ChannelExecutor {
             if self.interactiveAppleScript {
                 // For interactive AppleScript, send the command, blank line to execute, then sentinel
                 let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
-                // Introduce a short delay before echoing the sentinel so that the command's
-                // output has time to reach stdout before we mark completion. This mitigates
-                // race-conditions where the sentinel might otherwise arrive first and cause
-                // us to read an empty or incomplete result.
-                payload = "\(command)\n\n-- Small delay to allow stdout to flush before sentinel\ndelay 0.05\ndo shell script \"echo \(escapedSentinel)\"\n\n"
-                print("🔧 ChannelExecutor: Sending to osascript: '\(command)'")
+                payload = "\(command)\n\n\"\(escapedSentinel)\"\n\n"
+                // Only log the description, not the full command
+                if let desc = description {
+                    print("🔧 ChannelExecutor: \(desc)")
+                }
             } else {
                 payload = "\(command); printf '\\n%s\\n' \(sentinel)\n"
             }
@@ -162,7 +160,14 @@ actor ChannelExecutor {
             let writePromise = chan.eventLoop.makePromise(of: Void.self)
             chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: writePromise)
             
+            // Add timeout to the promise
+            let timeoutTask = chan.eventLoop.scheduleTask(in: .seconds(8)) {
+                print("🔧 ChannelExecutor: ⏰ Command timed out after 8 seconds")
+                promise.fail(SSHError.timeout)
+            }
+            
             promise.futureResult.whenComplete { result in
+                timeoutTask.cancel()
                 continuation.resume(returning: result)
             }
         }

@@ -16,7 +16,15 @@ struct SpotifyApp: AppPlatform {
     }
     
     func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"Spotify\")"
+        """
+        tell application "System Events"
+            if exists (processes where name is "Spotify") then
+                return "true"
+            else
+                return "false"
+            end if
+        end tell
+        """
     }
     
     // Template status script that can optionally inject action AppleScript
@@ -73,6 +81,9 @@ struct SpotifyApp: AppPlatform {
     }
     
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        // Add delay for all actions to let Spotify update its state
+        let delayScript = "delay 0.3\n"
+        
+        return statusScript(actionLines: executeAction(action) + "\n" + delayScript)
     }
 }

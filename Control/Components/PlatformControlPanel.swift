@@ -92,6 +92,8 @@ struct PlatformControl: View {
         }
         .onAppear {
             Task {
+                // Wait until the initial batch update has completed
+                guard controller.hasCompletedInitialUpdate else { return }
                 await controller.updateState(for: platform)
             }
         }
