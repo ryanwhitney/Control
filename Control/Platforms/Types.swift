@@ -120,7 +120,7 @@ extension AppPlatform {
     func combinedStatusScript() -> String {
         return """
         tell application \"System Events\"
-            if exists (application process \"\(name)\") then
+            if (count of (processes where name is \"\(name)\")) > 0 then
                 -- App is running; delegate to the platform-specific status fetch
                 \(fetchState())
             else
