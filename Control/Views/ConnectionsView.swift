@@ -121,7 +121,11 @@ struct ConnectionsView: View {
             .tint(UserPreferences.shared.tintColorValue)
         }
         .environmentObject(viewModel)
-        .onAppear(perform: viewModel.onAppear)
+        .onAppear {
+            // Root views don't disappear, so these only run on app open or foreground
+            SSHConnectionManager.shared.disconnect()
+            viewModel.onAppear()
+        }
         .onDisappear(perform: viewModel.onDisappear)
         .onChange(of: scenePhase) { oldPhase, newPhase in
             viewModel.handleScenePhaseChange(from: oldPhase, to: newPhase)
@@ -132,8 +136,14 @@ struct ConnectionsView: View {
                 viewModel.checkForRescanOnForeground()
             }
         }
-        .onChange(of: viewModel.navigateToControl) { _, newValue in
-            if !newValue {
+        .onChange(of: viewModel.navigateToControl) { oldVal, newVal in
+            // When we return from ControlView to the connections list, tear down any live SSH session
+            if oldVal == true && newVal == false {
+                SSHConnectionManager.shared.disconnect()
+                viewLog("ConnectionsView: navigateToControl -> false, disconnected active SSH session", view: "ConnectionsView")
+            }
+
+            if !newVal {
                 viewModel.connectingComputer = nil
                 viewModel.selectedConnection = nil
             }
