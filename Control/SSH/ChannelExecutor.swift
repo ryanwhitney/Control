@@ -2,9 +2,13 @@ import Foundation
 import NIOSSH
 import NIOCore
 
-/// Actor responsible for running commands serially on the SSH connection.
-/// It opens a NEW exec channel for every command (required by macOS sshd) but keeps
-/// the overhead low by re-using the underlying TCP connection and serialising calls.
+/// Actor that serialises AppleScript commands on a dedicated SSH *child-channel*.
+/// For each physical key (`system`, `heartbeat`, `app-0`, …) we open an interactive
+/// session – a PTY running `/usr/bin/osascript -s s -l AppleScript -i` and keep it
+/// alive for the lifetime of the executor.  Every command is streamed into that
+/// interpreter, demarcated with a unique sentinel so responses can be matched back
+/// to their promises.  If a fatal timeout or channel error occurs the shell is
+/// closed and the executor will be recreated on next use.
 @available(iOS 15.0, *)
 actor ChannelExecutor {
     private static let idQueue = DispatchQueue(label: "com.volumecontrol.executorIdQueue")
@@ -208,53 +212,16 @@ actor ChannelExecutor {
     func close() {
         sshLog("🔧 [E\(executorId)] ChannelExecutor: Closing shell channel")
         if let chan = self.shellChannel {
-            chan.close(promise: nil)
+            chan.close(mode: .all, promise: nil)
         }
+        // Reset internal state so this executor cannot be reused accidentally
+        self.shellChannel = nil
+        self.workQueue.removeAll()
+        self.isBusy = false
     }
     
     /// Set shell channel from async context
     private func setShellChannel(_ channel: Channel) {
         self.shellChannel = channel
     }
-}
-
-// A simple passthrough error handler for the exec child channel.
-private class ErrorHandler: ChannelInboundHandler {
-    typealias InboundIn = Any
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        sshLog("🔧 ErrorHandler: ❌ Error caught: \(error)")
-        context.close(promise: nil)
-    }
-}
-
-private func setupInteractiveShell(channel: Channel, command: String) -> EventLoopFuture<Void> {
-    // First allocate a PTY for proper terminal behavior
-    let ptyRequest = SSHChannelRequestEvent.PseudoTerminalRequest(
-        wantReply: true,
-        term: "xterm-256color", 
-        terminalCharacterWidth: 80,
-        terminalRowHeight: 24,
-        terminalPixelWidth: 0,
-        terminalPixelHeight: 0,
-        terminalModes: SSHTerminalModes([:])
-    )
-    
-    return channel.triggerUserOutboundEvent(ptyRequest)
-        .flatMap { _ -> EventLoopFuture<Void> in
-            // Now request an interactive shell
-            let shellRequest = SSHChannelRequestEvent.ShellRequest(wantReply: true)
-            return channel.triggerUserOutboundEvent(shellRequest)
-        }
-        .flatMap { _ -> EventLoopFuture<Void> in
-            // Send the initial command to set up our specific interpreter
-            let initialPayload = "\(command)\n"
-            let buffer = channel.allocator.buffer(string: initialPayload)
-            let writePromise = channel.eventLoop.makePromise(of: Void.self)
-            channel.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: writePromise)
-            return writePromise.futureResult
-        }
-        .flatMapError { error in
-            print("🔧 setupInteractiveShell: ❌ Setup failed: \(error)")
-            return channel.eventLoop.makeFailedFuture(error)
-        }
 } 

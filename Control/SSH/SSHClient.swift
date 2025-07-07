@@ -28,19 +28,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     /// Retrieve an existing executor or create a new one based on the logical key.
     /// This function maps a logical key (like "spotify") to a physical executor (like "app-2").
     private func executor(for key: String) async throws -> ChannelExecutor {
-        let executorKey: String
-
-        if key == "system" {
-            executorKey = "system"
-        } else if key == "heartbeat" {
-            // Dedicated persistent channel for heartbeats
-            executorKey = "heartbeat"
-        } else {
-            // This is an app, so we use the pool.
-            // Using hashValue provides a stable distribution of apps to channels.
-            let poolIndex = abs(key.hashValue) % appChannelPoolSize
-            executorKey = "app-\(poolIndex)"
-        }
+        let executorKey = physicalKey(for: key)
         
         // Create a new executor if still missing (non-blocking; possible race creates extra but harmless)
         if let existing = dedicatedExecutors[executorKey] {
@@ -70,14 +58,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                 if case SSHError.timeout = error { shouldReset = true }
                 if case SSHError.channelError = error { shouldReset = true }
                 if shouldReset {
-                    let physicalKey: String
-                    if channelKey == "system" {
-                        physicalKey = "system"
-                    } else if channelKey == "heartbeat" {
-                        physicalKey = "heartbeat"
-                    } else {
-                        physicalKey = "app-\(abs(channelKey.hashValue) % appChannelPoolSize)"
-                    }
+                    let physicalKey = self.physicalKey(for: channelKey)
                     dedicatedExecutors.removeValue(forKey: physicalKey)
                     sshLog("📡 SSHClient: Removed executor for key '\(physicalKey)' due to error – will recreate on next use")
                 }
@@ -238,6 +219,13 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         connection?.close(promise: nil)
         connection = nil
         sshLog("✓ SSHClient disconnected and cleaned up")
+    }
+    
+    /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying executor key.
+    private func physicalKey(for logicalKey: String) -> String {
+        if logicalKey == "system" { return "system" }
+        if logicalKey == "heartbeat" { return "heartbeat" }
+        return "app-\(abs(logicalKey.hashValue) % appChannelPoolSize)"
     }
 }
 

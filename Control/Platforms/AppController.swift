@@ -112,10 +112,8 @@ class AppController: ObservableObject {
             }
         }
         
-        defer {
-            hasCompletedInitialUpdate = true
-            appControllerLog("✓ State update complete")
-        }
+        hasCompletedInitialUpdate = true
+        appControllerLog("✓ State update complete")
     }
     
     func updateState(for platform: any AppPlatform) async {

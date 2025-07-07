@@ -33,7 +33,7 @@ final class StreamingShellHandler: ChannelInboundHandler {
     
     func channelInactive(context: ChannelHandlerContext) {
         if !queue.isEmpty {
-            print("🔍 StreamingShellHandler: ❌ Channel closed with \(queue.count) pending commands – failing them")
+            sshLog("🔍 StreamingShellHandler: ❌ Channel closed with \(queue.count) pending commands – failing them")
             for pending in queue {
                 pending.promise.fail(SSHError.channelError("Channel closed unexpectedly"))
             }
@@ -59,7 +59,7 @@ final class StreamingShellHandler: ChannelInboundHandler {
         
         // Handle stderr separately
         if payload.type == .stdErr {
-            print("🔍 StreamingShellHandler: ❌ Stderr: '\(string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))'")
+            sshLog("🔍 StreamingShellHandler: ❌ Stderr: '\(string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))'")
             // If we have a pending command and receive stderr, it's likely an error
             if !queue.isEmpty {
                 let pending = queue.removeFirst()
@@ -98,7 +98,7 @@ final class StreamingShellHandler: ChannelInboundHandler {
         
         // Check if buffer is getting too large (possible stuck command)
         if currentBuffer.count > 100000 {
-            print("🔍 StreamingShellHandler: ⚠️ Buffer overflow - command may be stuck")
+            sshLog("🔍 StreamingShellHandler: ⚠️ Buffer overflow - command may be stuck")
             let pending = queue.removeFirst()
             pending.promise.fail(SSHError.channelError("Buffer overflow - response too large"))
             context.close(promise: nil)
@@ -291,7 +291,12 @@ final class StreamingShellHandler: ChannelInboundHandler {
     }
     
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        print("🔍 StreamingShellHandler: ❌ Error caught: \(error)")
+        // Suppress noisy tcpShutdown messages – they occur during orderly disconnects.
+        if String(describing: error).contains("tcpShutdown") {
+            sshLog("🔍 StreamingShellHandler: ℹ️ Channel closed (tcpShutdown)")
+        } else {
+            sshLog("🔍 StreamingShellHandler: ❌ Error caught: \(error)")
+        }
         if let pending = queue.first {
             print("🔍 StreamingShellHandler: Failing pending promise due to error")
             pending.promise.fail(error)

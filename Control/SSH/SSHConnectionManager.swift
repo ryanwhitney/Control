@@ -23,6 +23,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private var recoveryDeadline: Date?
     private var heartbeatCounter: UInt32 = 0
     private let heartbeatReplyTimeout: TimeInterval = 1.0
+    private var heartbeatReadyContinuations: [CheckedContinuation<Void, Never>] = []
     
     static let shared = SSHConnectionManager()
     
@@ -133,8 +134,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                     case .success:
                         connectionLog("✓ [\(connectionId)] Connection successful")
                         self.connectionState = .connected
-                        // Start heartbeat monitoring once connected
-                        self.startHeartbeat()
                         self.consecutiveHeartbeatFailures = 0
                         self.lastHeartbeatSuccess = Date()
                         self.recoveryDeadline = nil
@@ -435,7 +434,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     
     // MARK: - Heartbeat Helpers
-    private func startHeartbeat() {
+    func startHeartbeat() {
         stopHeartbeat()
         consecutiveHeartbeatFailures = 0
         currentHeartbeatInterval = minHeartbeatInterval
@@ -503,6 +502,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private func handleHeartbeatSuccess(rtt: TimeInterval, id: String) {
         consecutiveHeartbeatFailures = 0
         lastHeartbeatSuccess = Date()
+        // Fulfil any waiters exactly once on the first heartbeat.
+        if !heartbeatReadyContinuations.isEmpty {
+            heartbeatReadyContinuations.forEach { $0.resume() }
+            heartbeatReadyContinuations.removeAll()
+        }
         if connectionState == .recovering {
             connectionState = .connected
             connectionLog("✅ Recovery complete – connection restored (\(String(format: "%.0f", rtt*1000)) ms)")
@@ -534,5 +538,16 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     @MainActor
     private func resetHeartbeatInterval() {
         currentHeartbeatInterval = minHeartbeatInterval
+    }
+    
+    // Public helper: returns when the very first heartbeat has succeeded after a connect/reconnect.
+    @MainActor
+    func waitForHeartbeatReady() async {
+        if lastHeartbeatSuccess != nil {
+            return
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            heartbeatReadyContinuations.append(continuation)
+        }
     }
 } 

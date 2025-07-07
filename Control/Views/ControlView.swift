@@ -41,7 +41,11 @@ struct ControlView: View, SSHConnectedView {
     
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
-        Task { await appController.updateAllStates() }
+        Task {
+            await appController.reset()
+            await appController.updateAllStates()
+            connectionManager.startHeartbeat()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
             isReady = true
             viewLog("ControlView: Ready state activated", view: "ControlView")
