@@ -7,10 +7,22 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     @Published private(set) var connectionState: ConnectionState = .disconnected
     private nonisolated let sshClient: SSHClient
     private var currentCredentials: Credentials?
-    private var connectionLostHandler: (@MainActor () -> Void)?
+    private var connectionLostHandler: (@MainActor (Error?) -> Void)?
     private var pathMonitor: NWPathMonitor?
     private let monitorQueue = DispatchQueue(label: "SSHPathMonitor")
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    
+    // MARK: - Heartbeat Management
+    private var heartbeatTask: Task<Void, Never>?
+    private var consecutiveHeartbeatFailures = 0
+    private let maxHeartbeatFailures = 1
+    private let minHeartbeatInterval: TimeInterval = 0.5
+    private let maxHeartbeatInterval: TimeInterval = 12
+    private var currentHeartbeatInterval: TimeInterval = 3
+    private var lastHeartbeatSuccess: Date?
+    private var recoveryDeadline: Date?
+    private var heartbeatCounter: UInt32 = 0
+    private let heartbeatReplyTimeout: TimeInterval = 1.0
     
     static let shared = SSHConnectionManager()
     
@@ -24,6 +36,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         case disconnected
         case connecting
         case connected
+        case recovering
         case failed(String)
         
         var description: String {
@@ -31,6 +44,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             case .disconnected: return "disconnected"
             case .connecting: return "connecting"
             case .connected: return "connected"
+            case .recovering: return "recovering"
             case .failed(let error): return "failed(\(error))"
             }
         }
@@ -48,14 +62,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             if path.status != .satisfied {
                 connectionLog("🚨 Network path no longer satisfied – assuming connection lost")
                 Task { @MainActor in
-                    self.handleConnectionLost()
+                    self.handleConnectionLost(because: path.status == .unsatisfied ? SSHError.connectionFailed("Network path unavailable") : nil)
                 }
             }
         }
         monitor.start(queue: monitorQueue)
     }
     
-    func setConnectionLostHandler(_ handler: @escaping @MainActor () -> Void) {
+    func setConnectionLostHandler(_ handler: @escaping @MainActor (Error?) -> Void) {
         self.connectionLostHandler = handler
     }
     
@@ -64,15 +78,24 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return sshClient 
     }
     
-    func handleConnectionLost() {
-        sshLog("🚨 SSHConnectionManager: Connection Lost Detected")
+    func handleConnectionLost(because error: Error? = nil) {
         Task { @MainActor in
-            let previousState = connectionState.description
-            connectionState = .disconnected
-            sshLog("Connection state changed: \(previousState) -> \(connectionState.description)")
-            sshLog("🚨 Triggering connection lost handler to update UI")
-            disconnect()
-            connectionLostHandler?()
+            // Prevent multiple simultaneous reconnect attempts
+            guard connectionState == .connected || connectionState == .recovering else { return }
+            
+            connectionLog("🚨 Connection lost...")
+            
+            // Immediately transition to disconnected to stop further commands
+            self.connectionState = .disconnected
+            
+            // Clean up old connection artifacts
+            self.sshClient.disconnect()
+            
+            // Trigger UI handler to show alert
+            self.connectionLostHandler?(error)
+            
+            // Stop heartbeat monitoring
+            self.stopHeartbeat()
         }
     }
     
@@ -110,6 +133,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                     case .success:
                         connectionLog("✓ [\(connectionId)] Connection successful")
                         self.connectionState = .connected
+                        // Start heartbeat monitoring once connected
+                        self.startHeartbeat()
+                        self.consecutiveHeartbeatFailures = 0
+                        self.lastHeartbeatSuccess = Date()
+                        self.recoveryDeadline = nil
                         continuation.resume()
                     case .failure(let error):
                         connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
@@ -118,6 +146,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                         
                         // Ensure client is disconnected on failure to prevent stale state
                         client.disconnect()
+                        self.handleConnectionLost(because: error)
                         continuation.resume(throwing: error)
                     }
                 }
@@ -142,6 +171,8 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             self.currentCredentials = nil
             self.cancelBackgroundDisconnect()
             self.endBackgroundTask()
+            // Stop heartbeat monitoring
+            self.stopHeartbeat()
         }
     }
     
@@ -302,6 +333,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             sshLog("Command: \(description)")
         }
         
+        // Boost heartbeat frequency after user/system activity
+        Task { @MainActor in
+            self.resetHeartbeatInterval()
+        }
+        
         let commandId = UUID().uuidString.prefix(8)
         var hasCompleted = false
         let startTime = Date()
@@ -391,6 +427,112 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     
     /// Protocol conformance – executes on a dedicated channel (default heartbeat behaviour)
     nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        // User/system activity detected – reset heartbeat interval to minimum
+        Task { @MainActor in
+            self.resetHeartbeatInterval()
+        }
         client.executeCommandOnDedicatedChannel(channelKey, command, description: description, completion: completion)
+    }
+    
+    // MARK: - Heartbeat Helpers
+    private func startHeartbeat() {
+        stopHeartbeat()
+        consecutiveHeartbeatFailures = 0
+        currentHeartbeatInterval = minHeartbeatInterval
+        heartbeatTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performHeartbeat() // immediate first ping
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(self.currentHeartbeatInterval * 1_000_000_000))
+                if Task.isCancelled { break }
+                await self.performHeartbeat()
+                // Gradually back off interval until max
+                self.currentHeartbeatInterval = min(self.currentHeartbeatInterval + 1, self.maxHeartbeatInterval)
+            }
+        }
+        connectionLog("🔄 Heartbeat started (interval \(minHeartbeatInterval)s -> \(maxHeartbeatInterval)s)")
+        
+        lastHeartbeatSuccess = Date()
+        recoveryDeadline = nil
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        connectionLog("⏹️ Heartbeat stopped")
+        recoveryDeadline = nil
+    }
+
+    @MainActor
+    private func performHeartbeat() async {
+        // Build unique identifier & script
+        let hbId = heartbeatCounter
+        heartbeatCounter &+= 1
+        let idString = String(format: "HB%05u", hbId)
+        let script = "return \"\(idString)\""
+        let sendTime = Date()
+        var completed = false
+
+        // Timeout watchdog
+        let timeoutTask = DispatchWorkItem { [weak self] in
+            guard let self, !completed else { return }
+            completed = true
+            self.handleHeartbeatFailure(reason: "timeout waiting > \(heartbeatReplyTimeout)s for \(idString)")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + heartbeatReplyTimeout, execute: timeoutTask)
+
+        self.client.executeCommandOnDedicatedChannel("heartbeat", script, description: "heartbeat-\(idString)") { [weak self] result in
+            guard let self, !completed else { return }
+            completed = true
+            timeoutTask.cancel()
+
+            switch result {
+            case .success(let output):
+                if output.contains(idString) {
+                    self.handleHeartbeatSuccess(rtt: Date().timeIntervalSince(sendTime), id: idString)
+                } else {
+                    self.handleHeartbeatFailure(reason: "mismatched reply for \(idString)")
+                }
+            case .failure(let error):
+                self.handleHeartbeatFailure(reason: error.localizedDescription)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleHeartbeatSuccess(rtt: TimeInterval, id: String) {
+        consecutiveHeartbeatFailures = 0
+        lastHeartbeatSuccess = Date()
+        if connectionState == .recovering {
+            connectionState = .connected
+            connectionLog("✅ Recovery complete – connection restored (\(String(format: "%.0f", rtt*1000)) ms)")
+        } else {
+            connectionLog("✓ Heartbeat OK (\(id), \(String(format: "%.0f", rtt*1000)) ms)")
+        }
+        recoveryDeadline = nil
+    }
+
+    @MainActor
+    private func handleHeartbeatFailure(reason: String) {
+        consecutiveHeartbeatFailures += 1
+        connectionLog("⚠️ Heartbeat failure (#\(consecutiveHeartbeatFailures)): \(reason)")
+        if consecutiveHeartbeatFailures == 1 {
+            connectionState = .recovering
+            recoveryDeadline = Date().addingTimeInterval(2)
+            currentHeartbeatInterval = 0.5
+            connectionLog("🛠️ Entering recovering state – monitoring for 2s")
+        } else {
+            let shouldDrop = consecutiveHeartbeatFailures >= maxHeartbeatFailures && (recoveryDeadline.map { Date() >= $0 } ?? false)
+            if shouldDrop {
+                connectionLog("🚨 Recovery failed – treating as connection loss")
+                handleConnectionLost()
+                stopHeartbeat()
+            }
+        }
+    }
+
+    @MainActor
+    private func resetHeartbeatInterval() {
+        currentHeartbeatInterval = minHeartbeatInterval
     }
 } 

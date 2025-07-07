@@ -89,8 +89,19 @@ extension SSHConnectedView {
     @MainActor
     private func setConnectionLostHandler() {
         let viewNameMeta = String(describing: Self.self)
-        connectionManager.setConnectionLostHandler { @MainActor in
-            viewLog("⚠️ \(viewNameMeta): Connection lost handler triggered", view: viewNameMeta)
+        connectionManager.setConnectionLostHandler { @MainActor error in
+            viewLog("⚠️ \(viewNameMeta): Connection lost handler triggered by error: \(String(describing: error))", view: viewNameMeta)
+            
+            // Use the generic error alert mechanism to show the issue
+            if let sshError = error as? SSHError {
+                connectionError.wrappedValue = sshError.formatError(displayName: displayName)
+            } else if let error = error {
+                connectionError.wrappedValue = ("Connection Lost", error.localizedDescription)
+            } else {
+                connectionError.wrappedValue = ("Connection Lost", "The connection was unexpectedly dropped.")
+            }
+            
+            // Show a generic alert, which on dismiss will pop the view
             showingConnectionLostAlert.wrappedValue = true
         }
     }

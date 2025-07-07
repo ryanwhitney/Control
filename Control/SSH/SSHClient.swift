@@ -32,6 +32,9 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
 
         if key == "system" {
             executorKey = "system"
+        } else if key == "heartbeat" {
+            // Dedicated persistent channel for heartbeats
+            executorKey = "heartbeat"
         } else {
             // This is an app, so we use the pool.
             // Using hashValue provides a stable distribution of apps to channels.
@@ -58,7 +61,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     }
     
     /// Async helper that runs a command on a dedicated channel and returns the Result.
-    private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?, attemptsLeft: Int = 1) async -> Result<String, Error> {
+    private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?) async -> Result<String, Error> {
         do {
             let exec = try await executor(for: channelKey)
             let result = await exec.run(command: command, description: description)
@@ -67,14 +70,16 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                 if case SSHError.timeout = error { shouldReset = true }
                 if case SSHError.channelError = error { shouldReset = true }
                 if shouldReset {
-                    let physicalKey = channelKey == "system" ? "system" : "app-\(abs(channelKey.hashValue) % appChannelPoolSize)"
+                    let physicalKey: String
+                    if channelKey == "system" {
+                        physicalKey = "system"
+                    } else if channelKey == "heartbeat" {
+                        physicalKey = "heartbeat"
+                    } else {
+                        physicalKey = "app-\(abs(channelKey.hashValue) % appChannelPoolSize)"
+                    }
                     dedicatedExecutors.removeValue(forKey: physicalKey)
                     sshLog("📡 SSHClient: Removed executor for key '\(physicalKey)' due to error – will recreate on next use")
-                    if attemptsLeft > 0 {
-                        // Add brief delay to prevent rapid channel recreation
-                        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
-                        return await performOnDedicatedChannel(channelKey, command: command, description: description, attemptsLeft: attemptsLeft - 1)
-                    }
                 }
             }
             return result

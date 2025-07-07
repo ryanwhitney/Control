@@ -303,6 +303,8 @@ struct ControlView: View, SSHConnectedView {
                 viewLog("🚨 ControlView: Connection is disconnected", view: "ControlView")
             case .connecting:
                 viewLog("ControlView: Currently connecting...", view: "ControlView")
+            case .recovering:
+                viewLog("ControlView: Recovering connection...", view: "ControlView")
             case .connected:
                 viewLog("✓ ControlView: Connection established", view: "ControlView")
             case .failed(let error):

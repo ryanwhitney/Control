@@ -249,7 +249,7 @@ class AppController: ObservableObject {
                sshClient.isConnectionLossError(error) {
                 appControllerLog("🚨 Connection lost during action execution - marking controller inactive")
                 self.isActive = false
-                sshClient.handleConnectionLost()
+                sshClient.handleConnectionLost(because: error)
             }
         }
     }
@@ -273,7 +273,7 @@ class AppController: ObservableObject {
                sshClient.isConnectionLossError(error) {
                 appControllerLog("🚨 Connection lost during volume change - marking controller inactive")
                 self.isActive = false
-                sshClient.handleConnectionLost()
+                sshClient.handleConnectionLost(because: error)
             }
         }
     }
@@ -307,7 +307,7 @@ class AppController: ObservableObject {
                sshClient.isConnectionLossError(error) {
                 appControllerLog("🚨 Connection lost during volume update - marking controller inactive")
                 self.isActive = false
-                sshClient.handleConnectionLost()
+                sshClient.handleConnectionLost(because: error)
             }
         }
     }
@@ -337,7 +337,7 @@ class AppController: ObservableObject {
                        connectionManager.isConnectionLossError(error) {
                         appControllerLog("🚨 Connection lost - marking controller inactive")
                         self.isActive = false
-                        connectionManager.handleConnectionLost()
+                        connectionManager.handleConnectionLost(because: error)
                     }
                 }
                 continuation.resume(returning: result)
