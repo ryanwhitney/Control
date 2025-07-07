@@ -20,6 +20,9 @@ class AppController: ObservableObject {
     // Track last per-platform state refresh to avoid redundant work/log noise
     private var lastStateRefresh: [String: Date] = [:]
     
+    // Track last action per platform to prevent rapid-fire commands
+    private var lastActionTime: [String: Date] = [:]
+    
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
@@ -198,6 +201,16 @@ class AppController: ObservableObject {
         guard isActive else { 
             appControllerLog("⚠️ Controller not active, skipping action")
             return 
+        }
+        
+        // Rate limit TV actions to prevent channel overload
+        if platform.id == "tv" {
+            if let lastAction = lastActionTime[platform.id],
+               Date().timeIntervalSince(lastAction) < 0.3 {
+                appControllerLog("⏭️ \(platform.name): rate limiting action (< 0.3s since last)")
+                return
+            }
+            lastActionTime[platform.id] = Date()
         }
         
         appControllerLog("🎬 \(platform.name): \(action.label)")

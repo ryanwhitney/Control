@@ -97,7 +97,7 @@ final class StreamingShellHandler: ChannelInboundHandler {
         let expectedSentinel = queue[0].sentinel
         
         // Check if buffer is getting too large (possible stuck command)
-        if currentBuffer.count > 50000 {
+        if currentBuffer.count > 100000 {
             print("🔍 StreamingShellHandler: ⚠️ Buffer overflow - command may be stuck")
             let pending = queue.removeFirst()
             pending.promise.fail(SSHError.channelError("Buffer overflow - response too large"))

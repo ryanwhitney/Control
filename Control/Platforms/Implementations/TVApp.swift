@@ -91,31 +91,23 @@ struct TVApp: AppPlatform {
             return "playpause"
         case .skipBackward:
             return """
-            try
-                tell application "TV" to set player position to ((get player position) - 10)
-            on error
-                tell application "System Events"
-                    if frontmost of application "TV" is false then
-                        tell application "TV" to activate
-                        delay 0.25
-                    end if
-                    tell application "System Events" to tell process "TV" to key code 123
-                end tell
-            end try
+            tell application "System Events"
+                if frontmost of application "TV" is false then
+                    tell application "TV" to activate
+                    delay 0.1
+                end if
+                tell process "TV" to key code 123
+            end tell
             """
         case .skipForward:
             return """
-            try
-                tell application "TV" to set player position to ((get player position) + 10)
-            on error
-                tell application "System Events"
-                    if frontmost of application "TV" is false then
-                        tell application "TV" to activate
-                        delay 0.25
-                    end if
-                    tell application "System Events" to tell process "TV" to key code 124
-                end tell
-            end try
+            tell application "System Events"
+                if frontmost of application "TV" is false then
+                    tell application "TV" to activate
+                    delay 0.1
+                end if
+                tell process "TV" to key code 124
+            end tell
             """
         default:
             return ""

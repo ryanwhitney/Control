@@ -71,6 +71,8 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                     dedicatedExecutors.removeValue(forKey: physicalKey)
                     sshLog("📡 SSHClient: Removed executor for key '\(physicalKey)' due to error – will recreate on next use")
                     if attemptsLeft > 0 {
+                        // Add brief delay to prevent rapid channel recreation
+                        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
                         return await performOnDedicatedChannel(channelKey, command: command, description: description, attemptsLeft: attemptsLeft - 1)
                     }
                 }

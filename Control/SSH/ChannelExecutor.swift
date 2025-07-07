@@ -66,7 +66,7 @@ actor ChannelExecutor {
     /// Number of consecutive timeouts observed.  We only tear the channel down after
     /// a small burst of timeouts to avoid over-aggressive reconnects on a momentary stall.
     private var consecutiveTimeouts = 0
-    private let maxConsecutiveTimeouts = 2
+    private let maxConsecutiveTimeouts = 1
 
     /// Command watchdog duration.  AppleScript can legitimately take >2 s under load.
     private let commandTimeoutSeconds: TimeAmount = .seconds(3)
