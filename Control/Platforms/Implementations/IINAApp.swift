@@ -61,9 +61,10 @@ struct IINAApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        // Add delay after action like Spotify does
-        let delayScript = "delay 0.3\n"
-        return statusScript(actionLines: executeAction(action) + "\n" + delayScript)
+        // executeAction already brings the app frontmost and inserts a small
+        // delay *only when needed*. We therefore no longer add an unconditional
+        // delay here.
+        return statusScript(actionLines: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {

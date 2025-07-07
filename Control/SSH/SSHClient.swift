@@ -20,7 +20,8 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private let executorLock = NSLock()
     
     // MARK: - Dedicated Channel Support
-    private let appChannelPoolSize = 4
+    // Using a single app channel improves stability by serialising all app commands
+    private let appChannelPoolSize = 1
     
     /// Executors keyed by physical channel name (e.g. "system", "app-0", "app-1")
     private var dedicatedExecutors: [String: ChannelExecutor] = [:]

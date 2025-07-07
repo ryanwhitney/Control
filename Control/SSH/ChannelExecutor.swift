@@ -51,11 +51,17 @@ actor ChannelExecutor {
     private var isBusy = false
     private var commandCounter: UInt32 = 0
     
+    // Warm-up flag – we send a no-op AppleScript (`return 0`) once per channel
+    // before the very first real command to make sure the interpreter has
+    // finished its prompt/initialisation handshake.  This greatly reduces the
+    // likelihood of the first user command timing out.
+    private var isWarmedUp = false
+    
     // MARK: - Reliability tuning
     /// Maximum number of commands that can be queued when the executor is busy.
     /// This still keeps latency low (worst-case 2 in-flight before the one just issued)
     /// but avoids the "Executor busy" error when the user taps e.g. ▶︎ six times quickly.
-    private let maxQueuedCommands = 6
+    private let maxQueuedCommands = 20
 
     /// Number of consecutive timeouts observed.  We only tear the channel down after
     /// a small burst of timeouts to avoid over-aggressive reconnects on a momentary stall.
@@ -112,6 +118,15 @@ actor ChannelExecutor {
     
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
     func run(command: String, description: String?) async -> Result<String, Error> {
+        // Perform a one-time warm-up if this is the first command on the channel.
+        if !isWarmedUp && channelKey != "system" {
+            // Mark as warmed-up immediately to avoid recursion.
+            isWarmedUp = true
+            // Fire a synchronous warm-up round-trip and ignore the result.
+            _ = await run(command: "return 0", description: "warm-up")
+            // After the warm-up completes, proceed with the actual command below.
+        }
+
         // Respect the bounded queue: accept up to `maxQueuedCommands` items.
         if isBusy || !workQueue.isEmpty {
             if workQueue.count >= maxQueuedCommands {

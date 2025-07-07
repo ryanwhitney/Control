@@ -23,36 +23,32 @@ struct TVApp: AppPlatform {
         """
         tell application "TV"
             \(actionLines)
+            set rawState to player state as text
+            if rawState is "stopped" then
+                return "Nothing playing|||   |||false"
+            end if
+
+            set trackName to ""
             try
-                set rawState to player state as text
-                if rawState is "stopped" then
-                    return "Nothing playing|||   |||false"
-                end if
-                
-                set trackName to ""
-                try
-                    set trackName to name of current track
-                end try
-                
-                -- If no track name, try window for streaming content
-                if trackName is "" then
-                    try
-                        set windowName to name of front window
-                        if windowName is not "TV" then
-                            set trackName to windowName
-                        end if
-                    end try
-                end if
-                
-                if trackName is "" then
-                    return "Nothing playing|||   |||false"
-                end if
-                
-                set isPlaying to (rawState is "playing")
-                return trackName & "|||   |||" & isPlaying
-            on error errMsg
-                return "Error|||   |||false"
+                set trackName to name of current track
             end try
+
+            -- If no track name, try window for streaming content
+            if trackName is "" then
+                try
+                    set windowName to name of front window
+                    if windowName is not "TV" then
+                        set trackName to windowName
+                    end if
+                end try
+            end if
+
+            if trackName is "" then
+                return "Nothing playing|||   |||false"
+            end if
+
+            set isPlaying to (rawState is "playing")
+            return trackName & "|||   |||" & isPlaying
         end tell
         """
     }

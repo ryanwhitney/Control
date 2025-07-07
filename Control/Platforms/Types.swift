@@ -110,4 +110,23 @@ extension AppPlatform {
         tell application "\(name)" to activate
         """
     }
+    
+    /// Combined status script: checks if the application process exists and, if so,
+    /// executes the platformʼs `fetchState()` AppleScript.  If not running we
+    /// simply return the sentinel string "NOT_RUNNING".  Wrapping everything in
+    /// a single `tell application \"System Events\"` block keeps the entire
+    /// script within one top-level tell as required by the remote interactive
+    /// shell.
+    func combinedStatusScript() -> String {
+        return """
+        tell application \"System Events\"
+            if exists (application process \"\(name)\") then
+                -- App is running; delegate to the platform-specific status fetch
+                \(fetchState())
+            else
+                return \"NOT_RUNNING\"
+            end if
+        end tell
+        """
+    }
 } 

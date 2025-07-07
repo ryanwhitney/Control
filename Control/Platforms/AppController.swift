@@ -103,14 +103,24 @@ class AppController: ObservableObject {
         // Update system volume first (sequential – very fast)
         await updateSystemVolume()
         
-        // Fetch states for every platform in parallel so the phone waits for
-        // just the slowest one instead of all in sequence.
-        await withTaskGroup(of: Void.self) { group in
-            for platform in platforms {
-                group.addTask { [weak self] in
-                    guard let self else { return }
-                    await self.updateState(for: platform)
+        // Slow-start strategy: the very first comprehensive refresh runs
+        // sequentially to avoid overloading the single shared app channel.  All
+        // subsequent refreshes revert to the existing fully-parallel approach.
+
+        if hasCompletedInitialUpdate {
+            // Parallel path – after the initial warm-up everything is fast again.
+            await withTaskGroup(of: Void.self) { group in
+                for platform in platforms {
+                    group.addTask { [weak self] in
+                        guard let self else { return }
+                        await self.updateState(for: platform)
+                    }
                 }
+            }
+        } else {
+            // Initial sweep: do one platform at a time.
+            for platform in platforms {
+                await updateState(for: platform)
             }
         }
     }
@@ -124,31 +134,23 @@ class AppController: ObservableObject {
         }
         lastStateRefresh[platform.id] = Date()
         
-        let isRunning = await checkIfRunning(platform)
-        guard isRunning else {
-            let newState = AppState(
-                title: "Not running",
-                subtitle: "",
-                isPlaying: nil,
-                error: nil
-            )
-            // Only update if we don't have a previous state or if the state has changed
-            let currentState = states[platform.id]
-            let shouldUpdate = currentState == nil ||
-                             currentState?.title != newState.title ||
-                             currentState?.isPlaying != newState.isPlaying
-            
-            if shouldUpdate {
-                states[platform.id] = newState
-                lastKnownStates[platform.id] = newState
-            }
-            return
-        }
-        
-        let result = await executeCommand(platform.fetchState(), channelKey: platform.id, description: "\(platform.id): fetch status")
+        let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
         
         switch result {
         case .success(let output):
+            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Detect sentinel for not-running state
+            if trimmed == "NOT_RUNNING" {
+                let newState = AppState(
+                    title: "Not running",
+                    subtitle: "",
+                    isPlaying: nil,
+                    error: nil
+                )
+                updateStateIfChanged(platform.id, newState)
+                return
+            }
             
             if output.contains("Not authorized to send Apple events") {
                 let newState = AppState(
@@ -157,30 +159,11 @@ class AppController: ObservableObject {
                     isPlaying: nil,
                     error: nil
                 )
-                // Only update if we don't have a previous state or if the state has changed
-                let currentState = states[platform.id]
-                let shouldUpdate = currentState == nil ||
-                                 currentState?.title != newState.title ||
-                                 currentState?.isPlaying != newState.isPlaying
-                
-                if shouldUpdate {
-                    states[platform.id] = newState
-                    lastKnownStates[platform.id] = newState
-                }
+                updateStateIfChanged(platform.id, newState)
             } else {
                 let newState = platform.parseState(output)
                 appControllerLog("📊 \(platform.name) parsed state: title=[\(newState.title.redacted())], isPlaying=\(String(describing: newState.isPlaying))")
-                
-                // Only update if we don't have a previous state or if the state has changed
-                let currentState = states[platform.id]
-                let shouldUpdate = currentState == nil ||
-                                 currentState?.title != newState.title ||
-                                 currentState?.isPlaying != newState.isPlaying
-                
-                if shouldUpdate {
-                    states[platform.id] = newState
-                    lastKnownStates[platform.id] = newState
-                }
+                updateStateIfChanged(platform.id, newState)
             }
         case .failure(let error):
             appControllerLog("❌ \(platform.name) status fetch failed: \(error)")
@@ -202,29 +185,6 @@ class AppController: ObservableObject {
                 states[platform.id] = currentState
                 lastKnownStates[platform.id] = currentState
             }
-        }
-    }
-    
-    private func checkIfRunning(_ platform: any AppPlatform) async -> Bool {
-        guard isActive else {
-            return false
-        }
-        
-        let result = await executeCommand(
-            platform.isRunningScript(),
-            channelKey: platform.id,
-            description: "\(platform.id): check if running"
-        )
-        
-        switch result {
-        case .success(let output):
-            let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let isRunning = trimmedOutput == "true" || trimmedOutput == "\"true\""
-            appControllerLog("📊 \(platform.name) isRunning: \(isRunning)")
-            return isRunning
-        case .failure(let error):
-            appControllerLog("❌ Failed to check if \(platform.name) is running: \(error)")
-            return false
         }
     }
     
