@@ -359,7 +359,7 @@ struct ControlView: View, SSHConnectedView {
         
         volume = Float(newVolume) / 100.0
         let now = Date()
-        if now.timeIntervalSince(lastVolumeCommandDate) > 0.3 {
+        if now.timeIntervalSince(lastVolumeCommandDate) > 0.05 {
             lastVolumeCommandDate = now
             Task {
                 await appController.setVolume(volume)
