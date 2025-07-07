@@ -60,7 +60,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     
     nonisolated var client: SSHClient { 
-        sshLog("SSHConnectionManager: Accessing SSH client")
+        // Accessor no longer logs every call to reduce console noise.
         return sshClient 
     }
     

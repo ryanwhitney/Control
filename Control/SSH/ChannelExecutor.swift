@@ -79,7 +79,7 @@ actor ChannelExecutor {
         }
         self.executorId = id
         
-        sshLog("🔧 [E\(self.executorId)] ChannelExecutor: Initializing for key '\(channelKey)'")
+        // Initialization logging handled by SSHClient
         self.connection = connection
         self.channelKey = channelKey
         
@@ -108,8 +108,7 @@ actor ChannelExecutor {
             .whenComplete { [weak self] result in
                 guard let self = self else { return }
                 switch result {
-                case .success:
-                    sshLog("🔧 [E\(self.executorId)] ChannelExecutor: ✓ Interactive AppleScript ready")
+                case .success: break
                 case .failure(let error):
                     sshLog("🔧 [E\(self.executorId)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
                 }
@@ -140,14 +139,13 @@ actor ChannelExecutor {
         let cmdId = commandCounter
         commandCounter &+= 1
         let cmdIdHex = String(format: "%04X", cmdId & 0xFFFF)
-        let sentinel = ">>>VOLCTL_\(cmdIdHex)<<<"
+        let sentinel = ">>>CTRL_\(cmdIdHex)<<<"
 
         // AppleScript payload (command already wrapped upstream)
         let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
         let payload = "-- \(cmdIdHex) \(description ?? "")\n\(command)\n\n\"\(escapedSentinel)\"\n\n"
 
-        let preview = description ?? String(command.prefix(40))
-        sshLog("🔧 [E\(executorId):\(channelKey)] ⬆️ \(cmdIdHex) \(preview)")
+        // Only log command attempts on failure; success logged by AppController
 
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {

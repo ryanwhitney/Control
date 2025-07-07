@@ -23,7 +23,7 @@ struct SafariApp: AppPlatform {
     }
 
     private func jsForStatus() -> String {
-        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found|||Safari|||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '|||' + site + '|||' + playing; })();"
+        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found||| |||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '|||' + site + '|||' + playing; })();"
     }
 
     private func jsForAction(_ action: AppAction) -> String {
@@ -48,7 +48,7 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open|||Safari|||false"
+                return "No windows open||| |||false"
             end if
             return do JavaScript "\(js)" in current tab of front window
         end tell
@@ -63,10 +63,10 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open|||Safari|||false"
+                return "No windows open||| |||false"
             end if
             do JavaScript "\(actionJs)" in current tab of front window
-            delay 0.3
+            delay 0.15
             return do JavaScript "\(statusJs)" in current tab of front window
         end tell
         """
@@ -86,7 +86,7 @@ struct SafariApp: AppPlatform {
         
         // Handle cases where the script might return fewer components
         if !output.isEmpty && !output.contains("|||") {
-            return AppState(title: output, subtitle: "Safari", isPlaying: nil)
+            return AppState(title: output, subtitle: "", isPlaying: nil)
         }
         
         return AppState(

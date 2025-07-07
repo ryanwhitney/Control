@@ -71,7 +71,7 @@ struct IINAApp: AppPlatform {
         let components = output.components(separatedBy: "|||")
         if components.count >= 3 {
             var title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            // IINA often includes the full path after a dash, so we strip it.
+            // IINA shows "filename  —  /full/path" (two spaces + em dash).
             if let range = title.range(of: "  —  ") {
                 title = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             }

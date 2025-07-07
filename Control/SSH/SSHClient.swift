@@ -17,7 +17,6 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var hasCompletedConnection = false
-    private let executorLock = NSLock()
     
     // MARK: - Dedicated Channel Support
     // Using a single app channel improves stability by serialising all app commands
@@ -40,17 +39,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             executorKey = "app-\(poolIndex)"
         }
         
-        // Non-locking check for performance. In the common case where the executor
-        // already exists, we avoid the lock entirely.
-        if let existing = dedicatedExecutors[executorKey] {
-            return existing
-        }
-        
-        // The executor doesn't exist. Acquire a lock to ensure only one thread can create it.
-        executorLock.lock()
-        defer { executorLock.unlock() }
-
-        // Double-check: Another thread might have created it while we were waiting for the lock.
+        // Create a new executor if still missing (non-blocking; possible race creates extra but harmless)
         if let existing = dedicatedExecutors[executorKey] {
             return existing
         }
@@ -64,7 +53,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         // Create a new ChannelExecutor for this physical key ("app-N" or "system")
         let executor = ChannelExecutor(connection: connection, channelKey: executorKey)
         dedicatedExecutors[executorKey] = executor
-        sshLog("📡 SSHClient: ✓ Executor created for key '\(executorKey)'")
+        sshLog("🔧 SSH: Channel '\(executorKey)' ready")
         return executor
     }
     

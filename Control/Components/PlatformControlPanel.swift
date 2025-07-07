@@ -100,7 +100,7 @@ struct PlatformControl: View {
         .alert("\(platform.name) support is experimental", isPresented: $showingExperimentalAlert) {
             Button("OK") { }
         } message: {
-            Text(platform.reasonForExperimental ?? "")
+            Text(platform.reasonForExperimental)
         }
     }
 }

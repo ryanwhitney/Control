@@ -76,7 +76,7 @@ class AppController: ObservableObject {
     }
     
     func updateAllStates() async {
-        appControllerLog("AppController: Starting comprehensive state update (\(platforms.count) platforms)")
+        appControllerLog("🔄 Starting update for \(platforms.count) platforms")
         
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping state update")
@@ -130,9 +130,12 @@ class AppController: ObservableObject {
         
         // Prevent duplicate refreshes within 2 s
         if let last = lastStateRefresh[platform.id], Date().timeIntervalSince(last) < 2 {
+            appControllerLog("⏭️ \(platform.name): skipping refresh (< 2s since last)")
             return
         }
         lastStateRefresh[platform.id] = Date()
+        
+        appControllerLog("🔄 \(platform.name): checking status")
         
         let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
         
@@ -162,7 +165,10 @@ class AppController: ObservableObject {
                 updateStateIfChanged(platform.id, newState)
             } else {
                 let newState = platform.parseState(output)
-                appControllerLog("📊 \(platform.name) parsed state: title=[\(newState.title.redacted())], isPlaying=\(String(describing: newState.isPlaying))")
+                let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
+                let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                let subtitleSegment = subtitlePart.isEmpty ? "" : " · \(subtitlePart.redacted())"
+                appControllerLog("📊 \(platform.name) state · [\(newState.title.redacted())]\(subtitleSegment) · \(playString)")
                 updateStateIfChanged(platform.id, newState)
             }
         case .failure(let error):
@@ -194,6 +200,8 @@ class AppController: ObservableObject {
             return 
         }
         
+        appControllerLog("🎬 \(platform.name): \(action.label)")
+        
         // Leverage the shared helper on the platform to combine the action and
         // status script into a single AppleScript round-trip.
         let combinedScript = platform.actionWithStatus(action)
@@ -215,7 +223,10 @@ class AppController: ObservableObject {
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
-                appControllerLog("📊 \(platform.name) parsed state after action: title=[\(newState.title.redacted())], isPlaying=\(String(describing: newState.isPlaying))")
+                let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
+                let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                let subtitleSegment = subtitlePart.isEmpty ? "" : " · \(subtitlePart.redacted())"
+                appControllerLog("📊 \(platform.name) after action · [\(newState.title.redacted())]\(subtitleSegment) · \(playString)")
                 states[platform.id] = newState
             }
         case .failure(let error):
@@ -235,6 +246,7 @@ class AppController: ObservableObject {
         
         let target = Int(volume * 100)
         let script = "set volume output volume \(target)"
+        appControllerLog("🔊 Set volume request · \(target)%")
         let result = await executeCommand(script, channelKey: "system", description: "system: set volume to \(target)%")
         
         switch result {
@@ -258,6 +270,8 @@ class AppController: ObservableObject {
             return
         }
         
+        appControllerLog("🔄 System: checking volume")
+        
         let script = "output volume of (get volume settings)"
 
         let result = await executeCommand(script, channelKey: "system", description: "system: get volume")
@@ -266,7 +280,7 @@ class AppController: ObservableObject {
         case .success(let output):
             if let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 currentVolume = volume / 100.0
-                appControllerLog("✓ System volume: \(Int(volume))%")
+                appControllerLog("📊 System volume · \(Int(volume))%")
             } else {
                 appControllerLog("⚠️ Could not parse volume from output: '\(output)'")
                 currentVolume = nil
@@ -302,12 +316,13 @@ class AppController: ObservableObject {
             
             self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                 if case .failure(let error) = result {
-                    appControllerLog("❌ Command failed: \(error)")
+                    let commandDesc = description ?? "command"
+                    appControllerLog("❌ SSH: \(commandDesc) failed - \(error)")
                     
                     // Check if this is a connection loss
                     if let connectionManager = self.sshClient as? SSHConnectionManager,
                        connectionManager.isConnectionLossError(error) {
-                        appControllerLog("🚨 Connection appears to be lost - marking controller inactive")
+                        appControllerLog("🚨 Connection lost - marking controller inactive")
                         self.isActive = false
                         connectionManager.handleConnectionLost()
                     }

@@ -3,7 +3,7 @@ import NIOCore
 import NIOSSH
 
 /// Handles an interactive shell channel and fulfils promises when sentinels are encountered.
-final class StreamingShellHandler: ChannelInboundHandler, Sendable {
+final class StreamingShellHandler: ChannelInboundHandler {
     typealias InboundIn = SSHChannelData
     
     struct Pending {
@@ -27,7 +27,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
     }
     
     func channelActive(context: ChannelHandlerContext) {
-        print("🔍 StreamingShellHandler: ✓ Channel active")
+        // Channel setup logged by SSHClient
         context.fireChannelActive()
     }
     
@@ -45,7 +45,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         if !hasReceivedAnyData {
             hasReceivedAnyData = true
-            print("🔍 StreamingShellHandler: ✓ Channel receiving data")
+            // Data flow is implied by successful commands; no need to log
         }
         
         let payload = unwrapInboundIn(data)
@@ -148,9 +148,6 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
             
             // Complete the promise with the parsed output
             let pending = queue.removeFirst()
-            let preview = scriptOutput.replacingOccurrences(of: "\n", with: " ")
-                .prefix(120)
-            print("🔍 StreamingShellHandler: ⇢ Result for \(pending.sentinel.prefix(6)) → \(preview)")
             pending.promise.succeed(scriptOutput)
         }
     }
