@@ -159,7 +159,7 @@ class AppController: ObservableObject {
                 let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
                 let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 let subtitleSegment = subtitlePart.isEmpty ? "" : " · \(subtitlePart.redacted())"
-                appControllerLog("📊 \(platform.name) state · [\(newState.title.redacted())]\(subtitleSegment) · \(playString)")
+                appControllerLog("→ \(platform.name) state: \(newState.title.redacted())\(subtitleSegment) · \(playString)")
                 updateStateIfChanged(platform.id, newState)
             }
         case .failure(let error):
