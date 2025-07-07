@@ -17,14 +17,40 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var hasCompletedConnection = false
+    private let executorLock = NSLock()
     
     // MARK: - Dedicated Channel Support
-    /// Executors keyed by logical channel name (e.g. "system", "music", etc.)
+    private let appChannelPoolSize = 4
+    
+    /// Executors keyed by physical channel name (e.g. "system", "app-0", "app-1")
     private var dedicatedExecutors: [String: ChannelExecutor] = [:]
     
-    /// Retrieve an existing executor for `key` or create a new one if necessary.
+    /// Retrieve an existing executor or create a new one based on the logical key.
+    /// This function maps a logical key (like "spotify") to a physical executor (like "app-2").
     private func executor(for key: String) async throws -> ChannelExecutor {
-        if let existing = dedicatedExecutors[key] {
+        let executorKey: String
+
+        if key == "system" {
+            executorKey = "system"
+        } else {
+            // This is an app, so we use the pool.
+            // Using hashValue provides a stable distribution of apps to channels.
+            let poolIndex = abs(key.hashValue) % appChannelPoolSize
+            executorKey = "app-\(poolIndex)"
+        }
+        
+        // Non-locking check for performance. In the common case where the executor
+        // already exists, we avoid the lock entirely.
+        if let existing = dedicatedExecutors[executorKey] {
+            return existing
+        }
+        
+        // The executor doesn't exist. Acquire a lock to ensure only one thread can create it.
+        executorLock.lock()
+        defer { executorLock.unlock() }
+
+        // Double-check: Another thread might have created it while we were waiting for the lock.
+        if let existing = dedicatedExecutors[executorKey] {
             return existing
         }
         
@@ -34,18 +60,32 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             throw SSHError.channelNotConnected
         }
         
-        // Create a single ChannelExecutor which will internally open its own interactive shell.
-        let executor = ChannelExecutor(connection: connection, channelKey: key)
-        dedicatedExecutors[key] = executor
-        sshLog("📡 SSHClient: ✓ Executor created for key '\(key)'")
+        // Create a new ChannelExecutor for this physical key ("app-N" or "system")
+        let executor = ChannelExecutor(connection: connection, channelKey: executorKey)
+        dedicatedExecutors[executorKey] = executor
+        sshLog("📡 SSHClient: ✓ Executor created for key '\(executorKey)'")
         return executor
     }
     
     /// Async helper that runs a command on a dedicated channel and returns the Result.
-    private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?) async -> Result<String, Error> {
+    private func performOnDedicatedChannel(_ channelKey: String, command: String, description: String?, attemptsLeft: Int = 1) async -> Result<String, Error> {
         do {
             let exec = try await executor(for: channelKey)
-            return await exec.run(command: command, description: description)
+            let result = await exec.run(command: command, description: description)
+            if case .failure(let error) = result {
+                var shouldReset = false
+                if case SSHError.timeout = error { shouldReset = true }
+                if case SSHError.channelError = error { shouldReset = true }
+                if shouldReset {
+                    let physicalKey = channelKey == "system" ? "system" : "app-\(abs(channelKey.hashValue) % appChannelPoolSize)"
+                    dedicatedExecutors.removeValue(forKey: physicalKey)
+                    sshLog("📡 SSHClient: Removed executor for key '\(physicalKey)' due to error – will recreate on next use")
+                    if attemptsLeft > 0 {
+                        return await performOnDedicatedChannel(channelKey, command: command, description: description, attemptsLeft: attemptsLeft - 1)
+                    }
+                }
+            }
+            return result
         } catch {
             sshLog("📡 SSHClient: ❌ Failed to get executor or run command: \(error)")
             return .failure(error)

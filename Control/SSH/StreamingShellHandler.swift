@@ -15,6 +15,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
     private var queue: [Pending] = []
     private var hasReceivedAnyData = false
     private var totalDataReceived = 0
+    private var greetingStripped = false
     
     /// Called by ChannelExecutor when a new command is queued.
     func addCommand(sentinel: String, promise: EventLoopPromise<String>) {
@@ -32,7 +33,11 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
     
     func channelInactive(context: ChannelHandlerContext) {
         if !queue.isEmpty {
-            print("🔍 StreamingShellHandler: ❌ Channel closed with pending commands")
+            print("🔍 StreamingShellHandler: ❌ Channel closed with \(queue.count) pending commands – failing them")
+            for pending in queue {
+                pending.promise.fail(SSHError.channelError("Channel closed unexpectedly"))
+            }
+            queue.removeAll()
         }
         context.fireChannelInactive()
     }
@@ -54,7 +59,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
         
         // Handle stderr separately
         if payload.type == .stdErr {
-            print("🔍 StreamingShellHandler: ❌ Stderr: '\(string.trimmingCharacters(in: .whitespacesAndNewlines))'")
+            print("🔍 StreamingShellHandler: ❌ Stderr: '\(string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))'")
             // If we have a pending command and receive stderr, it's likely an error
             if !queue.isEmpty {
                 let pending = queue.removeFirst()
@@ -67,8 +72,25 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
             return 
         }
         
-        // Accumulate all incoming data
-        queue[0].buffer += string
+        var incoming = string
+        
+        // One-time removal of typical shell / osascript greetings to avoid corrupting the first command's buffer.
+        if !greetingStripped {
+            greetingStripped = true
+            let greetingPatterns = [
+                "Welcome to fish",
+                "Type 'help' for instructions",
+                "Last login",
+                "osascript -e"
+            ]
+            // Remove any lines containing the greeting patterns
+            let filteredLines = incoming
+                .components(separatedBy: .newlines)
+                .filter { line in !greetingPatterns.contains(where: { pattern in line.contains(pattern) }) }
+            incoming = filteredLines.joined(separator: "\n")
+        }
+        
+        queue[0].buffer += incoming
         
         // Process the buffer to look for the sentinel
         let currentBuffer = queue[0].buffer
@@ -79,6 +101,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
             print("🔍 StreamingShellHandler: ⚠️ Buffer overflow - command may be stuck")
             let pending = queue.removeFirst()
             pending.promise.fail(SSHError.channelError("Buffer overflow - response too large"))
+            context.close(promise: nil)
             return
         }
         
@@ -114,6 +137,7 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
                     // Complete with error
                     let pending = queue.removeFirst()
                     pending.promise.fail(SSHError.channelError("AppleScript error: \(result)"))
+                    context.close(promise: nil)
                     return
                 }
                 scriptOutput = result
@@ -124,6 +148,9 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
             
             // Complete the promise with the parsed output
             let pending = queue.removeFirst()
+            let preview = scriptOutput.replacingOccurrences(of: "\n", with: " ")
+                .prefix(120)
+            print("🔍 StreamingShellHandler: ⇢ Result for \(pending.sentinel.prefix(6)) → \(preview)")
             pending.promise.succeed(scriptOutput)
         }
     }
@@ -160,16 +187,22 @@ final class StreamingShellHandler: ChannelInboundHandler, Sendable {
                 }
                 
                 // Remove surrounding quotes if present
-                if content.hasPrefix("\"") && content.hasSuffix("\"") && content.count > 1 {
-                    let unquoted = String(content.dropFirst().dropLast())
-                    // One more check on the unquoted content
-                    if unquoted.hasPrefix("!!") || unquoted.contains("error") {
-                        return (unquoted, true)
-                    }
-                    return (unquoted, false)
-                } else {
-                    return (content, false)
+                var unquoted = content
+                if unquoted.hasPrefix("\"") && unquoted.hasSuffix("\"") && unquoted.count > 1 {
+                    unquoted = String(unquoted.dropFirst().dropLast())
                 }
+                
+                // Prefer lines containing our status separator or booleans / numbers
+                if unquoted.contains("|||") || unquoted == "true" || unquoted == "false" || Int(unquoted) != nil {
+                    return (unquoted, false)
+                }
+                
+                // Skip noisy "set ..." echoes from the interpreter
+                if unquoted.hasPrefix("set ") {
+                    continue
+                }
+                
+                return (unquoted, false)
             }
         }
         

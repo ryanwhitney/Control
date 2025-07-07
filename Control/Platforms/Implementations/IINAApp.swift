@@ -91,24 +91,33 @@ struct IINAApp: AppPlatform {
     }
     
     func executeAction(_ action: AppAction) -> String {
-        // Actions need IINA to be frontmost
-        var cmd = "tell process \"IINA\" to set frontmost to true\n"
-        cmd += "delay 0.1\n"
-        
+        // Only bring IINA to front (with small delay) if it's not already frontmost.
+        let keyLine: String
         switch action {
         case .playPauseToggle:
-            cmd += "keystroke space"
+            keyLine = "keystroke space"
         case .skipBackward:
-            cmd += "key code 123"
+            keyLine = "key code 123"
         case .skipForward:
-            cmd += "key code 124"
+            keyLine = "key code 124"
         case .previousTrack:
-            cmd += "key code 123 using {command down}"
+            keyLine = "key code 123 using {command down}"
         case .nextTrack:
-            cmd += "key code 124 using {command down}"
+            keyLine = "key code 124 using {command down}"
         }
-        
-        return cmd
+
+        // AppleScript template: conditionally frontmost + optional delay, then keystroke
+        return """
+        tell application \"System Events\"
+            if not (frontmost of process \"IINA\") then
+                set frontmost of process \"IINA\" to true
+                delay 0.1
+            end if
+            tell process \"IINA\"
+                \(keyLine)
+            end tell
+        end tell
+        """
     }
 }
  

@@ -49,7 +49,7 @@ struct ExperimentalPlatformsView: View {
                     .padding()
                     .background(.ultraThinMaterial.opacity(0.5))
                     .cornerRadius(12)
-                    Text(platform.reasonForExperimental)
+                    Text(platform.reasonForExperimental ?? "")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

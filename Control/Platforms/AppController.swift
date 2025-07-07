@@ -145,7 +145,7 @@ class AppController: ObservableObject {
             return
         }
         
-        let result = await executeCommand(platform.fetchState(), channelKey: platform.id, description: "\(platform.name): fetch status")
+        let result = await executeCommand(platform.fetchState(), channelKey: platform.id, description: "\(platform.id): fetch status")
         
         switch result {
         case .success(let output):
@@ -213,7 +213,7 @@ class AppController: ObservableObject {
         let result = await executeCommand(
             platform.isRunningScript(),
             channelKey: platform.id,
-            description: "\(platform.name): check if running"
+            description: "\(platform.id): check if running"
         )
         
         switch result {
@@ -238,7 +238,7 @@ class AppController: ObservableObject {
         // status script into a single AppleScript round-trip.
         let combinedScript = platform.actionWithStatus(action)
         
-        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.name): \(action)")
+        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.id): \(action)")
         
         switch result {
         case .success(let output):
@@ -275,7 +275,7 @@ class AppController: ObservableObject {
         
         let target = Int(volume * 100)
         let script = "set volume output volume \(target)"
-        let result = await executeCommand(script, channelKey: "system", description: "Set volume(\(target)%)", bypassHeartbeat: true)
+        let result = await executeCommand(script, channelKey: "system", description: "system: set volume to \(target)%")
         
         switch result {
         case .success(_):
@@ -300,7 +300,7 @@ class AppController: ObservableObject {
         
         let script = "output volume of (get volume settings)"
 
-        let result = await executeCommand(script, channelKey: "system", description: "Get volume")
+        let result = await executeCommand(script, channelKey: "system", description: "system: get volume")
         
         switch result {
         case .success(let output):
