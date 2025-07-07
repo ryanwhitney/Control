@@ -327,7 +327,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     
     /// Execute a command with proactive timeout-based connection monitoring, allowing selection of a dedicated channel.
-    nonisolated func executeCommand(onChannel channelKey: String = "system", _ command: String, description: String? = nil, bypassHeartbeat: Bool = false, completion: @escaping (Result<String, Error>) -> Void) {
+    nonisolated func executeCommand(onChannel channelKey: String = "system", _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
         sshLog("SSHConnectionManager: Executing command on channel \(channelKey)")
         if let description = description {
             sshLog("Command: \(description)")

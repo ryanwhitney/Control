@@ -13,17 +13,6 @@ struct ShellCommandUtilities {
             .replacingOccurrences(of: "`", with: "\\`")    // Escape command substitution
     }
     
-    /// Wraps an AppleScript command in a bash command that will work regardless of the user's default shell
-    /// - Parameter appleScript: The AppleScript code to execute
-    /// - Returns: A bash command string that safely executes the AppleScript
-    static func wrapAppleScriptForBash(_ appleScript: String) -> String {
-        let escapedScript = escapeBashString(appleScript)
-        
-        return """
-        bash -c \"osascript << 'APPLESCRIPT'\n        try\n            \(escapedScript)\n        on error errMsg\n            return errMsg\n        end try\n        APPLESCRIPT\""
-        """
-    }
-    
     /// Returns raw AppleScript intended to be streamed into a long-lived `osascript -` process.
     /// Nothing is escaped or wrapped — the caller is responsible for adding any sentinel afterwards.
     static func appleScriptForStreaming(_ appleScript: String) -> String {

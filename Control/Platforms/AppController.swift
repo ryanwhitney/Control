@@ -7,9 +7,6 @@ class AppController: ObservableObject {
     private var isUpdating = false
     @Published var isActive = true
     
-    // Add batch operation flag to reduce heartbeats
-    private var isBatchOperation = false
-    
     // Track initial comprehensive update completion
     @Published var hasCompletedInitialUpdate = false
     
@@ -95,21 +92,9 @@ class AppController: ObservableObject {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         }
         
-        // Mark as batch operation to reduce heartbeats
-        isBatchOperation = true
-        defer {
-            isBatchOperation = false
-            hasCompletedInitialUpdate = true
-            appControllerLog("✓ State update complete")
-        }
-        
         // Update system volume first (sequential – very fast)
         await updateSystemVolume()
-        
         // Slow-start strategy: the very first comprehensive refresh runs
-        // sequentially to avoid overloading the single shared app channel.  All
-        // subsequent refreshes revert to the existing fully-parallel approach.
-
         if hasCompletedInitialUpdate {
             // Parallel path – after the initial warm-up everything is fast again.
             await withTaskGroup(of: Void.self) { group in
@@ -125,6 +110,11 @@ class AppController: ObservableObject {
             for platform in platforms {
                 await updateState(for: platform)
             }
+        }
+        
+        defer {
+            hasCompletedInitialUpdate = true
+            appControllerLog("✓ State update complete")
         }
     }
     
@@ -312,8 +302,7 @@ class AppController: ObservableObject {
         }
     }
     
-    // Keep this simpler version for single commands (permissions checks, etc)
-    private func executeCommand(_ command: String, channelKey: String, description: String? = nil, bypassHeartbeat: Bool = false) async -> Result<String, Error> {
+    private func executeCommand(_ command: String, channelKey: String, description: String? = nil) async -> Result<String, Error> {
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping command")
             return .failure(SSHError.channelError("Controller not active"))

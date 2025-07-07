@@ -2,29 +2,6 @@ import Foundation
 import NIOSSH
 import NIOCore
 
-/// Utility function to add timeout to async operations
-private func withTimeout<T>(seconds: Double, operation: @escaping () async throws -> T) async throws -> T {
-    return try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask {
-            return try await operation()
-        }
-        
-        group.addTask {
-            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            throw TimeoutError()
-        }
-        
-        guard let result = try await group.next() else {
-            throw TimeoutError()
-        }
-        
-        group.cancelAll()
-        return result
-    }
-}
-
-private struct TimeoutError: Error {}
-
 /// Actor responsible for running commands serially on the SSH connection.
 /// It opens a NEW exec channel for every command (required by macOS sshd) but keeps
 /// the overhead low by re-using the underlying TCP connection and serialising calls.
