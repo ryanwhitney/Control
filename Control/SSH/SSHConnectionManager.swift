@@ -128,7 +128,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                         return
                     }
                     hasResumed = true
-                    connectionLog("🔄 [\(connectionId)] Processing connection result: \(result)")
                     
                     switch result {
                     case .success:
@@ -238,20 +237,20 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         // Set up 30-second timer to disconnect SSH
         let disconnectTimer = DispatchWorkItem { [weak self] in
-            connectionLog("📱 App backgrounded for 30 seconds - disconnecting SSH")
+            connectionLog("⚰︎ App backgrounded for 30 seconds - disconnecting SSH")
             self?.disconnect()
             self?.endBackgroundTask()
         }
         
         backgroundDisconnectTimer = disconnectTimer
         DispatchQueue.main.asyncAfter(deadline: .now() + 30.0, execute: disconnectTimer)
-        connectionLog("📱 Started 30-second background disconnect timer")
+        connectionLog("⚰︎ Started 30-second background disconnect timer")
     }
     
     private func cancelBackgroundDisconnect() {
         backgroundDisconnectTimer?.cancel()
         backgroundDisconnectTimer = nil
-        connectionLog("📱 Cancelled background disconnect timer")
+        connectionLog("⚰︎ Cancelled background disconnect timer")
     }
     
     private func startBackgroundTask() {
@@ -260,7 +259,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SSH Connection Cleanup") { [weak self] in
             // Background task is about to expire (system limit ~30-180 seconds)
-            connectionLog("📱 Background task expiring - disconnecting SSH")
+            connectionLog("⚰︎ Background task expiring - disconnecting SSH")
             self?.client.disconnect()
             self?.disconnect() 
             self?.endBackgroundTask()
@@ -269,13 +268,13 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         if backgroundTask == .invalid {
             connectionLog("⚠️ Failed to start background task")
         } else {
-            connectionLog("📱 Started background task: \(backgroundTask)")
+            connectionLog("⚰︎ Started background task: \(backgroundTask)")
         }
     }
     
     private func endBackgroundTask() {
         if backgroundTask != .invalid {
-            connectionLog("📱 Ending background task: \(backgroundTask)")
+            connectionLog("⚰︎ Ending background task: \(backgroundTask)")
             UIApplication.shared.endBackgroundTask(backgroundTask)
             backgroundTask = .invalid
         }
@@ -449,7 +448,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 self.currentHeartbeatInterval = min(self.currentHeartbeatInterval + 1, self.maxHeartbeatInterval)
             }
         }
-        connectionLog("🔄 Heartbeat started (interval \(minHeartbeatInterval)s -> \(maxHeartbeatInterval)s)")
+        connectionLog("♡ Heartbeat started (interval \(minHeartbeatInterval)s -> \(maxHeartbeatInterval)s)")
         
         lastHeartbeatSuccess = Date()
         recoveryDeadline = nil
@@ -458,7 +457,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private func stopHeartbeat() {
         heartbeatTask?.cancel()
         heartbeatTask = nil
-        connectionLog("⏹️ Heartbeat stopped")
+        connectionLog("⛔︎ Heartbeat stopped")
         recoveryDeadline = nil
     }
 
@@ -511,7 +510,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             connectionState = .connected
             connectionLog("✅ Recovery complete – connection restored (\(String(format: "%.0f", rtt*1000)) ms)")
         } else {
-            connectionLog("✓ Heartbeat OK (\(id), \(String(format: "%.0f", rtt*1000)) ms)")
+            connectionLog("♡ Heartbeat OK (\(id), \(String(format: "%.0f", rtt*1000)) ms)")
         }
         recoveryDeadline = nil
     }

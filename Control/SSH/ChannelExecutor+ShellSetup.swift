@@ -32,7 +32,7 @@ func setupInteractiveShell(channel: Channel, command: String) -> EventLoopFuture
             return writePromise.futureResult
         }
         .flatMapError { error in
-            sshLog("🔧 setupInteractiveShell: ❌ Setup failed: \(error)")
+            sshLog("☄︎ setupInteractiveShell: ❌ Setup failed: \(error)")
             return channel.eventLoop.makeFailedFuture(error)
         }
 } 

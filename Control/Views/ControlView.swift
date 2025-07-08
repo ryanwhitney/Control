@@ -48,7 +48,7 @@ struct ControlView: View, SSHConnectedView {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
             isReady = true
-            viewLog("ControlView: Ready state activated", view: "ControlView")
+            viewLog("Ready state activated", view: "ControlView")
         }
     }
     
@@ -79,14 +79,14 @@ struct ControlView: View, SSHConnectedView {
         if currentPlatforms.isEmpty {
             let defaultRegistry = PlatformRegistry()
             currentPlatforms = defaultRegistry.enabledPlatforms
-            viewLog("ControlView: No saved platforms for host, using defaults: \(currentPlatforms)", view: "ControlView")
+            viewLog("No saved platforms for host, using defaults: \(currentPlatforms)", view: "ControlView")
         }
         
         // Create new registry with all platforms, but update enabled platforms
         let newRegistry = PlatformRegistry()
         newRegistry.enabledPlatforms = currentPlatforms
         
-        viewLog("ControlView: Updating AppController with \(newRegistry.activePlatforms.count) active platforms: \(newRegistry.activePlatforms.map { $0.name })", view: "ControlView")
+        viewLog("Updating AppController with \(newRegistry.activePlatforms.count) active platforms: \(newRegistry.activePlatforms.map { $0.name })", view: "ControlView")
         
         // Update the AppController's platform registry
         appController.updatePlatformRegistry(newRegistry)
@@ -257,7 +257,7 @@ struct ControlView: View, SSHConnectedView {
             }
         }
         .onAppear {
-            viewLog("ControlView: View appeared", view: "ControlView")
+            viewLog("View appeared", view: "ControlView")
             viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
             viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
             
@@ -280,39 +280,39 @@ struct ControlView: View, SSHConnectedView {
             handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
         .onDisappear {
-            viewLog("ControlView: View disappeared", view: "ControlView")
+            viewLog("View disappeared", view: "ControlView")
             Task { @MainActor in
                 appController.cleanup()
             }
         }
         .onReceive(appController.$currentVolume) { newVolume in
             if let newVolume = newVolume {
-                viewLog("ControlView: Volume updated to \(Int(newVolume * 100))%", view: "ControlView")
+                viewLog("Volume updated to \(Int(newVolume * 100))%", view: "ControlView")
                 volumeInitialized = true
                 volume = newVolume
             } else {
-                viewLog("ControlView: Volume became nil - controls will be disabled", view: "ControlView")
+                viewLog("Volume became nil - controls will be disabled", view: "ControlView")
             }
         }
         .onReceive(appController.$isActive) { isActive in
-            viewLog("ControlView: AppController active state changed to \(isActive)", view: "ControlView")
+            viewLog("AppController active state changed to \(isActive)", view: "ControlView")
             if !isActive {
-                viewLog("🚨 ControlView: AppController became inactive - connection likely lost", view: "ControlView")
+                viewLog("🚨 AppController became inactive - connection likely lost", view: "ControlView")
             }
         }
         .onReceive(connectionManager.$connectionState) { connectionState in
-            viewLog("ControlView: Connection state changed to \(connectionState)", view: "ControlView")
+            viewLog("Connection state changed to \(connectionState)", view: "ControlView")
             switch connectionState {
             case .disconnected:
-                viewLog("🚨 ControlView: Connection is disconnected", view: "ControlView")
+                viewLog("🚨Connection is disconnected", view: "ControlView")
             case .connecting:
-                viewLog("ControlView: Currently connecting...", view: "ControlView")
+                viewLog("⚯ Currently connecting...", view: "ControlView")
             case .recovering:
-                viewLog("ControlView: Recovering connection...", view: "ControlView")
+                viewLog("⚯ Recovering connection...", view: "ControlView")
             case .connected:
-                viewLog("✓ ControlView: Connection established", view: "ControlView")
+                viewLog("⚭ Connection established", view: "ControlView")
             case .failed(let error):
-                viewLog("❌ ControlView: Connection failed: \(error)", view: "ControlView")
+                viewLog("❌ Connection failed: \(error)", view: "ControlView")
             }
         }
         .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
@@ -355,7 +355,7 @@ struct ControlView: View, SSHConnectedView {
         let oldVolume = Int(volume * 100)
         let newVolume = min(max(Int(volume * 100) + amount, 0), 100)
         
-        viewLog("ControlView: Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
+        viewLog("Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
         
         volume = Float(newVolume) / 100.0
         let now = Date()

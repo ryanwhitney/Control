@@ -91,7 +91,7 @@ actor ChannelExecutor {
                 switch result {
                 case .success: break
                 case .failure(let error):
-                    sshLog("🔧 [E\(self.executorId)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
+                    sshLog("☄︎ [E\(self.executorId)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
                 }
             }
     }
@@ -111,7 +111,7 @@ actor ChannelExecutor {
         if isBusy || !workQueue.isEmpty {
             if workQueue.count >= maxQueuedCommands {
                 let dropPreview = description ?? String(command.prefix(30))
-                sshLog("🔧 [E\(executorId):\(channelKey)] ⚠️ Queue full – rejecting cmd \(dropPreview)")
+                sshLog("☄︎ [E\(executorId):\(channelKey)] ⚠️ Queue full – rejecting cmd \(dropPreview)")
                 return .failure(SSHError.channelError("Executor queue full"))
             }
         }
@@ -163,13 +163,13 @@ actor ChannelExecutor {
         // channel on the first timeout to avoid expensive reconnects during short stalls.
         let timeoutTask = chan.eventLoop.scheduleTask(in: commandTimeoutSeconds) { [weak self] in
             guard let self else { return }
-            sshLog("🔧 [E\(executorId)] ChannelExecutor: ⏰ Cmd \(item.sentinel.prefix(8)) timed out")
+            sshLog("☄︎ [E\(executorId)] ChannelExecutor: ⏰ Cmd \(item.sentinel.prefix(8)) timed out")
             promise.fail(SSHError.timeout)
 
             self.consecutiveTimeouts += 1
 
             if self.consecutiveTimeouts >= self.maxConsecutiveTimeouts {
-                sshLog("🔧 [E\(executorId)] ChannelExecutor: ⚠️ Too many consecutive timeouts – closing shell channel")
+                sshLog("☄︎ [E\(executorId)] ChannelExecutor: ⚠️ Too many consecutive timeouts – closing shell channel")
                 Task { await self.close() }
                 self.consecutiveTimeouts = 0
             } else {
@@ -203,14 +203,14 @@ actor ChannelExecutor {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         if shellChannel == nil {
-            sshLog("🔧 [E\(executorId):\(channelKey)] ❌ No shell channel available")
+            sshLog("☄︎ [E\(executorId):\(channelKey)] ❌ No shell channel available")
         }
         return shellChannel
     }
     
     /// Close shell channel
     func close() {
-        sshLog("🔧 [E\(executorId)] ChannelExecutor: Closing shell channel")
+        sshLog("☄︎ [E\(executorId)] ChannelExecutor: Closing shell channel")
         if let chan = self.shellChannel {
             chan.close(mode: .all, promise: nil)
         }

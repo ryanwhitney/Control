@@ -276,15 +276,15 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     private func navigateToApp(computer: Connection) {
-        viewLog("ConnectionsViewModel: Navigating to app", view: "ConnectionsViewModel")
+        viewLog("⛵︎ Navigating to app", view: "ConnectionsViewModel")
 
         selectedConnection = computer
 
         if !savedConnections.hasConnectedBefore(computer.host) {
-            viewLog("First time setup needed - navigating to SetupFlowView", view: "ConnectionsViewModel")
+            viewLog("⎈ First time setup needed - navigating to SetupFlowView", view: "ConnectionsViewModel")
             showingSetupFlow = true
         } else {
-            viewLog("Regular connection - navigating to ControlView", view: "ConnectionsViewModel")
+            viewLog("⛵︎ navigating to ControlView", view: "ConnectionsViewModel")
             navigateToControl = true
         }
 

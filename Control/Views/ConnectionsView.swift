@@ -260,7 +260,7 @@ private struct SetupFlowDestination: View {
                 password: viewModel.password,
                 isReconfiguration: false,
                 onComplete: {
-                    viewLog("ConnectionsView: First-time setup completed, navigating to ControlView", view: "ConnectionsView")
+                    viewLog("⛵︎ First-time setup completed, navigating to ControlView", view: "ConnectionsView")
                     viewModel.showingSetupFlow = false
                     viewModel.navigateToControl = true
                 }

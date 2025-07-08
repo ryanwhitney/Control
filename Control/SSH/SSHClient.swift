@@ -44,7 +44,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         // Create a new ChannelExecutor for this physical key ("app-N" or "system")
         let executor = ChannelExecutor(connection: connection, channelKey: executorKey)
         dedicatedExecutors[executorKey] = executor
-        sshLog("🔧 SSH: Channel '\(executorKey)' ready")
+        sshLog("☕︎ Channel '\(executorKey)' ready")
         return executor
     }
     
@@ -65,7 +65,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             }
             return result
         } catch {
-            sshLog("📡 SSHClient: ❌ Failed to get executor or run command: \(error)")
+            sshLog("❌ Failed to get executor or run command: \(error)")
             return .failure(error)
         }
     }
@@ -92,7 +92,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         hasCompletedConnection = false
         
         let connectionId = String(UUID().uuidString.prefix(8))
-        sshLog("🆔 [\(connectionId)] SSHClient: Connecting to \(host) as \(username)")
+        sshLog("⚯ [\(connectionId)] SSHClient: Connecting to \(host) as \(username)")
         
         // Only clean up if we have an active connection
         if connection != nil {
@@ -153,7 +153,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             
             switch result {
             case .success(let channel):
-                sshLog("✓ [\(connectionId)] TCP connection established")
+                sshLog("⚭ [\(connectionId)] TCP connection established")
                 self.connection = channel
                 // With client-side channels, we don't need to pre-create a main session.
                 // The connection is ready to be used by ChannelExecutors.
@@ -162,7 +162,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                     self.hasCompletedConnection = true
                     completion(.failure(SSHError.authenticationFailed))
                 } else {
-                    sshLog("✓ [\(connectionId)] SSH connection ready for channels")
+                    sshLog("☕︎ [\(connectionId)] SSH connection ready for channels")
                     self.hasCompletedConnection = true
                     completion(.success(()))
                 }
@@ -204,7 +204,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     }
     
     func disconnect() {
-        sshLog("SSHClient: Starting disconnect process")
+        sshLog("⚯ Starting disconnect process")
         
         // Reset connection completion state
         hasCompletedConnection = false
@@ -218,7 +218,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         
         connection?.close(promise: nil)
         connection = nil
-        sshLog("✓ SSHClient disconnected and cleaned up")
+        sshLog("⚰︎ SSHClient disconnected and cleaned up")
     }
     
     /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying executor key.

@@ -25,7 +25,7 @@ class AppController: ObservableObject {
     }
     
     init(sshClient: SSHClientProtocol, platformRegistry: PlatformRegistry) {
-        appControllerLog("AppController: Initializing with \(platformRegistry.activePlatforms.count) active platforms")
+        appControllerLog("Initializing with \(platformRegistry.activePlatforms.count) active platforms")
         self.sshClient = sshClient
         self.platformRegistry = platformRegistry
         
@@ -38,25 +38,25 @@ class AppController: ObservableObject {
     }
     
     func reset() {
-        appControllerLog("AppController: Resetting state")
+        appControllerLog("Resetting state")
         isActive = true
         isUpdating = false
         hasCompletedInitialUpdate = false
     }
     
     func cleanup() {
-        appControllerLog("AppController: Cleaning up")
+        appControllerLog("Cleaning up")
         isActive = false
     }
     
     func updateClient(_ client: SSHClientProtocol) {
-        appControllerLog("AppController: Updating SSH Client")
+        appControllerLog("Updating SSH Client")
         self.sshClient = client
         isActive = true  // Ensure we're active for upcoming state updates
     }
     
     func updatePlatformRegistry(_ newRegistry: PlatformRegistry) {
-        appControllerLog("AppController: Updating platform registry to \(newRegistry.activePlatforms.map { $0.name })")
+        appControllerLog("Updating platform registry to \(newRegistry.activePlatforms.map { $0.name })")
         
         self.platformRegistry = newRegistry
         
@@ -76,7 +76,7 @@ class AppController: ObservableObject {
     }
     
     func updateAllStates() async {
-        appControllerLog("🔄 Starting update for \(platforms.count) platforms")
+        appControllerLog("❇︎ Starting update for \(platforms.count) platforms")
         
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping state update")
@@ -126,7 +126,7 @@ class AppController: ObservableObject {
         }
         lastStateRefresh[platform.id] = Date()
         
-        appControllerLog("🔄 \(platform.name): checking status")
+        appControllerLog("⚐ \(platform.name): checking status")
         
         let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
         
@@ -159,7 +159,7 @@ class AppController: ObservableObject {
                 let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
                 let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 let subtitleSegment = subtitlePart.isEmpty ? "" : " · \(subtitlePart.redacted())"
-                appControllerLog("→ \(platform.name) state: \(newState.title.redacted())\(subtitleSegment) · \(playString)")
+                appControllerLog("⚑ \(platform.name) state: \(newState.title.redacted())\(subtitleSegment) · \(playString)")
                 updateStateIfChanged(platform.id, newState)
             }
         case .failure(let error):
@@ -201,7 +201,7 @@ class AppController: ObservableObject {
             lastActionTime[platform.id] = Date()
         }
         
-        appControllerLog("🎬 \(platform.name): \(action.label)")
+        appControllerLog("⚡︎ \(platform.name): \(action.label)")
         
         // Leverage the shared helper on the platform to combine the action and
         // status script into a single AppleScript round-trip.
@@ -227,7 +227,7 @@ class AppController: ObservableObject {
                 let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
                 let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 let subtitleSegment = subtitlePart.isEmpty ? "" : " · \(subtitlePart.redacted())"
-                appControllerLog("📊 \(platform.name) after action · [\(newState.title.redacted())]\(subtitleSegment) · \(playString)")
+                appControllerLog("❖ \(platform.name) after action: \(newState.title.redacted())\(subtitleSegment) · \(playString)")
                 states[platform.id] = newState
             }
         case .failure(let error):
@@ -271,7 +271,7 @@ class AppController: ObservableObject {
             return
         }
         
-        appControllerLog("🔄 System: checking volume")
+        appControllerLog("⚐ System: checking volume")
         
         let script = "output volume of (get volume settings)"
 
@@ -281,7 +281,7 @@ class AppController: ObservableObject {
         case .success(let output):
             if let volume = Float(output.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 currentVolume = volume / 100.0
-                appControllerLog("📊 System volume · \(Int(volume))%")
+                appControllerLog("⚑ System volume · \(Int(volume))%")
             } else {
                 appControllerLog("⚠️ Could not parse volume from output: '\(output)'")
                 currentVolume = nil
