@@ -47,10 +47,10 @@ actor ChannelExecutor {
     /// Number of consecutive timeouts observed.  We only tear the channel down after
     /// a small burst of timeouts to avoid over-aggressive reconnects on a momentary stall.
     private var consecutiveTimeouts = 0
-    private let maxConsecutiveTimeouts = 1
+    private let maxConsecutiveTimeouts = 2
 
     /// Command watchdog duration.  AppleScript can legitimately take >2 s under load.
-    private let commandTimeoutSeconds: TimeAmount = .seconds(3)
+    private let commandTimeoutSeconds: TimeAmount = .seconds(6)
     
     init(connection: Channel, channelKey: String) {
         var id = 0
@@ -95,7 +95,13 @@ actor ChannelExecutor {
                 }
             }
     }
-    
+    func stripSpacesAndEmptyLines(_ input: String) -> String {
+        return input
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
     func run(command: String, description: String?) async -> Result<String, Error> {
         // Perform a one-time warm-up if this is the first command on the channel.
@@ -115,7 +121,7 @@ actor ChannelExecutor {
                 return .failure(SSHError.channelError("Executor queue full"))
             }
         }
-
+        let cleanCommand = stripSpacesAndEmptyLines(command)
         // Build unique command id & sentinel
         let cmdId = commandCounter
         commandCounter &+= 1
@@ -124,10 +130,8 @@ actor ChannelExecutor {
 
         // AppleScript payload (command already wrapped upstream)
         let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
-        let payload = "-- \(cmdIdHex) \(description ?? "")\n\(command)\n\n\"\(escapedSentinel)\"\n\n"
-
-        // Only log command attempts on failure; success logged by AppController
-
+        let payload = "-- \(cmdIdHex) \(description ?? "")\n\(cleanCommand)\n\n\"\(escapedSentinel)\"\n\n"
+        
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
                 continuation.resume(returning: .failure(SSHError.channelError("Executor deallocated")))

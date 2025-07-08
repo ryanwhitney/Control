@@ -86,15 +86,6 @@ class DebugLogger: ObservableObject {
             )
         }
         
-        // Sanitize long strings that might be passwords (8+ chars with no spaces)
-        let longStringPattern = #"\b[^\s]{8,}\b"#
-        if message.lowercased().contains("password") {
-            sanitized = sanitized.replacingOccurrences(
-                of: longStringPattern,
-                with: "[REDACTED]",
-                options: .regularExpression
-            )
-        }
         
         // Sanitize network-related sensitive information
         sanitized = sanitizeNetworkInfo(sanitized)

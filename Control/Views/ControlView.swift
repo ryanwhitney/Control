@@ -219,7 +219,7 @@ struct ControlView: View, SSHConnectedView {
                             await appController.updateAllStates()
                         }
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Label("Refresh All", systemImage: "arrow.clockwise")
                     }
                     Button {
                         showingThemeSettings = true
@@ -248,6 +248,22 @@ struct ControlView: View, SSHConnectedView {
                                 Image(systemName: "apple.terminal")
                                     .foregroundStyle(.red)
                                     .font(.caption)
+                            }
+                        }
+                    }
+                    // Platform-specific actions section
+                    if let currentPlatform = appController.platforms[safe: selectedPlatformIndex],
+                       !currentPlatform.menuActions.isEmpty {
+                        Divider()
+                        Section(currentPlatform.name) {
+                            ForEach(currentPlatform.menuActions) { appAction in
+                                Button {
+                                    Task {
+                                        await appController.executeActionWithStatus(platform: currentPlatform, action: appAction.action, isMenuAction: true)
+                                    }
+                                } label: {
+                                    Label(appAction.label, systemImage: appAction.staticIcon)
+                                }
                             }
                         }
                     }

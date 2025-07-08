@@ -7,6 +7,8 @@ enum AppAction: Identifiable, Equatable {
     case previousTrack
     case nextTrack
     case playPauseToggle
+    case updateStatus
+    case closeApp(String)
     
     var id: String {
         switch self {
@@ -15,6 +17,8 @@ enum AppAction: Identifiable, Equatable {
         case .previousTrack: return "previousTrack"
         case .nextTrack: return "nextTrack"
         case .playPauseToggle: return "playPauseToggle"
+        case .updateStatus: return "updateStatus"
+        case .closeApp: return "closeApp"
         }
     }
     
@@ -30,6 +34,10 @@ enum AppAction: Identifiable, Equatable {
             return "Next track"
         case .playPauseToggle:
             return "Play/Pause"
+        case .updateStatus:
+            return "Refresh"
+        case .closeApp(let appName):
+            return "Close \(appName)"
         }
     }
 }
@@ -78,9 +86,11 @@ protocol AppPlatform: Identifiable {
     var experimental: Bool { get }
     var reasonForExperimental: String { get }
     var supportedActions: [ActionConfig] { get }
+    var menuActions: [ActionConfig] { get }
     
     func fetchState() -> String
     func executeAction(_ action: AppAction) -> String
+    func executeMenuActionWithStatus(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
     func isRunningScript() -> String
     func isInstalledScript() -> String
@@ -91,6 +101,12 @@ protocol AppPlatform: Identifiable {
 extension AppPlatform {
     var experimental: Bool { false }
     var reasonForExperimental: String { "" }
+    
+    var menuActions: [ActionConfig] {
+        [
+            ActionConfig(action: .closeApp(name), icon: "xmark.circle.fill"),
+        ]
+    }
     
     func isInstalledScript() -> String {
         let appPath = "/Applications/\(name).app"
@@ -117,16 +133,35 @@ extension AppPlatform {
     /// a single `tell application \"System Events\"` block keeps the entire
     /// script within one top-level tell as required by the remote interactive
     /// shell.
-    func combinedStatusScript() -> String {
+    func checkRunningAndStatusScript() -> String {
         return """
         tell application \"System Events\"
             if (count of (processes where name is \"\(name)\")) > 0 then
-                -- App is running; delegate to the platform-specific status fetch
                 \(fetchState())
             else
                 return \"NOT_RUNNING\"
             end if
         end tell
         """
+    }
+    
+    /// Default implementation for handling menu actions that need status updates after execution
+    func executeMenuActionWithStatus(_ action: AppAction) -> String {
+        switch action {
+//        case .updateStatus:
+//            return fetchState()
+        case .closeApp:
+            return """
+            tell application "System Events"
+                tell application "\(name)" to quit
+                delay 1.5
+                if (count of (processes where name is "\(name)")) = 0 then
+                    return "NOT_RUNNING"
+                end if
+            end tell
+            """
+        default:
+            return executeAction(action)
+        }
     }
 } 

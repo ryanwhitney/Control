@@ -60,7 +60,7 @@ struct PlatformControl: View {
                 ForEach(platform.supportedActions) { appAction in
                     Button {
                         Task {
-                            await controller.executeAction(platform: platform, action: appAction.action)
+                            await controller.executeActionWithStatus(platform: platform, action: appAction.action)
                         }
                     } label: {
                         if let dynamicIcon = appAction.dynamicIcon, let isPlaying = state.isPlaying {
