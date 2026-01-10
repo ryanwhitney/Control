@@ -210,7 +210,9 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        Task { @MainActor in
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        }
     }
 
     func onAppear() {
