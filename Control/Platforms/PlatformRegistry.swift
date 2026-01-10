@@ -11,6 +11,7 @@ class PlatformRegistry: ObservableObject {
         MusicApp(),
         VLCApp(),
         IINAApp(),
+        MPVApp(),
         SpotifyApp(),
         SafariApp(),
 //        ChromeApp()
