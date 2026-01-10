@@ -22,7 +22,7 @@
           "position" : {
             "scale" : 1.25,
             "translation-in-points" : [
-              -190.5546875,
+              -187.5546875,
               2.578125
             ]
           }
@@ -52,7 +52,7 @@
           "position" : {
             "scale" : 1.25,
             "translation-in-points" : [
-              -190.5546875,
+              -187.5546875,
               2.578125
             ]
           }
@@ -63,11 +63,11 @@
           },
           "image-name" : "pause.svg",
           "name" : "pause",
-          "opacity" : 0.8,
+          "opacity" : 0.7,
           "position" : {
             "scale" : 1.2,
             "translation-in-points" : [
-              212.7578125,
+              218.7578125,
               0
             ]
           }
