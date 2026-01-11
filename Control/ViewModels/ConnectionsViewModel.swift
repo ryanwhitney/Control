@@ -17,6 +17,7 @@ class ConnectionsViewModel: ObservableObject {
     @Published var navigateToControl = false
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
+    @Published var lastErrorWasAuthFailure = false
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
@@ -29,7 +30,7 @@ class ConnectionsViewModel: ObservableObject {
     private var scanCompletionTimer: Timer?
     private var scanUpdateTimer: Timer?
 
-    private let savedConnections = SavedConnections()
+    let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
     private let preferences = UserPreferences.shared
     private let networkScanner = NetworkScanner()
@@ -272,16 +273,24 @@ class ConnectionsViewModel: ObservableObject {
             viewLog("✅ Successfully handled SSHError: \(sshError)", view: "ConnectionsViewModel")
             let formattedError = sshError.formatError(displayName: computer.name)
             connectionError = (formattedError.title, formattedError.message)
+
+            // Track if this was an auth failure so we can re-prompt for credentials
+            if case .authenticationFailed = sshError {
+                lastErrorWasAuthFailure = true
+            } else {
+                lastErrorWasAuthFailure = false
+            }
         } else {
             viewLog("❌ Handling generic error", view: "ConnectionsViewModel")
             connectionError = (
                 "Connection Error",
                 """
                 An unexpected error occurred while connecting to \(computer.name).
-                
+
                 Technical details: \(error.localizedDescription)
                 """
             )
+            lastErrorWasAuthFailure = false
         }
         showingError = true
     }
