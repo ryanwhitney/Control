@@ -36,7 +36,7 @@ struct PreferencesView: View {
                     )
                 }
             }
-            .padding(.top, 30)
+            .contentMargins(.top, 30, for: .scrollContent)
             .navigationTitle("Preferences")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
