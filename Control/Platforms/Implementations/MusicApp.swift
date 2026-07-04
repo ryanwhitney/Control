@@ -41,7 +41,41 @@ struct MusicApp: AppPlatform {
     // Override the default helper to make use of the shared template so the
     // action and status execute inside the same `tell application` block.
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        statusScript(actionLines: actionLines(for: action))
+    }
+
+    /// AppleScript run *before* the status read. Music's `next track` /
+    /// `previous track` return before `current track` updates, so reading the
+    /// status immediately races and reports the *previous* track — the UI then
+    /// shows a stale title until the next refresh. For those actions, capture the
+    /// current track id, issue the change, then poll (bounded, ~1s max) until the
+    /// id actually changes — or playback stops — before falling through to the
+    /// status read. It exits the instant Music advances (usually well under
+    /// 200 ms), so it stays snappy; the stopped check keeps end-of-playlist from
+    /// lingering on the old title for the full timeout. The only case that waits
+    /// out the full ~1s is a single-track/repeat-one context where the track can
+    /// never change — and there the title is identical anyway, so it's invisible.
+    /// Other actions (e.g. play/pause) don't change the track and read immediately.
+    private func actionLines(for action: AppAction) -> String {
+        switch action {
+        case .nextTrack, .previousTrack:
+            return """
+            set previousTrackId to missing value
+            try
+                set previousTrackId to id of current track
+            end try
+            \(executeAction(action))
+            repeat 20 times
+                try
+                    if player state is stopped then exit repeat
+                    if id of current track is not previousTrackId then exit repeat
+                end try
+                delay 0.05
+            end repeat
+            """
+        default:
+            return executeAction(action)
+        }
     }
     
     func parseState(_ output: String) -> AppState {
