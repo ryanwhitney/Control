@@ -401,9 +401,7 @@ class ConnectionsViewModel: ObservableObject {
         }
 
         if !connectionsToAdd.isEmpty {
-            withAnimation(.easeIn(duration: 0.3)) {
-                networkComputers.append(contentsOf: connectionsToAdd)
-            }
+            networkComputers.append(contentsOf: connectionsToAdd)
 
             for connectionToAdd in connectionsToAdd {
                 viewLog("NetworkScan: Added connection: \(connectionToAdd.name)", view: "ConnectionsViewModel")
@@ -421,10 +419,8 @@ class ConnectionsViewModel: ObservableObject {
         }
 
         if !connectionsToRemove.isEmpty {
-            withAnimation(.easeOut(duration: 0.3)) {
-                networkComputers.removeAll { connection in
-                    connectionsToRemove.contains(where: { $0.host == connection.host })
-                }
+            networkComputers.removeAll { connection in
+                connectionsToRemove.contains(where: { $0.host == connection.host })
             }
 
             for connectionToRemove in connectionsToRemove {
