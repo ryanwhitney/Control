@@ -8,6 +8,20 @@ struct PreferencesView: View {
         NavigationStack {
             List {
                 Section {
+                    Picker("Connection Method", selection: $preferences.connectionMethod) {
+                        ForEach(ConnectionMethod.allCases) { method in
+                            Text(method.displayName).tag(method)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .onChange(of: preferences.connectionMethod) { _, _ in
+                        // An explicit choice supersedes any transient auto-fallback.
+                        SSHConnectionManager.shared.userDidChooseConnectionMethod()
+                    }
+                } footer: {
+                    Text("Configures how commands are sent to your Mac. Fast may be less stable. If controls become less reliable, try Compatibility.")
+                }
+                Section {
                     PreferencesRow(
                         destination: ThemePreferenceView(),
                         iconName: "paintbrush.fill",
@@ -22,35 +36,20 @@ struct PreferencesView: View {
                     )
                 }
                 Section {
-                    Picker("Connection Method", selection: $preferences.connectionMethod) {
-                        ForEach(ConnectionMethod.allCases) { method in
-                            Text(method.displayName).tag(method)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .onChange(of: preferences.connectionMethod) { _, _ in
-                        // An explicit choice supersedes any transient auto-fallback.
-                        SSHConnectionManager.shared.userDidChooseConnectionMethod()
-                    }
-                } header: {
-                    Text("Connection")
-                } footer: {
-                    Text("“Fast” keeps one connection open. “Compatibility” runs each command on its own connection — try it if Fast has trouble connecting to or controlling your Mac. Takes effect the next time you connect.")
-                }
-                Section {
-                    PreferencesRow(
-                        destination: FeedbackPreferenceView(),
-                        iconName: "paperplane.fill",
-                        title: "Send Feedback",
-                        color: .blue
-                    )
                     PreferencesRow(
                         destination: SupportPreferenceView(),
                         iconName: "questionmark.diamond.fill",
                         title: "Support",
                         color: .orange
                     )
+                    PreferencesRow(
+                        destination: FeedbackPreferenceView(),
+                        iconName: "paperplane.fill",
+                        title: "Send Feedback",
+                        color: .blue
+                    )
                 }
+                
             }
             .contentMargins(.top, 30, for: .scrollContent)
             .navigationTitle("Preferences")
