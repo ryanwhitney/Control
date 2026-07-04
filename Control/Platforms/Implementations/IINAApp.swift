@@ -34,26 +34,40 @@ struct IINAApp: AppPlatform {
     private func statusScript(actionLines: String = "") -> String {
         """
         tell application "System Events"
-            \(actionLines)
-            if not (exists (processes where name is "IINA")) then
+            if (count of (processes where name is "IINA")) = 0 then
                 return "Not running|||   |||false"
             end if
-        set isPlaying to false
-            try
-                tell application "IINA" to activate
-                tell process "IINA"
-                    set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
-                    set isPlaying to (name of playPauseMenu contains "Pause")
-                end tell
-            end try
+            set isPlaying to false
+            set previousFrontmostApp to null
+            set shouldRestoreOrder to false
+            if not (frontmost of process "IINA") then
+                set previousFrontmostApp to name of first application process whose frontmost is true
+                set frontmost of process "IINA" to true
+                delay 0.1
+                if "\(actionLines)" is "" then
+                    set shouldRestoreOrder to true
+                end if
+            end if
             tell process "IINA"
+                -- Execute any action lines
+                if "\(actionLines)" is not "" then
+                    \(actionLines)
+                end if
+                -- Get the playing state
+                set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
+                set isPlaying to (name of playPauseMenu contains "Pause")
+                -- Get window info
                 if (count of windows) > 0 then
                     set windowTitle to name of front window
-                    return windowTitle & "|||   |||" & isPlaying
+                    set resultString to windowTitle & "|||   |||" & isPlaying
                 else
-                    return "No window|||   |||" & isPlaying
+                    set resultString to "No window|||   |||" & isPlaying
                 end if
             end tell
+            if shouldRestoreOrder and previousFrontmostApp is not null then
+                set frontmost of process previousFrontmostApp to true
+            end ifv
+            return resultString
         end tell
         """
     }
@@ -105,20 +119,11 @@ struct IINAApp: AppPlatform {
             keyLine = "key code 123 using {command down}"
         case .nextTrack:
             keyLine = "key code 124 using {command down}"
+        default:
+            keyLine = ""
         }
 
-        // AppleScript template: conditionally frontmost + optional delay, then keystroke
-        return """
-        tell application \"System Events\"
-            if not (frontmost of process \"IINA\") then
-                set frontmost of process \"IINA\" to true
-                delay 0.1
-            end if
-            tell process \"IINA\"
-                \(keyLine)
-            end tell
-        end tell
-        """
+        return keyLine
     }
 }
  
