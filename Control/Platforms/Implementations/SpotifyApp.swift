@@ -81,9 +81,36 @@ struct SpotifyApp: AppPlatform {
     }
     
     func actionWithStatus(_ action: AppAction) -> String {
-        // Add delay for all actions to let Spotify update its state
-        let delayScript = "delay 0.3\n"
-        
-        return statusScript(actionLines: executeAction(action) + "\n" + delayScript)
+        statusScript(actionLines: actionLines(for: action))
+    }
+
+    /// AppleScript run *before* the status read. Like Music, Spotify's
+    /// `next track` / `previous track` return before `current track` settles —
+    /// and the new track often loads from the network, so a fixed delay can read
+    /// mid-transition and momentarily fall into the "Nothing playing" fallback.
+    /// For those, poll until the track id (a URI) changes or playback stops, so
+    /// the read reflects the settled track. Play/pause changes player state rather
+    /// than the track and reads immediately (matching Music) — pending live
+    /// testing that Spotify's `player state` updates fast enough without a delay.
+    private func actionLines(for action: AppAction) -> String {
+        switch action {
+        case .nextTrack, .previousTrack:
+            return """
+            set previousTrackId to missing value
+            try
+                set previousTrackId to id of current track
+            end try
+            \(executeAction(action))
+            repeat 20 times
+                try
+                    if player state is stopped then exit repeat
+                    if id of current track is not previousTrackId then exit repeat
+                end try
+                delay 0.05
+            end repeat
+            """
+        default:
+            return executeAction(action)
+        }
     }
 }
