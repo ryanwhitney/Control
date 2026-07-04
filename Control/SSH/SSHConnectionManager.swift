@@ -27,7 +27,30 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private var heartbeatCounter: UInt32 = 0
     private let heartbeatReplyTimeout: TimeInterval = 2.5
     private var heartbeatReadyContinuations: [CheckedContinuation<Void, Never>] = []
-    
+
+    // MARK: - Streaming transport auto-fallback
+    /// Canary for the streaming transport: true once a *real* heartbeat reply has
+    /// landed on the current connection. `lastHeartbeatSuccess` is seeded on
+    /// connect (for `waitForHeartbeatReady`), so it can't tell "connected but the
+    /// stream never replied" from a live connection — this flag can. Reset on
+    /// every connect; set only in `handleHeartbeatSuccess`.
+    private var heartbeatEverSucceeded = false
+    /// The transport the *current* connection was built with. Used to decide
+    /// whether an unresponsive connection is a streaming-layer failure worth
+    /// auto-falling-back (vs. a Compatibility connection, which we leave alone).
+    private var activeConnectionMethod: ConnectionMethod?
+    /// Transient, non-persisted transport override applied on the next connect.
+    /// Set when we auto-fall-back to Compatibility for a Mac whose Fast/streaming
+    /// layer is broken; lasts the app session unless the user makes an explicit
+    /// choice in Settings. The persisted default stays in `UserPreferences`.
+    private var sessionMethodOverride: ConnectionMethod?
+    /// One auto-fallback per app session, so a genuinely dead Mac (or a real
+    /// network drop) can't ping-pong transports or re-show the notice.
+    private var hasAutoFallenBackToCompatibility = false
+    /// Invoked on the MainActor when we auto-switch to Compatibility, so the
+    /// active view can show the notice and re-drive the connection.
+    private var transportFallbackHandler: (@MainActor () -> Void)?
+
     static let shared = SSHConnectionManager()
     
     struct Credentials: Equatable {
@@ -79,6 +102,18 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     func setConnectionLostHandler(_ handler: @escaping @MainActor (Error?) -> Void) {
         self.connectionLostHandler = handler
     }
+
+    func setTransportFallbackHandler(_ handler: @escaping @MainActor () -> Void) {
+        self.transportFallbackHandler = handler
+    }
+
+    /// The user made an explicit connection-method choice in Settings; that choice
+    /// supersedes any transient auto-fallback and re-arms the one-shot fallback so
+    /// a fresh Fast attempt can auto-heal again if it too proves broken.
+    func userDidChooseConnectionMethod() {
+        sessionMethodOverride = nil
+        hasAutoFallenBackToCompatibility = false
+    }
     
     nonisolated var client: SSHClientProtocol {
         return sshClient
@@ -92,22 +127,43 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    func handleConnectionLost(because error: Error? = nil) {
+    func handleConnectionLost(because error: Error? = nil, allowTransportFallback: Bool = false) {
         Task { @MainActor in
             // Prevent multiple simultaneous reconnect attempts
             guard connectionState == .connected || connectionState == .recovering else { return }
-            
+
+            // Streaming-transport canary: we reached `.connected` but not one
+            // heartbeat reply ever landed → the Fast/streaming layer is broken,
+            // not the network or permissions (which would fail Compatibility too).
+            // Auto-switch to Compatibility once and let the active view re-drive +
+            // show the notice, rather than dead-ending on a "Connection Lost".
+            if allowTransportFallback,
+               activeConnectionMethod == .streaming,
+               !heartbeatEverSucceeded,
+               !hasAutoFallenBackToCompatibility,
+               currentCredentials != nil,
+               let fallback = transportFallbackHandler {
+                connectionLog("🩹 Fast transport unresponsive on this Mac – auto-switching to Compatibility")
+                hasAutoFallenBackToCompatibility = true
+                sessionMethodOverride = .compatibility
+                self.connectionState = .disconnected
+                self.sshClient.disconnect()
+                self.stopHeartbeat()
+                fallback()
+                return
+            }
+
             connectionLog("🚨 Connection lost...")
-            
+
             // Immediately transition to disconnected to stop further commands
             self.connectionState = .disconnected
-            
+
             // Clean up old connection artifacts
             self.sshClient.disconnect()
-            
+
             // Trigger UI handler to show alert
             self.connectionLostHandler?(error)
-            
+
             // Stop heartbeat monitoring
             self.stopHeartbeat()
         }
@@ -126,10 +182,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         // Always clean up first to prevent state corruption
         await cleanupExistingConnection()
 
-        // Select the transport per the user's preference (applied each connect).
-        let method = UserPreferences.shared.connectionMethod
+        // Select the transport for this connect: a transient auto-fallback
+        // override (set when Fast proved broken on some Mac this session) wins
+        // over the user's persisted preference.
+        let method = sessionMethodOverride ?? UserPreferences.shared.connectionMethod
         sshClient = Self.makeTransport(for: method)
-        connectionLog("Transport: \(method.displayName)")
+        activeConnectionMethod = method
+        heartbeatEverSucceeded = false
+        connectionLog("Transport: \(method.displayName)\(sessionMethodOverride != nil ? " (auto)" : "")")
 
         connectionState = .connecting
         currentCredentials = Credentials(host: host, username: username, password: password)
@@ -521,6 +581,9 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     private func handleHeartbeatSuccess(rtt: TimeInterval, id: String) {
         consecutiveHeartbeatFailures = 0
         lastHeartbeatSuccess = Date()
+        // A real reply landed → this connection's transport works; a later drop is
+        // a genuine disconnect, not a streaming-layer failure to auto-fall-back.
+        heartbeatEverSucceeded = true
         // Fulfil any waiters exactly once on the first heartbeat.
         if !heartbeatReadyContinuations.isEmpty {
             heartbeatReadyContinuations.forEach { $0.resume() }
@@ -548,7 +611,9 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             let shouldDrop = consecutiveHeartbeatFailures >= maxHeartbeatFailures && (recoveryDeadline.map { Date() >= $0 } ?? false)
             if shouldDrop {
                 connectionLog("🚨 Recovery failed – treating as connection loss")
-                handleConnectionLost()
+                // Allow the streaming→Compatibility auto-fallback here: this is the
+                // precise "connected but never heard back" signal it keys off.
+                handleConnectionLost(allowTransportFallback: true)
                 stopHeartbeat()
             }
         }

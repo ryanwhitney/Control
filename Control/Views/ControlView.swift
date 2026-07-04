@@ -27,6 +27,7 @@ struct ControlView: View, SSHConnectedView {
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var _showingConnectionLostAlert = false
+    @State private var showingCompatibilityNotice = false
     @State private var showingThemeSettings: Bool = false
     @State private var showingDebugLogs: Bool = false
     @State private var selectedPlatformIndex: Int = 0
@@ -282,7 +283,16 @@ struct ControlView: View, SSHConnectedView {
             
             // Set up SSH connection
             setupSSHConnection()
-            
+
+            // If Fast mode connects but its stream never responds, the manager
+            // auto-switches to Compatibility and calls this: show the one-time
+            // notice and re-drive the connection on the new transport.
+            let showNotice = $showingCompatibilityNotice
+            connectionManager.setTransportFallbackHandler {
+                showNotice.wrappedValue = true
+                connectToSSH()
+            }
+
             // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
                let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
@@ -337,6 +347,9 @@ struct ControlView: View, SSHConnectedView {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
         .alert(isPresented: showingError) { connectionErrorAlert() }
+        .sheet(isPresented: $showingCompatibilityNotice) {
+            CompatibilityFallbackNotice(displayName: displayName)
+        }
         .sheet(isPresented: $showingThemeSettings){
             ThemePreferenceSheet()
                 .presentationDetents([.height(200)])

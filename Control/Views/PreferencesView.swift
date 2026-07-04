@@ -28,6 +28,10 @@ struct PreferencesView: View {
                         }
                     }
                     .pickerStyle(.menu)
+                    .onChange(of: preferences.connectionMethod) { _, _ in
+                        // An explicit choice supersedes any transient auto-fallback.
+                        SSHConnectionManager.shared.userDidChooseConnectionMethod()
+                    }
                 } header: {
                     Text("Connection")
                 } footer: {

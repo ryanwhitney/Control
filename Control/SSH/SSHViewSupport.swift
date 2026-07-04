@@ -107,7 +107,7 @@ extension SSHConnectedView {
     }
     
     @MainActor
-    private func connectToSSH() {
+    func connectToSSH() {
         let viewName = String(describing: Self.self)
         viewLog("\(viewName): Starting SSH connection", view: viewName)
         viewLog("Connection manager state: \(connectionManager.connectionState)", view: viewName)
