@@ -82,9 +82,11 @@ struct ConnectionsView: View {
             .accessibilityAddTraits(.isHeader)
             .sheet(isPresented: $viewModel.showingAddDialog) {
                 AddConnectionSheet()
+                    .environmentObject(viewModel)
             }
             .sheet(isPresented: $viewModel.isAuthenticating) {
                 AuthenticationSheet()
+                    .environmentObject(viewModel)
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
                 Button("OK", role: .cancel) { }
