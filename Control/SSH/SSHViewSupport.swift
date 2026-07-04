@@ -29,14 +29,11 @@ extension SSHConnectedView {
     }
     
     /// Handle scene phase changes with health check logic
-    @MainActor
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        let viewName = String(describing: Self.self)
-        viewLog("\(viewName): Scene phase changed from \(oldPhase) to \(newPhase)", view: viewName)
-        
-        if newPhase == .active {
-            let currentViewName = viewName
-            Task { @MainActor in
+        Task { @MainActor in
+            viewLog("\(Self.self): Scene phase changed from \(oldPhase) to \(newPhase)", view: String(describing: Self.self))
+            
+            if newPhase == .active {
                 if connectionManager.connectionState == .connected {
                     do {
                         try await connectionManager.verifyConnectionHealth()
@@ -49,9 +46,9 @@ extension SSHConnectedView {
                     connectToSSH()
                 }
             }
+            
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
-        
-        connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
     }
     
     /// Standard SSH connection lost alert

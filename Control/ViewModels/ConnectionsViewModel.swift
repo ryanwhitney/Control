@@ -17,18 +17,20 @@ class ConnectionsViewModel: ObservableObject {
     @Published var navigateToControl = false
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
+    @Published var lastErrorWasAuthFailure = false
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
     @Published var isSearching = false
     @Published var showProgressIndicator = false
+    @Published var showStatusRow = false
 
     private var currentScanResults: [Connection] = []
     private var scanStartTime: Date?
     private var scanCompletionTimer: Timer?
     private var scanUpdateTimer: Timer?
 
-    private let savedConnections = SavedConnections()
+    let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
     private let preferences = UserPreferences.shared
     private let networkScanner = NetworkScanner()
@@ -209,7 +211,9 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        Task { @MainActor in
+            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
+        }
     }
 
     func onAppear() {
@@ -224,7 +228,15 @@ class ConnectionsViewModel: ObservableObject {
         } else {
             viewLog("Skipping scan - already scanning", view: "ConnectionsViewModel")
         }
-
+        
+        if !showStatusRow {
+            Task {
+                // delay showing immediately to prevent the default value from flashing
+                try await Task.sleep(nanoseconds: 50_000_000)
+                showStatusRow = true
+            }
+        }
+        
         if preferences.shouldShowWhatsNew {
             Task {
                 try await Task.sleep(nanoseconds: 500_000_000)
@@ -261,16 +273,24 @@ class ConnectionsViewModel: ObservableObject {
             viewLog("✅ Successfully handled SSHError: \(sshError)", view: "ConnectionsViewModel")
             let formattedError = sshError.formatError(displayName: computer.name)
             connectionError = (formattedError.title, formattedError.message)
+
+            // Track if this was an auth failure so we can re-prompt for credentials
+            if case .authenticationFailed = sshError {
+                lastErrorWasAuthFailure = true
+            } else {
+                lastErrorWasAuthFailure = false
+            }
         } else {
             viewLog("❌ Handling generic error", view: "ConnectionsViewModel")
             connectionError = (
                 "Connection Error",
                 """
                 An unexpected error occurred while connecting to \(computer.name).
-                
+
                 Technical details: \(error.localizedDescription)
                 """
             )
+            lastErrorWasAuthFailure = false
         }
         showingError = true
     }
@@ -381,9 +401,7 @@ class ConnectionsViewModel: ObservableObject {
         }
 
         if !connectionsToAdd.isEmpty {
-            withAnimation(.easeIn(duration: 0.3)) {
-                networkComputers.append(contentsOf: connectionsToAdd)
-            }
+            networkComputers.append(contentsOf: connectionsToAdd)
 
             for connectionToAdd in connectionsToAdd {
                 viewLog("NetworkScan: Added connection: \(connectionToAdd.name)", view: "ConnectionsViewModel")
@@ -401,10 +419,8 @@ class ConnectionsViewModel: ObservableObject {
         }
 
         if !connectionsToRemove.isEmpty {
-            withAnimation(.easeOut(duration: 0.3)) {
-                networkComputers.removeAll { connection in
-                    connectionsToRemove.contains(where: { $0.host == connection.host })
-                }
+            networkComputers.removeAll { connection in
+                connectionsToRemove.contains(where: { $0.host == connection.host })
             }
 
             for connectionToRemove in connectionsToRemove {

@@ -82,9 +82,11 @@ struct ConnectionsView: View {
             .accessibilityAddTraits(.isHeader)
             .sheet(isPresented: $viewModel.showingAddDialog) {
                 AddConnectionSheet()
+                    .environmentObject(viewModel)
             }
             .sheet(isPresented: $viewModel.isAuthenticating) {
                 AuthenticationSheet()
+                    .environmentObject(viewModel)
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
                 Button("OK", role: .cancel) { }
@@ -156,9 +158,16 @@ struct ConnectionsView: View {
         .onChange(of: viewModel.showingError) { _, newValue in
             if !newValue {
                 viewModel.connectingComputer = nil
-                viewModel.selectedConnection = nil
-                viewModel.username = ""
-                viewModel.password = ""
+                if viewModel.lastErrorWasAuthFailure {
+                    // Re-prompt for credentials - keep selectedConnection and username
+                    viewModel.password = ""
+                    viewModel.lastErrorWasAuthFailure = false
+                    viewModel.isAuthenticating = true
+                } else {
+                    viewModel.selectedConnection = nil
+                    viewModel.username = ""
+                    viewModel.password = ""
+                }
             }
         }
     }
@@ -250,7 +259,7 @@ private struct AuthenticationSheet: View {
 
 private struct SetupFlowDestination: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
-    
+
     var body: some View {
         if let computer = viewModel.selectedConnection {
             SetupFlowView(
@@ -265,14 +274,14 @@ private struct SetupFlowDestination: View {
                     viewModel.navigateToControl = true
                 }
             )
-            .environmentObject(SavedConnections())
+            .environmentObject(viewModel.savedConnections)
         }
     }
 }
 
 private struct ControlDestination: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
-    
+
     var body: some View {
         if let computer = viewModel.selectedConnection {
             ControlView(
@@ -281,7 +290,7 @@ private struct ControlDestination: View {
                 username: viewModel.username,
                 password: viewModel.password
             )
-            .environmentObject(SavedConnections())
+            .environmentObject(viewModel.savedConnections)
         }
     }
 }
