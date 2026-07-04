@@ -121,7 +121,12 @@ struct StreamingResponseParser {
         var escaped = false
         for ch in inner {
             if escaped {
-                out.append(ch)
+                switch ch {
+                case "n": out.append("\n")
+                case "t": out.append("\t")
+                case "r": out.append("\r")
+                default: out.append(ch)   // \" -> ", \\ -> \, anything else literal
+                }
                 escaped = false
             } else if ch == "\\" {
                 escaped = true

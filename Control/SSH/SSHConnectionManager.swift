@@ -396,7 +396,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
             // Channels run an AppleScript interpreter, not a shell — use AppleScript.
-            let token = "health-check-\(UInt32.random(in: 0 ..< .max))"
+            let token = ScriptTokens.healthCheck()
             let healthCommand = "return \"\(token)\""
 
             client.executeCommandOnDedicatedChannel("system", healthCommand, description: "Connection health check") { result in

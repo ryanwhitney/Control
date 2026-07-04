@@ -62,7 +62,7 @@ final class StreamingShellHandler: ChannelInboundHandler, @unchecked Sendable {
 
         // Safety valve: if a sentinel never arrives and the buffer grows without
         // bound, fail the head and reset rather than leak memory.
-        if parser.bufferedByteCount > 100_000 {
+        if parser.bufferedByteCount > parser.maxLineBuffer {
             sshLog("🔍 StreamingShellHandler: ⚠️ line buffer overflow – resetting channel")
             if let head = parser.headSentinel {
                 parser.removeCommand(sentinel: head)

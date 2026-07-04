@@ -34,11 +34,9 @@ enum ScriptTokens {
         "VC7HB_\(nonce)_\(String(format: "%05u", counter))"
     }
 
-    /// Field separator packed into status results (title / subtitle / isPlaying)
-    /// by every platform's status script and split back out in `parseState`
-    /// (and used by `DebugLogger` to redact media content). Kept as a plain
-    /// literal — mirrored verbatim in those scripts — since it's embedded inside
-    /// AppleScript/JavaScript string literals where interpolation is awkward.
-    /// Distinctive enough that a real title containing it is implausible.
-    static let field = "~|VCF|~"
+    /// Health-check reply token (matched via `contains`); random per call so a
+    /// stale reply can't satisfy a later check.
+    static func healthCheck() -> String {
+        "VC7HEALTH_\(nonce)_\(String(format: "%08X", UInt32.random(in: 0 ..< .max)))"
+    }
 }

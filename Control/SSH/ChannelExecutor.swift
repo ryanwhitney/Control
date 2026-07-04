@@ -10,7 +10,7 @@ import os
 /// interpreter, demarcated with a unique sentinel so responses can be matched back
 /// to their promises.  If a fatal timeout or channel error occurs the shell is
 /// closed and the executor will be recreated on next use.
-@available(iOS 15.0, *)
+@available(iOS 16.0, *) // OSAllocatedUnfairLock requires iOS 16
 actor ChannelExecutor {
     /// Monotonic executor id for logging. Guarded by a lock rather than a
     /// `DispatchQueue.sync` so it can be assigned from async contexts without
@@ -152,7 +152,18 @@ actor ChannelExecutor {
     // MARK: - Internal queue processor
     private func processNext() async {
         guard !isBusy, !workQueue.isEmpty else { return }
-        guard let chan = await ensureShellChannelReady() else { return }
+        guard let chan = await ensureShellChannelReady() else {
+            // Channel never became ready — fail everything queued so callers
+            // don't hang forever on a continuation that would never resume.
+            // The channelError makes SSHClient drop and recreate this executor.
+            let pending = workQueue
+            workQueue.removeAll()
+            for item in pending {
+                let cont = item.continuation
+                Task { @MainActor in cont.resume(returning: .failure(SSHError.channelError("Shell channel unavailable"))) }
+            }
+            return
+        }
 
         let item = workQueue.removeFirst()
         isBusy = true
