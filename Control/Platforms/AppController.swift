@@ -128,9 +128,8 @@ class AppController: ObservableObject {
         
         appControllerLog("⚐ \(platform.name): checking status")
         
-        let result = await executeCommand(platform.checkRunningAndStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
+        let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
         
-
         switch result {
         case .success(let output):
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -186,8 +185,8 @@ class AppController: ObservableObject {
         }
     }
     
-    func executeActionWithStatus(platform: any AppPlatform, action: AppAction, isMenuAction: Bool = false) async {
-        guard isActive else {
+    func executeActionWithStatus(platform: any AppPlatform, action: AppAction) async {
+        guard isActive else { 
             appControllerLog("⚠️ Controller not active, skipping action")
             return 
         }
@@ -204,30 +203,14 @@ class AppController: ObservableObject {
         
         appControllerLog("⚡︎ \(platform.name): \(action.label)")
         
+        // Leverage the shared helper on the platform to combine the action and
+        // status script into a single AppleScript round-trip.
+        let combinedScript = platform.actionWithStatus(action)
         
-        // Unless menu action, leverage the shared helper on the platform to combine
-        // the action and status script into a single AppleScript round-trip.
-        let script = !isMenuAction ? platform.actionWithStatus(action) : platform.executeMenuActionWithStatus(action)
-        
-        let result = await executeCommand(script, channelKey: platform.id, description: "\(platform.id): \(action)")
+        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.id): \(action)")
         
         switch result {
         case .success(let output):
-            
-            let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Detect sentinel for not-running state
-            if trimmed == "NOT_RUNNING" {
-                let newState = AppState(
-                    title: "Not running",
-                    subtitle: "",
-                    isPlaying: nil,
-                    error: nil
-                )
-                updateStateIfChanged(platform.id, newState)
-                return
-            }
-            
             let lines = output.components(separatedBy: .newlines)
             if let firstLine = lines.first,
                firstLine.contains("Not authorized to send Apple events") {
@@ -322,14 +305,16 @@ class AppController: ObservableObject {
             appControllerLog("⚠️ Controller not active, skipping command")
             return .failure(SSHError.channelError("Controller not active"))
         }
-                
+        
+        let wrappedCommand = ShellCommandUtilities.appleScriptForStreaming(command)
+        
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
                 continuation.resume(returning: .failure(SSHError.channelError("AppController was deallocated")))
                 return
             }
             
-            self.sshClient.executeCommandOnDedicatedChannel(channelKey, command, description: description) { result in
+            self.sshClient.executeCommandOnDedicatedChannel(channelKey, wrappedCommand, description: description) { result in
                 if case .failure(let error) = result {
                     let commandDesc = description ?? "command"
                     appControllerLog("❌ SSH: \(commandDesc) failed - \(error)")
