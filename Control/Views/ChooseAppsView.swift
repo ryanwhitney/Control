@@ -86,7 +86,6 @@ struct ChooseAppsView: View, SSHConnectedView {
                                 selectedPlatforms.insert(platform.id)
                             }
                         }
-                        .opacity(selectedPlatforms.contains(platform.id) ? 1 : 0.5)
                         .animation(.spring(), value: selectedPlatforms)
                         .accessibilityAddTraits(.isToggle)
                     }
