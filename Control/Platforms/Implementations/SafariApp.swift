@@ -23,7 +23,7 @@ struct SafariApp: AppPlatform {
     }
 
     private func jsForStatus() -> String {
-        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found||| |||false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '|||' + site + '|||' + playing; })();"
+        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found~|VCF|~ ~|VCF|~false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '~|VCF|~' + site + '~|VCF|~' + playing; })();"
     }
 
     private func jsForAction(_ action: AppAction) -> String {
@@ -48,7 +48,7 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open||| |||false"
+                return "No windows open~|VCF|~ ~|VCF|~false"
             end if
             return do JavaScript "\(js)" in current tab of front window
         end tell
@@ -63,7 +63,7 @@ struct SafariApp: AppPlatform {
         return """
         tell application "Safari"
             if (count of windows) is 0 then
-                return "No windows open||| |||false"
+                return "No windows open~|VCF|~ ~|VCF|~false"
             end if
             do JavaScript "\(actionJs)" in current tab of front window
             delay 0.15
@@ -73,7 +73,7 @@ struct SafariApp: AppPlatform {
     }
 
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         
         if components.count >= 3 {
             return AppState(
@@ -85,7 +85,7 @@ struct SafariApp: AppPlatform {
         }
         
         // Handle cases where the script might return fewer components
-        if !output.isEmpty && !output.contains("|||") {
+        if !output.isEmpty && !output.contains("~|VCF|~") {
             return AppState(title: output, subtitle: "", isPlaying: nil)
         }
         

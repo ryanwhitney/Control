@@ -133,7 +133,7 @@ extension AppPlatform {
     /// a single `tell application \"System Events\"` block keeps the entire
     /// script within one top-level tell as required by the remote interactive
     /// shell.
-    func checkRunningAndStatusScript() -> String {
+    func combinedStatusScript() -> String {
         return """
         tell application \"System Events\"
             if (count of (processes where name is \"\(name)\")) > 0 then
@@ -156,7 +156,7 @@ extension AppPlatform {
                 tell application "\(name)" to quit
                 delay 1.5
                 if (count of (processes where name is "\(name)")) = 0 then
-                    return "NOT_RUNNING"
+                    return "\(ScriptTokens.notRunning)"
                 end if
             end tell
             """

@@ -34,15 +34,15 @@ struct VLCApp: AppPlatform {
             try
                 set mediaName to name of current item
                 if playing then
-                    return mediaName & \\"|||   ||| playing ||| true\\"
+                    return mediaName & \\"~|VCF|~   ~|VCF|~ playing ~|VCF|~ true\\"
                 else
-                    return mediaName & \\"|||   ||| paused ||| false\\"
+                    return mediaName & \\"~|VCF|~   ~|VCF|~ paused ~|VCF|~ false\\"
                 end if
             on error
                 if playing then
-                    return \\"Unknown media |||   ||| playing ||| true\\"
+                    return \\"Unknown media ~|VCF|~   ~|VCF|~ playing ~|VCF|~ true\\"
                 else
-                    return \\"Nothing playing |||   ||| paused ||| false\\"
+                    return \\"Nothing playing ~|VCF|~   ~|VCF|~ paused ~|VCF|~ false\\"
                 end if
             end try
         end tell"
@@ -59,22 +59,22 @@ struct VLCApp: AppPlatform {
         tell application "System Events"
             if (count of (processes where name is "VLC")) = 0 then
                 activate application "VLC"
-                return "Nothing playing |||   ||| paused ||| false"
+                return "Nothing playing ~|VCF|~   ~|VCF|~ paused ~|VCF|~ false"
             else
                 tell application "VLC"
                     \(actionLines)
                     try
                         set mediaName to name of current item
                         if playing then
-                            return mediaName & "|||   ||| playing ||| true"
+                            return mediaName & "~|VCF|~   ~|VCF|~ playing ~|VCF|~ true"
                         else
-                            return mediaName & "|||   ||| paused ||| false"
+                            return mediaName & "~|VCF|~   ~|VCF|~ paused ~|VCF|~ false"
                         end if
                     on error
                         if playing then
-                            return "Unknown media |||   ||| playing ||| true"
+                            return "Unknown media ~|VCF|~   ~|VCF|~ playing ~|VCF|~ true"
                         else
-                            return "Nothing playing |||   ||| paused ||| false"
+                            return "Nothing playing ~|VCF|~   ~|VCF|~ paused ~|VCF|~ false"
                         end if
                     end try
                 end tell
@@ -100,7 +100,7 @@ struct VLCApp: AppPlatform {
     }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         if components.count >= 4 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),

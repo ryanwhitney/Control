@@ -32,7 +32,7 @@ struct QuickTimeApp: AppPlatform {
         tell application "QuickTime Player"
             \(actionLines)
             if not (exists document 1) then
-                return "Nothing playing |||   |||false"
+                return "Nothing playing ~|VCF|~   ~|VCF|~false"
             end if
             set docName to name of document 1
             if playing of document 1 then
@@ -40,7 +40,7 @@ struct QuickTimeApp: AppPlatform {
             else
                 set playState to "paused"
             end if
-            return docName & "|||   |||" & (playing of document 1 as text)
+            return docName & "~|VCF|~   ~|VCF|~" & (playing of document 1 as text)
         end tell
         """
     }
@@ -48,7 +48,7 @@ struct QuickTimeApp: AppPlatform {
     func fetchState() -> String { statusScript() }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),

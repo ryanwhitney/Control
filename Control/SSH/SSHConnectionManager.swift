@@ -15,14 +15,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     // MARK: - Heartbeat Management
     private var heartbeatTask: Task<Void, Never>?
     private var consecutiveHeartbeatFailures = 0
-    private let maxHeartbeatFailures = 1
+    private let maxHeartbeatFailures = 2
     private let minHeartbeatInterval: TimeInterval = 0.5
     private let maxHeartbeatInterval: TimeInterval = 12
     private var currentHeartbeatInterval: TimeInterval = 3
     private var lastHeartbeatSuccess: Date?
     private var recoveryDeadline: Date?
     private var heartbeatCounter: UInt32 = 0
-    private let heartbeatReplyTimeout: TimeInterval = 1.0
+    private let heartbeatReplyTimeout: TimeInterval = 2.5
     private var heartbeatReadyContinuations: [CheckedContinuation<Void, Never>] = []
     
     static let shared = SSHConnectionManager()
@@ -60,10 +60,13 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         self.pathMonitor = monitor
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            if path.status != .satisfied {
-                connectionLog("🚨 Network path no longer satisfied – assuming connection lost")
+            // Only a definitively unsatisfied path counts as a drop. Transient
+            // states (e.g. .requiresConnection during a Wi-Fi handoff) are left
+            // for the heartbeat to confirm, avoiding spurious disconnects.
+            if path.status == .unsatisfied {
+                connectionLog("🚨 Network path unsatisfied – assuming connection lost")
                 Task { @MainActor in
-                    self.handleConnectionLost(because: path.status == .unsatisfied ? SSHError.connectionFailed("Network path unavailable") : nil)
+                    self.handleConnectionLost(because: SSHError.connectionFailed("Network path unavailable"))
                 }
             }
         }
@@ -392,12 +395,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     /// Verifies that the connection is alive and responsive
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
-            let healthCommand = "echo \"health-check-$(date +%s)\""
-            
+            // Channels run an AppleScript interpreter, not a shell — use AppleScript.
+            let token = "health-check-\(UInt32.random(in: 0 ..< .max))"
+            let healthCommand = "return \"\(token)\""
+
             client.executeCommandOnDedicatedChannel("system", healthCommand, description: "Connection health check") { result in
                 switch result {
                 case .success(let output):
-                    if output.contains("health-check-") {
+                    if output.contains(token) {
                         continuation.resume()
                     } else {
                         continuation.resume(throwing: SSHError.channelError("Invalid health check response"))
@@ -466,7 +471,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         // Build unique identifier & script
         let hbId = heartbeatCounter
         heartbeatCounter &+= 1
-        let idString = String(format: "HB%05u", hbId)
+        let idString = ScriptTokens.heartbeat(hbId)
         let script = "return \"\(idString)\""
         let sendTime = Date()
         var completed = false

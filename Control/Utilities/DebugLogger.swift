@@ -169,8 +169,8 @@ class DebugLogger: ObservableObject {
         let prefix = String(message[..<outputRange.upperBound])
         let output = String(message[outputRange.upperBound...])
         
-        // Look for AppleScript output format: "title|||subtitle|||state|||playing"
-        let components = output.components(separatedBy: "|||")
+        // Look for AppleScript output format: "title~|VCF|~subtitle~|VCF|~state~|VCF|~playing"
+        let components = output.components(separatedBy: "~|VCF|~")
         
         if components.count >= 2 {
             var sanitizedComponents = components
@@ -201,7 +201,7 @@ class DebugLogger: ObservableObject {
                 }
             }
             
-            return prefix + sanitizedComponents.joined(separator: "|||")
+            return prefix + sanitizedComponents.joined(separator: "~|VCF|~")
         }
         
         return message
@@ -226,9 +226,9 @@ class DebugLogger: ObservableObject {
         }
         
         // Look for standalone media info patterns (not in Full output format)
-        // Pattern: anything|||anything format that might be media content
-        if message.contains("|||") && !message.contains("Full output:") {
-            let components = message.components(separatedBy: "|||")
+        // Pattern: anything~|VCF|~anything format that might be media content
+        if message.contains("~|VCF|~") && !message.contains("Full output:") {
+            let components = message.components(separatedBy: "~|VCF|~")
             
             if components.count >= 2 {
                 var sanitizedComponents = components
@@ -253,7 +253,7 @@ class DebugLogger: ObservableObject {
                     }
                 }
                 
-                sanitized = sanitizedComponents.joined(separator: "|||")
+                sanitized = sanitizedComponents.joined(separator: "~|VCF|~")
             }
         }
         

@@ -1,6 +1,7 @@
 import Foundation
 import NIOSSH
 import NIOCore
+import os
 
 /// Actor that serialises AppleScript commands on a dedicated SSH *child-channel*.
 /// For each physical key (`system`, `heartbeat`, `app-0`, …) we open an interactive
@@ -11,8 +12,10 @@ import NIOCore
 /// closed and the executor will be recreated on next use.
 @available(iOS 15.0, *)
 actor ChannelExecutor {
-    private static let idQueue = DispatchQueue(label: "com.volumecontrol.executorIdQueue")
-    private static var nextExecutorID = 1
+    /// Monotonic executor id for logging. Guarded by a lock rather than a
+    /// `DispatchQueue.sync` so it can be assigned from async contexts without
+    /// the "unsafeForcedSync called from Swift Concurrent context" warning.
+    private static let idCounter = OSAllocatedUnfairLock(initialState: 1)
     
     private let executorId: Int
     private unowned let connection: Channel
@@ -53,12 +56,11 @@ actor ChannelExecutor {
     private let commandTimeoutSeconds: TimeAmount = .seconds(6)
     
     init(connection: Channel, channelKey: String) {
-        var id = 0
-        ChannelExecutor.idQueue.sync {
-            id = ChannelExecutor.nextExecutorID
-            ChannelExecutor.nextExecutorID += 1
+        self.executorId = ChannelExecutor.idCounter.withLock { next in
+            let value = next
+            next += 1
+            return value
         }
-        self.executorId = id
         
         // Initialization logging handled by SSHClient
         self.connection = connection
@@ -126,11 +128,11 @@ actor ChannelExecutor {
         let cmdId = commandCounter
         commandCounter &+= 1
         let cmdIdHex = String(format: "%04X", cmdId & 0xFFFF)
-        let sentinel = ">>>CTRL_\(cmdIdHex)<<<"
+        let sentinel = ScriptTokens.sentinel(cmdId)
 
-        // AppleScript payload (command already wrapped upstream)
-        let escapedSentinel = sentinel.replacingOccurrences(of: "\"", with: "\\\"")
-        let payload = "-- \(cmdIdHex) \(description ?? "")\n\(cleanCommand)\n\n\"\(escapedSentinel)\"\n\n"
+        // The sentinel is [A-Z0-9_] only, so it needs no escaping inside the
+        // AppleScript string literal appended after the command.
+        let payload = "-- \(cmdIdHex) \(description ?? "")\n\(cleanCommand)\n\n\"\(sentinel)\"\n\n"
         
         return await withCheckedContinuation { [weak self] continuation in
             guard let self = self else {
@@ -155,47 +157,53 @@ actor ChannelExecutor {
         let item = workQueue.removeFirst()
         isBusy = true
 
-        // Prepare promise & sentinel mapping
+        // Capture immutable locals so the event-loop closures never touch actor
+        // state or the (event-loop-confined) handler off its own loop.
+        let handler = shellHandler
+        let eid = executorId
+        let key = channelKey
+        let sentinel = item.sentinel
+        let payload = item.payload
         let promise = chan.eventLoop.makePromise(of: String.self)
-        shellHandler.addCommand(sentinel: item.sentinel, promise: promise)
 
-        // Send payload
-        let buffer = chan.allocator.buffer(string: item.payload)
-        chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: nil)
+        // Register the pending command and write its payload atomically on the
+        // event loop: the handler is only mutated on its own loop, and the
+        // sentinel is registered before any response bytes can arrive.
+        chan.eventLoop.execute {
+            handler.addCommand(sentinel: sentinel, promise: promise)
+            let buffer = chan.allocator.buffer(string: payload)
+            chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: nil)
+        }
 
-        // Timeout watchdog – more generous and adaptive. We don't immediately kill the
-        // channel on the first timeout to avoid expensive reconnects during short stalls.
-        let timeoutTask = chan.eventLoop.scheduleTask(in: commandTimeoutSeconds) { [weak self] in
-            guard let self else { return }
-            sshLog("☄︎ [E\(executorId)] ChannelExecutor: ⏰ Cmd \(item.sentinel.prefix(8)) timed out")
-            promise.fail(SSHError.timeout)
-
-            self.consecutiveTimeouts += 1
-
-            if self.consecutiveTimeouts >= self.maxConsecutiveTimeouts {
-                sshLog("☄︎ [E\(executorId)] ChannelExecutor: ⚠️ Too many consecutive timeouts – closing shell channel")
-                Task { await self.close() }
-                self.consecutiveTimeouts = 0
-            } else {
-                // Allow queue to proceed; mark not busy to process next command
-                Task { await self.finishCurrentAndContinue() }
-            }
+        // Watchdog: on timeout, remove + fail *this* pending on the event loop so
+        // a stale head can never misroute the next command (the old desync bug).
+        let timeoutTask = chan.eventLoop.scheduleTask(in: commandTimeoutSeconds) {
+            sshLog("☄︎ [E\(eid):\(key)] ⏰ Cmd \(sentinel.prefix(12)) timed out")
+            handler.failCommand(sentinel: sentinel, error: SSHError.timeout)
         }
 
         promise.futureResult.whenComplete { [weak self] result in
             timeoutTask.cancel()
-            guard let self = self else { return }
-            // Success or failure resets the timeout counter if we did get a response
-            self.consecutiveTimeouts = 0
             let cont = item.continuation
-            Task { @MainActor in
-                cont.resume(returning: result)
-            }
-            Task { await self.finishCurrentAndContinue() }
+            Task { @MainActor in cont.resume(returning: result) }
+            Task { await self?.finish(result: result) }
         }
     }
 
-    private func finishCurrentAndContinue() async {
+    /// Post-command bookkeeping: count consecutive timeouts, tear the channel
+    /// down after a small burst, otherwise process the next queued command.
+    private func finish(result: Result<String, Error>) async {
+        if case .failure(let error) = result, case SSHError.timeout = error {
+            consecutiveTimeouts += 1
+            if consecutiveTimeouts >= maxConsecutiveTimeouts {
+                sshLog("☄︎ [E\(executorId):\(channelKey)] ⚠️ \(consecutiveTimeouts) consecutive timeouts – closing shell channel")
+                consecutiveTimeouts = 0
+                close()
+                return
+            }
+        } else {
+            consecutiveTimeouts = 0
+        }
         isBusy = false
         await processNext()
     }
@@ -218,9 +226,16 @@ actor ChannelExecutor {
         if let chan = self.shellChannel {
             chan.close(mode: .all, promise: nil)
         }
-        // Reset internal state so this executor cannot be reused accidentally
+        // Fail any not-yet-started work so awaiting callers don't hang forever.
+        // (The in-flight command, if any, is resolved separately by its promise.)
+        let pendingWork = workQueue
+        workQueue.removeAll()
+        for item in pendingWork {
+            let cont = item.continuation
+            Task { @MainActor in cont.resume(returning: .failure(SSHError.channelError("Executor closed"))) }
+        }
+        // Reset internal state so this executor cannot be reused accidentally.
         self.shellChannel = nil
-        self.workQueue.removeAll()
         self.isBusy = false
     }
     

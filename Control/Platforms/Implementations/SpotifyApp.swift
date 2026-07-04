@@ -33,16 +33,16 @@ struct SpotifyApp: AppPlatform {
         tell application "Spotify"
             \(actionLines)
             if not running then
-                return "Not running |||  |||false"
+                return "Not running ~|VCF|~  ~|VCF|~false"
             end if
             try
                 set trackName to name of current track
                 set artistName to artist of current track
                 set playerState to player state as text
                 set isPlaying to player state is playing
-                return trackName & "|||" & artistName & "|||" & isPlaying
+                return trackName & "~|VCF|~" & artistName & "~|VCF|~" & isPlaying
             end try
-            return "Nothing playing  |||  |||" & false
+            return "Nothing playing  ~|VCF|~  ~|VCF|~" & false
         end tell
         """
     }
@@ -50,7 +50,7 @@ struct SpotifyApp: AppPlatform {
     func fetchState() -> String { statusScript() }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),

@@ -35,7 +35,7 @@ struct IINAApp: AppPlatform {
         """
         tell application "System Events"
             if (count of (processes where name is "IINA")) = 0 then
-                return "Not running|||   |||false"
+                return "Not running~|VCF|~   ~|VCF|~false"
             end if
             set isPlaying to false
             set previousFrontmostApp to null
@@ -59,14 +59,14 @@ struct IINAApp: AppPlatform {
                 -- Get window info
                 if (count of windows) > 0 then
                     set windowTitle to name of front window
-                    set resultString to windowTitle & "|||   |||" & isPlaying
+                    set resultString to windowTitle & "~|VCF|~   ~|VCF|~" & isPlaying
                 else
-                    set resultString to "No window|||   |||" & isPlaying
+                    set resultString to "No window~|VCF|~   ~|VCF|~" & isPlaying
                 end if
             end tell
             if shouldRestoreOrder and previousFrontmostApp is not null then
                 set frontmost of process previousFrontmostApp to true
-            end ifv
+            end if
             return resultString
         end tell
         """
@@ -82,7 +82,7 @@ struct IINAApp: AppPlatform {
     }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         if components.count >= 3 {
             var title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
             // IINA shows "filename  —  /full/path" (two spaces + em dash).

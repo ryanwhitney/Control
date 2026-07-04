@@ -17,20 +17,22 @@ struct IconButtonStyle: ButtonStyle {
             .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
-            .simultaneousGesture(
-                TapGesture()
-                    .onEnded { _ in
-                        bounceCount += 1
-                        isAnimating = true
-                        Task {
-                            // End opacity fade before bounce completes
-                            try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
-                            await MainActor.run {
-                                isAnimating = false
-                            }
+            // Drive the bounce/fade from the press state, NOT a simultaneousGesture:
+            // attaching a TapGesture to the label swallows the Button's own action
+            // inside a paged TabView, so taps never fire.
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                if isPressed {
+                    bounceCount += 1
+                    isAnimating = true
+                    Task {
+                        // End opacity fade before bounce completes
+                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                        await MainActor.run {
+                            isAnimating = false
                         }
                     }
-            )
+                }
+            }
     }
 }
 

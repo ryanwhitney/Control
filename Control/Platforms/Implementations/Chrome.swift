@@ -37,7 +37,7 @@ struct ChromeApp: AppPlatform {
             \(actionLines)
             set windowCount to number of windows
             if windowCount is 0 then
-                return "No windows open|||No media playing|||false"
+                return "No windows open~|VCF|~No media playing~|VCF|~false"
             end if
             
             repeat with w in windows
@@ -47,12 +47,12 @@ struct ChromeApp: AppPlatform {
                     if theURL starts with \"https://www.youtube.com/watch\" then
                         set videoTitle to title of t
                         set isPlaying to execute t javascript \"document.querySelector('video').paused ? 'false' : 'true'\"
-                        return videoTitle & \"|||YouTube|||\" & isPlaying
+                        return videoTitle & \"~|VCF|~YouTube~|VCF|~\" & isPlaying
                     end if
                 end repeat
             end repeat
             
-            return \"No media playing|||No media found|||false\"
+            return \"No media playing~|VCF|~No media found~|VCF|~false\"
         end tell
         """
     }
@@ -65,7 +65,7 @@ struct ChromeApp: AppPlatform {
 
     // Parses the output into a friendly AppState
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
+        let components = output.components(separatedBy: "~|VCF|~")
         if components.count >= 3 {
             return AppState(
                 title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),

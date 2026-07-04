@@ -42,7 +42,7 @@ struct ControlView: View, SSHConnectedView {
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
         Task {
-            await appController.reset()
+            appController.reset()
             await appController.updateAllStates()
             connectionManager.startHeartbeat()
         }
