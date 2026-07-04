@@ -16,6 +16,9 @@ final class StreamingShellHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
 
     private var parser = StreamingResponseParser()
+    /// Reassembles UTF-8 across SSH read boundaries so a multi-byte character
+    /// (emoji/CJK/accented title) split between two packets isn't corrupted.
+    private var decoder = UTF8StreamDecoder()
     private var promises: [String: EventLoopPromise<String>] = [:]
 
     /// Register a command awaiting its sentinel. MUST be called on the event loop.
@@ -42,6 +45,7 @@ final class StreamingShellHandler: ChannelInboundHandler, @unchecked Sendable {
         }
         failAllPromises(SSHError.channelError("Channel closed unexpectedly"))
         parser.reset()
+        decoder.reset()
         context.fireChannelInactive()
     }
 
@@ -50,9 +54,15 @@ final class StreamingShellHandler: ChannelInboundHandler, @unchecked Sendable {
         // Over a PTY, stdout and stderr are merged into the channel stream; treat
         // both the same so `!! ` error lines are parsed wherever they arrive.
         guard case .byteBuffer(let buf) = payload.data,
-              let chunk = buf.getString(at: 0, length: buf.readableBytes) else {
+              let bytes = buf.getBytes(at: 0, length: buf.readableBytes) else {
             return
         }
+
+        // Decode incrementally so a character straddling two reads is reassembled
+        // rather than lost/replaced. Empty result = only a partial code point so
+        // far; nothing to parse until its continuation bytes arrive.
+        let chunk = decoder.decode(bytes)
+        if chunk.isEmpty { return }
 
         for completion in parser.ingest(chunk) {
             // AppleScript-level errors come back as output (channel stays warm);
@@ -82,6 +92,7 @@ final class StreamingShellHandler: ChannelInboundHandler, @unchecked Sendable {
         }
         failAllPromises(error)
         parser.reset()
+        decoder.reset()
         context.close(promise: nil)
     }
 
