@@ -9,9 +9,9 @@ struct MPVApp: AppPlatform {
         [
             ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
             ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
+            // Static play/pause glyph: mpv doesn't expose reliable play/pause
+            // state over AppleScript, so a dynamic icon would misrepresent it.
+            ActionConfig(action: .playPauseToggle, icon: "playpause.fill"),
             ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise"),
             ActionConfig(action: .nextTrack, icon: "forward.end.fill")
         ]
@@ -107,10 +107,14 @@ struct MPVApp: AppPlatform {
     }
 
     func executeAction(_ action: AppAction) -> String {
+        // System Events `key code` is delivered to the frontmost app regardless of
+        // the enclosing `tell process`, so mpv must be brought frontmost first or
+        // the keystroke lands on whatever app the user currently has in front.
         switch action {
         case .playPauseToggle:
             return """
             tell application "System Events"
+                set frontmost of process "mpv" to true
                 tell process "mpv"
                     key code 49 -- spacebar
                 end tell
@@ -119,6 +123,7 @@ struct MPVApp: AppPlatform {
         case .skipBackward:
             return """
             tell application "System Events"
+                set frontmost of process "mpv" to true
                 tell process "mpv"
                     key code 123 -- left arrow
                 end tell
@@ -127,6 +132,7 @@ struct MPVApp: AppPlatform {
         case .skipForward:
             return """
             tell application "System Events"
+                set frontmost of process "mpv" to true
                 tell process "mpv"
                     key code 124 -- right arrow
                 end tell
@@ -135,6 +141,7 @@ struct MPVApp: AppPlatform {
         case .previousTrack:
             return """
             tell application "System Events"
+                set frontmost of process "mpv" to true
                 tell process "mpv"
                     key code 43 using {shift down} -- < (shift+comma) for previous
                 end tell
@@ -143,6 +150,7 @@ struct MPVApp: AppPlatform {
         case .nextTrack:
             return """
             tell application "System Events"
+                set frontmost of process "mpv" to true
                 tell process "mpv"
                     key code 47 using {shift down} -- > (shift+period) for next
                 end tell
