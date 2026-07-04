@@ -22,6 +22,18 @@ struct PreferencesView: View {
                     )
                 }
                 Section {
+                    Picker("Connection Method", selection: $preferences.connectionMethod) {
+                        ForEach(ConnectionMethod.allCases) { method in
+                            Text(method.displayName).tag(method)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } header: {
+                    Text("Connection")
+                } footer: {
+                    Text("“Fast” keeps one connection open. “Compatibility” runs each command on its own connection — try it if Fast has trouble connecting to or controlling your Mac. Takes effect the next time you connect.")
+                }
+                Section {
                     PreferencesRow(
                         destination: FeedbackPreferenceView(),
                         iconName: "paperplane.fill",

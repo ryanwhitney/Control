@@ -5,7 +5,10 @@ import Network
 @MainActor
 class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     @Published private(set) var connectionState: ConnectionState = .disconnected
-    private nonisolated let sshClient: SSHClient
+    /// Active SSH transport, selected per `UserPreferences.connectionMethod` on
+    /// each connect. `nonisolated(unsafe)`: it is assigned on the MainActor in
+    /// `connect()` before any command is dispatched, and only read thereafter.
+    private nonisolated(unsafe) var sshClient: SSHClientProtocol
     private var currentCredentials: Credentials?
     private var connectionLostHandler: (@MainActor (Error?) -> Void)?
     private var pathMonitor: NWPathMonitor?
@@ -77,9 +80,16 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         self.connectionLostHandler = handler
     }
     
-    nonisolated var client: SSHClient { 
-        // Accessor no longer logs every call to reduce console noise.
-        return sshClient 
+    nonisolated var client: SSHClientProtocol {
+        return sshClient
+    }
+
+    /// Builds the SSH transport for the selected connection method.
+    private static func makeTransport(for method: ConnectionMethod) -> SSHClientProtocol {
+        switch method {
+        case .streaming: return SSHClient()
+        case .compatibility: return LegacySSHClient()
+        }
     }
     
     func handleConnectionLost(because error: Error? = nil) {
@@ -115,7 +125,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         // Always clean up first to prevent state corruption
         await cleanupExistingConnection()
-        
+
+        // Select the transport per the user's preference (applied each connect).
+        let method = UserPreferences.shared.connectionMethod
+        sshClient = Self.makeTransport(for: method)
+        connectionLog("Transport: \(method.displayName)")
+
         connectionState = .connecting
         currentCredentials = Credentials(host: host, username: username, password: password)
         
