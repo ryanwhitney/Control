@@ -20,10 +20,7 @@ struct ControlView: View, SSHConnectedView {
     @EnvironmentObject private var savedConnections: SavedConnections
     @Environment(\.scenePhase) private var scenePhase
     @State private var volume: Float = 0.5
-    @State private var volumeInitialized: Bool = false 
-    @State private var errorMessage: String?
-    @State private var isReady: Bool = false
-    @State private var shouldShowLoadingOverlay: Bool = false
+    @State private var volumeInitialized: Bool = false
     @State private var _showingConnectionLostAlert = false
     @State private var showingCompatibilityNotice = false
     @State private var pendingVisibleCheck: Task<Void, Never>?
@@ -68,10 +65,6 @@ struct ControlView: View, SSHConnectedView {
             await appController.performInitialRefresh(visiblePlatformId: visiblePlatformId)
             connectionManager.startHeartbeat()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
-            isReady = true
-            viewLog("Ready state activated", view: "ControlView")
-        }
     }
     
     func onSSHConnectionFailed(_ error: Error) {
@@ -114,10 +107,6 @@ struct ControlView: View, SSHConnectedView {
         appController.updatePlatformRegistry(newRegistry)
     }
     
-    private var displayVolume: String {
-        return "\(Int(volume * 100))%"
-    }
-
     enum ConnectionStatus: Hashable {
         case reconnecting  // actively retrying — shows animated dots
         case notConnected  // retries exhausted, the failure alert is up

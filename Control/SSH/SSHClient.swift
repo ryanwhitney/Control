@@ -51,7 +51,6 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             throw SSHError.channelNotConnected
         }
 
-        // Create a new ChannelExecutor for this physical key ("app-N" or "system")
         let executor = ChannelExecutor(connection: connection, channelKey: executorKey)
         dedicatedExecutors[executorKey] = executor
         sshLog("☕︎ Channel '\(executorKey)' ready")

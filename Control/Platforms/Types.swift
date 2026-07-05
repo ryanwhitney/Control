@@ -91,9 +91,6 @@ protocol AppPlatform: Identifiable {
     func executeAction(_ action: AppAction) -> String
     func executeMenuActionWithStatus(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
-    func isRunningScript() -> String
-    func isInstalledScript() -> String
-    func activateScript() -> String
     func actionWithStatus(_ action: AppAction) -> String
 }
 
@@ -161,6 +158,29 @@ extension AppPlatform {
         """
     }
 
+    /// Wraps a play/pause action so the status read reflects the new state.
+    /// Some players (notably Spotify) update `player state` a beat after
+    /// `playpause` returns, so reading immediately yields the pre-toggle value.
+    /// Capture the state, toggle, then poll (bounded, ~1 s) until it flips
+    /// before falling through to the status read. Exits at once on players that
+    /// update synchronously, and rides out the extra lag when the app's
+    /// scripting interface is still cold right after connecting.
+    func waitForPlayStateChangeScript(around actionScript: String) -> String {
+        """
+        set previousPlayerState to missing value
+        try
+            set previousPlayerState to player state
+        end try
+        \(actionScript)
+        repeat 20 times
+            try
+                if player state is not previousPlayerState then exit repeat
+            end try
+            delay 0.05
+        end repeat
+        """
+    }
+
     /// System Events fragments shared by the UI-scripted players (IINA/mpv):
     /// capture-and-foreground, and the matching restore. The *conditions* stay
     /// per-platform — IINA must foreground even for status reads (menu-bar
@@ -188,26 +208,7 @@ extension AppPlatform {
             ActionConfig(action: .closeApp(name), icon: "xmark.circle.fill"),
         ]
     }
-    
-    func isInstalledScript() -> String {
-        let appPath = "/Applications/\(name).app"
-        return """
-        tell application "System Events"
-            if exists disk item "\(appPath)" then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
-    }
-    
-    func activateScript() -> String {
-        return """
-        tell application "\(name)" to activate
-        """
-    }
-    
+
     /// Combined status script: checks if the application process exists and, if so,
     /// executes the platformʼs `fetchState()` AppleScript.  If not running we
     /// return the `ScriptTokens.notRunning` sentinel that `AppController`

@@ -99,8 +99,7 @@ struct ChooseAppsView: View, SSHConnectedView {
             .cornerRadius(12)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
-            
-            /// Header
+
             VStack(spacing: 8) {
                 Image(systemName: "macbook.and.iphone")
                     .resizable()
@@ -129,7 +128,6 @@ struct ChooseAppsView: View, SSHConnectedView {
             })
             .onPreferenceChange(headerSizePreferenceKey.self) { value in
                 self.headerHeight = value
-                print("Header Height: \(headerHeight)")
             }
             
             VStack{

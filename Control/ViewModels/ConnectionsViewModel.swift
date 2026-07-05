@@ -49,15 +49,12 @@ class ConnectionsViewModel: ObservableObject {
     init() {
         viewLog("ConnectionsViewModel init starting", view: "ConnectionsViewModel")
 
-        // Initialize saved computers first
         updateSavedComputers()
         viewLog("Init: saved computers count: \(savedComputers.count)", view: "ConnectionsViewModel")
 
-        // Set initial scanning state
         isSearching = networkScanner.isScanning
         viewLog("Init: scanner.isScanning: \(networkScanner.isScanning), services count: \(networkScanner.services.count)", view: "ConnectionsViewModel")
 
-        // Initialize network computers - process any existing scanner results
         updateNetworkComputersStably()
         viewLog("Init: network computers count after update: \(networkComputers.count)", view: "ConnectionsViewModel")
 
@@ -252,9 +249,8 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     private func performConnection(computer: Connection) async throws {
-        // `connect()` already tears down any existing connection first (and only
-        // waits when there was a live one to clean up), so no pre-disconnect+sleep
-        // here — it just added ~0.4 s of dead time to every connect.
+        // `connect()` tears down any existing connection itself, so there's no
+        // pre-disconnect step here.
         try await connectionManager.verifyConnection(
             host: computer.host,
             username: username,
@@ -318,15 +314,14 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     private func updateNetworkComputersStably() {
-        // Convert scanner services to connections
         currentScanResults = networkScanner.services.compactMap { service in
             Connection.fromNetService(service, lastUsername: savedConnections.lastUsername(for: service.hostName?.replacingOccurrences(of: ".local.", with: ".local") ?? ""))
         }
 
-        // Create a new array to batch all changes
+        // Build the new list locally and assign once, so the UI sees a single
+        // update instead of flickering through each insertion.
         var updatedNetworkComputers = networkComputers
 
-        // Add new connections
         for scanResult in currentScanResults {
             if !updatedNetworkComputers.contains(where: { $0.host == scanResult.host }) {
                 viewLog("NetworkScan: Adding new connection: \(scanResult.name)", view: "ConnectionsViewModel")
@@ -334,7 +329,7 @@ class ConnectionsViewModel: ObservableObject {
             }
         }
 
-        // Update existing connections (for lastUsername changes)
+        // Pick up lastUsername changes for connections we already show.
         for i in 0..<updatedNetworkComputers.count {
             if let updatedConnection = currentScanResults.first(where: { $0.host == updatedNetworkComputers[i].host }) {
                 if updatedNetworkComputers[i].lastUsername != updatedConnection.lastUsername {
@@ -343,7 +338,6 @@ class ConnectionsViewModel: ObservableObject {
             }
         }
 
-        // Apply all changes atomically to prevent UI flickering
         networkComputers = updatedNetworkComputers
     }
 

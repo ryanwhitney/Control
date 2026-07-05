@@ -20,30 +20,6 @@ struct MPVApp: AppPlatform {
         ]
     }
 
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "mpv")
-        return isAppOpen as text
-        """
-    }
-
-    func isInstalledScript() -> String {
-        // mpv can be installed via Homebrew or as an app bundle
-        """
-        tell application "System Events"
-            if exists disk item "/Applications/mpv.app" then
-                return "true"
-            end if
-            try
-                do shell script "which mpv"
-                return "true"
-            on error
-                return "false"
-            end try
-        end tell
-        """
-    }
-
     /// `fetchState()` self-guards (first lines below) and must stay valid
     /// stand-alone for PermissionsView, so combinedStatusScript's second
     /// System Events process check is skipped.

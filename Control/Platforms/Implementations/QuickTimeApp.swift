@@ -15,18 +15,6 @@ struct QuickTimeApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events"
-            if exists (processes where name is "QuickTime Player") then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
-    }
-    
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
         return """

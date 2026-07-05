@@ -18,10 +18,6 @@ struct TVApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"TV\")"
-    }
-    
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
         return """
@@ -62,11 +58,10 @@ struct TVApp: AppPlatform {
     func actionWithStatus(_ action: AppAction) -> String {
         switch action {
         case .skipBackward, .skipForward:
-            // For complex actions, chain the self-contained script with the status script.
-            // The final return value will be from fetchState().
+            // These actions are self-contained System Events scripts, so run them
+            // before the status read rather than injecting inside its tell block.
             return executeAction(action) + "\n" + fetchState()
         default:
-            // For simple actions, inject them into the status script as before.
             return statusScript(precededBy: executeAction(action))
         }
     }

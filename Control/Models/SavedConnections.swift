@@ -44,7 +44,6 @@ class SavedConnections: ObservableObject {
             items[index].saveCredentialsPreference = saveCredentials
             save()
         } else {
-            // Create ne connection
             var connection = SavedConnection(hostname: hostname, name: name, username: username)
             connection.saveCredentialsPreference = saveCredentials
             items.append(connection)

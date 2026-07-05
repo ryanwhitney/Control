@@ -17,10 +17,6 @@ struct VLCApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        "tell application \"System Events\" to exists (processes where name is \"VLC\")"
-    }
-    
     /// `fetchState()` self-guards (and is run bare by PermissionsView), so the
     /// generic combinedStatusScript wrapper — a second System Events process
     /// enumeration per poll — is skipped.

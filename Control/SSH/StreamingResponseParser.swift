@@ -29,7 +29,6 @@ struct StreamingResponseParser {
 
     init(maxLineBuffer: Int = 100_000) { self.maxLineBuffer = maxLineBuffer }
 
-    var pendingCount: Int { queue.count }
     var bufferedByteCount: Int { lineBuffer.count }
     var headSentinel: String? { queue.first?.sentinel }
 

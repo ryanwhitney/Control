@@ -192,7 +192,6 @@ struct PermissionsView: View, SSHConnectedView {
                 })
                 .onPreferenceChange(headerSizePreferenceKey.self) { value in
                     self.headerHeight = value
-                    print("Header Height: \(headerHeight)")
                 }
                 VStack{
                     Spacer()

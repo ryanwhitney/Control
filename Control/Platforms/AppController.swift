@@ -84,7 +84,6 @@ class AppController: ObservableObject {
             lastKnownStates[platform.id] = initialState
         }
         
-        // Ensure controller is active for the new platforms
         isActive = true
     }
     

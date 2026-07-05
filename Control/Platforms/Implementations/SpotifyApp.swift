@@ -15,18 +15,6 @@ struct SpotifyApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events"
-            if exists (processes where name is "Spotify") then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
-    }
-    
     // Template status script that can optionally run action AppleScript first.
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
@@ -72,16 +60,18 @@ struct SpotifyApp: AppPlatform {
         statusScript(precededBy: actionScript(for: action))
     }
 
-    /// AppleScript run *before* the status read. Track changes go through the
-    /// shared wait-for-track-change poll (see `waitForTrackChangeScript`) —
-    /// Spotify's new track often loads from the network, so a fixed delay
-    /// could read mid-transition and momentarily fall into "Nothing playing".
-    /// Play/pause changes player state rather than the track and reads
-    /// immediately (matching Music).
+    /// AppleScript run *before* the status read. Both track changes and
+    /// play/pause update Spotify's state a beat after the command returns, so
+    /// each waits for the change (bounded poll) before the status is read:
+    /// track changes via `waitForTrackChangeScript`, play/pause via
+    /// `waitForPlayStateChangeScript`. Reading immediately would report the
+    /// pre-action state.
     private func actionScript(for action: AppAction) -> String {
         switch action {
         case .nextTrack, .previousTrack:
             return waitForTrackChangeScript(around: executeAction(action))
+        case .playPauseToggle:
+            return waitForPlayStateChangeScript(around: executeAction(action))
         default:
             return executeAction(action)
         }

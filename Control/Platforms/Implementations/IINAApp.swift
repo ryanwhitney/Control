@@ -20,19 +20,6 @@ struct IINAApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        // Match Spotify's pattern for System Events
-        """
-        tell application "System Events"
-            if exists (processes where name is "IINA") then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
-    }
-    
     /// `fetchState()` self-guards (first lines below) and must stay valid
     /// stand-alone for PermissionsView, so combinedStatusScript's second
     /// System Events process check is skipped.
@@ -83,9 +70,8 @@ struct IINAApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        // executeAction already brings the app frontmost and inserts a small
-        // delay *only when needed*. We therefore no longer add an unconditional
-        // delay here.
+        // statusScript foregrounds IINA and settles before reading, so no extra
+        // delay is needed around the action.
         return statusScript(precededBy: executeAction(action))
     }
     

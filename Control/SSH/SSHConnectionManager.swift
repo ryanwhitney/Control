@@ -615,7 +615,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
 
     @MainActor
     private func performHeartbeat() async {
-        // Build unique identifier & script
         let hbId = heartbeatCounter
         heartbeatCounter &+= 1
         let idString = ScriptTokens.heartbeat(hbId)

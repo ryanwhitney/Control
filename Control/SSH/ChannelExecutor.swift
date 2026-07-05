@@ -132,7 +132,6 @@ actor ChannelExecutor {
             }
         }
         let cleanCommand = stripSpacesAndEmptyLines(command)
-        // Build unique command id & sentinel
         let cmdId = commandCounter
         commandCounter &+= 1
         let cmdIdHex = String(format: "%04X", cmdId & 0xFFFF)
@@ -193,8 +192,8 @@ actor ChannelExecutor {
             chan.writeAndFlush(NIOAny(SSHChannelData(type: .channel, data: .byteBuffer(buffer))), promise: nil)
         }
 
-        // Watchdog: on timeout, remove + fail *this* pending on the event loop so
-        // a stale head can never misroute the next command (the old desync bug).
+        // Watchdog: on timeout, fail *this* command on the event loop so a stale
+        // head can never misroute the response meant for the next command.
         let timeoutTask = chan.eventLoop.scheduleTask(in: commandTimeoutSeconds) {
             sshLog("☄︎ [E\(eid):\(key)] ⏰ Cmd \(sentinel.prefix(12)) timed out")
             handler.failCommand(sentinel: sentinel, error: SSHError.timeout)

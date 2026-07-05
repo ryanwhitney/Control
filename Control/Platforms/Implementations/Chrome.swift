@@ -17,20 +17,7 @@ struct ChromeApp: AppPlatform {
         ]
     }
 
-    // Checks if Chrome is running
-    func isRunningScript() -> String {
-        """
-        tell application "System Events"
-            if exists (processes where name is "Google Chrome") then
-                return "true"
-            else
-                return "false"
-            end if
-        end tell
-        """
-    }
-
-    // Template status script that can optionally inject action AppleScript
+    // Template status script that can optionally inject action AppleScript that can optionally inject action AppleScript
     private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "Google Chrome"

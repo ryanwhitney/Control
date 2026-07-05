@@ -17,11 +17,6 @@ struct SafariApp: AppPlatform {
         ]
     }
 
-    func isRunningScript() -> String {
-        // A simple, direct check. If this fails, the issue is fundamental.
-        "tell application \"System Events\" to return (exists (processes where name is \"Safari\"))"
-    }
-
     private func jsForStatus() -> String {
         let sep = ScriptTokens.fieldSeparator
         return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found\(sep) \(sep)false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '\(sep)' + site + '\(sep)' + playing; })();"
@@ -39,13 +34,12 @@ struct SafariApp: AppPlatform {
         default:
             return ""
         }
-        // Wrap in an IIFE for robust execution, which was missing before.
+        // Wrap in an IIFE so the injected statement runs in its own scope.
         return "(function() { \(innerJs) })();"
     }
 
     func fetchState() -> String {
         let js = jsForStatus()
-        // Re-add window check for robustness.
         return """
         tell application "Safari"
             if (count of windows) is 0 then

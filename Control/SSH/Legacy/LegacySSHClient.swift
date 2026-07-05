@@ -3,10 +3,10 @@ import NIOSSH
 import NIOCore
 import NIOPosix
 
-/// **Legacy (compatibility) transport.** Opens a fresh SSH channel and runs one
+/// **Compatibility transport.** Opens a fresh SSH channel and runs one
 /// `osascript` per command — no PTY, no persistent interpreter, no sentinels.
-/// Ported from the pre-streaming `SSHClient`; kept isolated here as a fallback
-/// selectable in Preferences for Macs where the streaming transport misbehaves.
+/// Selectable in Preferences (and used as an auto-fallback) for Macs where the
+/// streaming transport misbehaves.
 ///
 /// Conforms to `SSHClientProtocol` by ignoring `channelKey` and bash-wrapping the
 /// raw AppleScript (`AppController` sends the same raw scripts to both transports;

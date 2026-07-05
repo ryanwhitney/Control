@@ -1,11 +1,11 @@
 import Testing
 @testable import Control
 
-/// Guards the Music track-change fix: `next track`/`previous track` return before
-/// Music updates `current track`, so the combined action+status script must wait
-/// for the track id to actually change before reading state, or the UI shows the
-/// previous track until the next refresh. Play/pause doesn't change the track and
-/// must stay a plain immediate read (no wait), so we don't regress its latency.
+/// Guards Music's action+status settling: `next track`/`previous track` wait for
+/// the track id to change, and play/pause waits for the player state to flip,
+/// before the status is read. Music can report the pre-action value otherwise.
+/// Both polls exit the instant the state updates, so a synchronous player pays
+/// no latency.
 struct MusicAppTests {
     private let music = MusicApp()
 
@@ -27,11 +27,12 @@ struct MusicAppTests {
         #expect(script.contains("exit repeat"))
     }
 
-    @Test func playPauseReadsImmediately() {
+    @Test func playPauseWaitsForStateChange() {
         let script = music.actionWithStatus(.playPauseToggle)
         #expect(script.contains("playpause"))
-        // No track-change: must not add the poll loop or its per-iteration delay.
-        #expect(!script.contains("repeat"))
+        // Polls until the player state flips, not the track id.
+        #expect(script.contains("player state is not previousPlayerState"))
+        #expect(script.contains("exit repeat"))
         #expect(!script.contains("id of current track"))
     }
 }

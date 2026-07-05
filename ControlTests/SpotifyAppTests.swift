@@ -1,9 +1,10 @@
 import Testing
 @testable import Control
 
-/// Guards Spotify's track-change handling: next/previous poll until the track id
-/// settles (Spotify returns before `current track` updates and the new track may
-/// load from the network), while play/pause reads immediately (no settle delay).
+/// Guards Spotify's action handling: next/previous poll until the track id
+/// settles, and play/pause polls until the player state flips. Spotify updates
+/// both a beat after the command returns, so reading immediately would report
+/// the pre-action state.
 struct SpotifyAppTests {
     private let spotify = SpotifyApp()
 
@@ -23,12 +24,13 @@ struct SpotifyAppTests {
         #expect(script.contains("exit repeat"))
     }
 
-    @Test func playPauseReadsImmediately() {
+    @Test func playPauseWaitsForStateChange() {
         let script = spotify.actionWithStatus(.playPauseToggle)
         #expect(script.contains("playpause"))
-        // Play/pause reads immediately: no settle delay and no track poll.
-        #expect(!script.contains("delay 0.3"))
+        // Polls until player state flips so the status read reflects the toggle.
+        #expect(script.contains("player state is not previousPlayerState"))
+        #expect(script.contains("exit repeat"))
+        // A play-state poll, not a track-change poll.
         #expect(!script.contains("id of current track"))
-        #expect(!script.contains("exit repeat"))
     }
 }
