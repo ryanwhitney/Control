@@ -33,7 +33,11 @@ struct ControlView: View, SSHConnectedView {
     @State private var _showingError = false
     @State private var _connectionError: (title: String, message: String)?
     @State private var showingSetupFlow = false
-    
+    /// True once this session has reached `.connected` at least once, so the
+    /// status subtitle only appears on a *drop* — not during the first connect
+    /// (which has its own loading treatment).
+    @State private var hasEverConnected = false
+
     // MARK: - SSHConnectedView Protocol Properties
     var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
     var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
@@ -112,6 +116,41 @@ struct ControlView: View, SSHConnectedView {
     
     private var displayVolume: String {
         return "\(Int(volume * 100))%"
+    }
+
+    enum ConnectionStatus: Hashable {
+        case reconnecting  // actively retrying — shows animated dots
+        case notConnected  // retries exhausted, the failure alert is up
+    }
+
+    /// Status shown under the title while the connection isn't healthy. `nil`
+    /// (the normal case) means no subtitle, so the title sits centered.
+    /// Suppressed until the first successful connect so it never shows during
+    /// the initial connection.
+    private var connectionStatus: ConnectionStatus? {
+        guard hasEverConnected else { return nil }
+        // The connection-problem alert only appears once auto-reconnect has
+        // given up, so at that point we're no longer reconnecting.
+        if _showingConnectionLostAlert || _showingError { return .notConnected }
+        switch connectionManager.connectionState {
+        case .connected:
+            return nil
+        case .connecting, .recovering, .failed, .disconnected:
+            return .reconnecting
+        }
+    }
+
+    @ViewBuilder
+    private func statusLabel(for status: ConnectionStatus) -> some View {
+        switch status {
+        case .reconnecting:
+            ReconnectingLabel()
+        case .notConnected:
+            Text("Not connected")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Connection status: Not connected")
+        }
     }
     
     var body: some View {
@@ -235,9 +274,19 @@ struct ControlView: View, SSHConnectedView {
         .id(enabledPlatforms) // Force recreation when platforms change
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(displayName)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(displayName)
+                        .font(.headline)
+                        .accessibilityAddTraits(.isHeader)
+                    if let status = connectionStatus {
+                        statusLabel(for: status)
+                            .id(status)
+                            // Slide in from behind the title (which lifts to make
+                            // room) and reverse on the way out.
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.32, dampingFraction: 0.82), value: connectionStatus)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -374,6 +423,7 @@ struct ControlView: View, SSHConnectedView {
                 viewLog("⚯ Recovering connection...", view: "ControlView")
             case .connected:
                 viewLog("⚭ Connection established", view: "ControlView")
+                hasEverConnected = true
             case .failed(let error):
                 viewLog("❌ Connection failed: \(error)", view: "ControlView")
             }
@@ -430,6 +480,29 @@ struct ControlView: View, SSHConnectedView {
         
         volume = Float(newVolume) / 100.0
         appController.setVolume(volume)
+    }
+}
+
+/// "Reconnecting" with a cycling 1→2→3-dot animation, giving live motion without
+/// a spinner. The three dots always occupy layout (hidden ones are just
+/// transparent) so the centered title never shifts as they appear/disappear.
+private struct ReconnectingLabel: View {
+    private let period = 0.35
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: period)) { context in
+            let visibleDots = Int(context.date.timeIntervalSinceReferenceDate / period) % 4
+            HStack(spacing: 0) {
+                Text("Reconnecting")
+                ForEach(0..<3, id: \.self) { index in
+                    Text(".").opacity(index < visibleDots ? 1 : 0)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reconnecting")
     }
 }
 
