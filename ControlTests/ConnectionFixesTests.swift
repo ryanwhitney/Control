@@ -29,6 +29,73 @@ struct AppStateEqualityTests {
     }
 }
 
+/// Guards the single shared error classifier both transports now call (they had
+/// drifted into two divergent copies that mapped the same failure differently).
+struct SSHErrorClassifyTests {
+
+    @Test func passesThroughExistingSSHError() {
+        if case .authenticationFailed = SSHError.classify(SSHError.authenticationFailed) {} else {
+            Issue.record("authenticationFailed should pass through unchanged")
+        }
+        if case .timeout = SSHError.classify(SSHError.timeout) {} else {
+            Issue.record("timeout should pass through unchanged")
+        }
+    }
+
+    @Test func connectionRefusedMeansRemoteLoginOff() {
+        // ECONNREFUSED's description ("Connection refused") doesn't collide with
+        // the earlier network-phrase checks, so it reaches the POSIX branch.
+        guard case .connectionFailed(let msg) = SSHError.classify(POSIXError(.ECONNREFUSED)) else {
+            Issue.record("expected connectionFailed"); return
+        }
+        #expect(msg == "Remote Login is not enabled")
+    }
+
+    @Test func networkPhraseMeansConnectivityLost() {
+        let err = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Network is unreachable"])
+        guard case .connectionFailed(let msg) = SSHError.classify(err) else {
+            Issue.record("expected connectionFailed"); return
+        }
+        #expect(msg == "Network connectivity lost")
+    }
+
+    @Test func resetPhraseMeansInterrupted() {
+        let err = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connection reset by peer"])
+        guard case .connectionFailed(let msg) = SSHError.classify(err) else {
+            Issue.record("expected connectionFailed"); return
+        }
+        #expect(msg == "Connection was interrupted")
+    }
+
+    @Test func unknownFallsBackToGeneric() {
+        let err = NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Something unexpected"])
+        guard case .connectionFailed(let msg) = SSHError.classify(err) else {
+            Issue.record("expected connectionFailed"); return
+        }
+        #expect(msg == "Could not establish connection")
+    }
+}
+
+/// Guards the single shared connection-loss substring list (previously duplicated
+/// in three places that could drift apart).
+struct SSHErrorConnectionLossTests {
+
+    @Test func detectsLossPhrases() {
+        for phrase in ["EOF", "broken pipe", "Connection reset", "TCP shutdown",
+                       "no route to host", "connection closed", "network is unreachable"] {
+            let err = NSError(domain: "t", code: 1, userInfo: [NSLocalizedDescriptionKey: phrase])
+            #expect(SSHError.isConnectionLoss(err), "expected loss for '\(phrase)'")
+        }
+    }
+
+    @Test func ignoresNonLossPhrases() {
+        for phrase in ["The username or password was incorrect", "Remote Login is not enabled", "hello world"] {
+            let err = NSError(domain: "t", code: 1, userInfo: [NSLocalizedDescriptionKey: phrase])
+            #expect(!SSHError.isConnectionLoss(err), "did not expect loss for '\(phrase)'")
+        }
+    }
+}
+
 /// Guards the combinedStatusScript contract. The wrapper must return the exact
 /// `ScriptTokens.notRunning` sentinel `AppController` matches (a hardcoded
 /// "NOT_RUNNING" literal here once made every not-running app render as a

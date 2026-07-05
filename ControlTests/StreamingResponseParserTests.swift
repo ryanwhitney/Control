@@ -23,6 +23,34 @@ struct StreamingResponseParserTests {
         #expect(out.first?.isError == false)
     }
 
+    /// Regression for the O(n²)→linear `ingest` rewrite: a single chunk carrying
+    /// two completed commands yields both, in FIFO order, with the right outputs.
+    @Test func multipleCompletionsInOneIngest() {
+        var p = StreamingResponseParser()
+        let s1 = "VC7CTRL_ABC_0001_END"
+        let s2 = "VC7CTRL_ABC_0002_END"
+        p.addCommand(sentinel: s1)
+        p.addCommand(sentinel: s2)
+        let out = p.ingest("=> \"first\"\r\n=> \"\(s1)\"\r\n=> \"second\"\r\n=> \"\(s2)\"\r\n")
+        #expect(out.count == 2)
+        #expect(out[0].sentinel == s1)
+        #expect(out[0].output == "first")
+        #expect(out[1].sentinel == s2)
+        #expect(out[1].output == "second")
+    }
+
+    /// A chunk that doesn't end in a newline keeps the trailing partial line
+    /// buffered (the new split keeps the last piece as the buffer).
+    @Test func trailingPartialLineIsBuffered() {
+        var p = StreamingResponseParser()
+        let s = "VC7CTRL_ABC_0003_END"
+        p.addCommand(sentinel: s)
+        #expect(p.ingest("=> \"val").isEmpty)          // partial, nothing yet
+        let out = p.ingest("ue\"\r\n=> \"\(s)\"\r\n")  // completes across reads
+        #expect(out.count == 1)
+        #expect(out.first?.output == "value")
+    }
+
     /// Result line survives stacked `>> >> ` prompts (echo-off behaviour).
     @Test func stackedPromptsAndFieldResult() {
         var p = StreamingResponseParser()

@@ -69,9 +69,9 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                 if case SSHError.channelError = error { shouldReset = true }
                 if shouldReset {
                     let physicalKey = self.physicalKey(for: channelKey)
-                    stateLock.lock()
-                    let evicted = dedicatedExecutors.removeValue(forKey: physicalKey)
-                    stateLock.unlock()
+                    // Evict under the lock via a synchronous helper: NSLock's
+                    // lock()/unlock() are unavailable directly in an async context.
+                    let evicted = evictExecutor(forKey: physicalKey)
                     if let evicted {
                         // Close, don't just drop: an evicted executor still holds a
                         // live PTY channel (and a remote osascript) otherwise.
@@ -85,6 +85,14 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             sshLog("❌ Failed to get executor or run command: \(error)")
             return .failure(error)
         }
+    }
+
+    /// Remove an executor from the pool under `stateLock`. Synchronous so the
+    /// lock is never taken from an async context (a Swift 6 error).
+    private func evictExecutor(forKey key: String) -> ChannelExecutor? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return dedicatedExecutors.removeValue(forKey: key)
     }
 
     // Protocol-facing entry point (completion-handler style)
