@@ -59,12 +59,19 @@ struct StreamingResponseParser {
         // so `firstIndex(of: "\n")` would never find a boundary. Removing "\r"
         // leaves bare "\n" separators.
         lineBuffer += chunk.replacingOccurrences(of: "\r", with: "")
+        guard lineBuffer.contains("\n") else { return [] }
+
+        // Split once (linear) rather than repeatedly trimming the front of the
+        // buffer, which copied the whole remainder per line — O(n²) on a
+        // multi-line burst, on the shared NIO event loop. The final piece is
+        // the trailing partial line (empty when the chunk ended in "\n") and
+        // becomes the new buffer.
+        var lines = lineBuffer.split(separator: "\n", omittingEmptySubsequences: false)
+        lineBuffer = String(lines.removeLast())
 
         var completions: [Completion] = []
-        while let nlIndex = lineBuffer.firstIndex(of: "\n") {
-            let line = String(lineBuffer[..<nlIndex])
-            lineBuffer.removeSubrange(lineBuffer.startIndex...nlIndex)
-            if let completion = handleLine(line) {
+        for line in lines {
+            if let completion = handleLine(String(line)) {
                 completions.append(completion)
             }
         }

@@ -252,11 +252,9 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     private func performConnection(computer: Connection) async throws {
-        viewLog("Disconnecting any existing connection before attempting new one", view: "ConnectionsViewModel")
-        connectionManager.disconnect()
-
-        try await Task.sleep(nanoseconds: 200_000_000)
-
+        // `connect()` already tears down any existing connection first (and only
+        // waits when there was a live one to clean up), so no pre-disconnect+sleep
+        // here — it just added ~0.4 s of dead time to every connect.
         try await connectionManager.verifyConnection(
             host: computer.host,
             username: username,

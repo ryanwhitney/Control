@@ -44,28 +44,32 @@ struct MPVApp: AppPlatform {
         """
     }
 
+    /// `fetchState()` self-guards (first lines below) and must stay valid
+    /// stand-alone for PermissionsView, so combinedStatusScript's second
+    /// System Events process check is skipped.
+    var fetchStateIsSelfGuarding: Bool { true }
+
     // mpv has no AppleScript dictionary, so everything goes through System Events.
     // Status reads the window title (no focus needed), so we only bring mpv
     // frontmost when there's an action to deliver — keystrokes go to the frontmost
     // app regardless of the enclosing `tell process`. Poll-only status never
-    // steals focus.
+    // steals focus, and focus is restored after an action.
     private func statusScript(precededBy actionScript: String = "") -> String {
-        """
+        let sep = ScriptTokens.fieldSeparator
+        return """
         tell application "System Events"
             if (count of (processes where name is "mpv")) = 0 then
-                return "Not running~|VCF|~   ~|VCF|~false"
+                return "Not running\(sep)   \(sep)false"
             end if
             set previousFrontmostApp to null
             set shouldRestoreOrder to false
             if "\(actionScript)" is not "" then
                 if not (frontmost of process "mpv") then
-                    set previousFrontmostApp to name of first application process whose frontmost is true
-                    set frontmost of process "mpv" to true
-                    delay 0.1
+                    \(captureAndForegroundProcessFragment("mpv"))
                     set shouldRestoreOrder to true
                 end if
             end if
-            set resultString to "Nothing playing~|VCF|~   ~|VCF|~false"
+            set resultString to "Nothing playing\(sep)   \(sep)false"
             tell process "mpv"
                 if "\(actionScript)" is not "" then
                     \(actionScript)
@@ -82,12 +86,10 @@ struct MPVApp: AppPlatform {
                     if cleanTitle ends with " - mpv" then
                         set cleanTitle to text 1 thru -7 of cleanTitle
                     end if
-                    set resultString to cleanTitle & "~|VCF|~   ~|VCF|~" & isPlaying
+                    set resultString to cleanTitle & "\(sep)   \(sep)" & isPlaying
                 end if
             end tell
-            if shouldRestoreOrder and previousFrontmostApp is not null then
-                set frontmost of process previousFrontmostApp to true
-            end if
+            \(restorePreviousFrontmostFragment())
             return resultString
         end tell
         """
@@ -100,16 +102,8 @@ struct MPVApp: AppPlatform {
     }
 
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "~|VCF|~")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
     }
 
     // Returns just the key line(s), injected inside `tell process "mpv"` by

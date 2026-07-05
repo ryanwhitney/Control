@@ -4,6 +4,9 @@ struct TVApp: AppPlatform {
     let id = "tv"
     let name = "TV"
     let defaultEnabled = true
+    // TV's skip actions are key-code driven and can overload the channel when
+    // tapped rapidly; AppController spaces actions by this much.
+    let minActionInterval: TimeInterval = 0.3
 
     var supportedActions: [ActionConfig] {
         [
@@ -20,12 +23,13 @@ struct TVApp: AppPlatform {
     }
     
     private func statusScript(precededBy actionScript: String = "") -> String {
-        """
+        let sep = ScriptTokens.fieldSeparator
+        return """
         tell application "TV"
             \(actionScript)
             set rawState to player state as text
             if rawState is "stopped" then
-                return "Nothing playing~|VCF|~   ~|VCF|~false"
+                return "Nothing playing\(sep)   \(sep)false"
             end if
 
             set trackName to ""
@@ -44,11 +48,11 @@ struct TVApp: AppPlatform {
             end if
 
             if trackName is "" then
-                return "Nothing playing~|VCF|~   ~|VCF|~false"
+                return "Nothing playing\(sep)   \(sep)false"
             end if
 
             set isPlaying to (rawState is "playing")
-            return trackName & "~|VCF|~   ~|VCF|~" & isPlaying
+            return trackName & "\(sep)   \(sep)" & isPlaying
         end tell
         """
     }
@@ -68,21 +72,8 @@ struct TVApp: AppPlatform {
     }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "~|VCF|~")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Failed to parse TV state"
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse TV state")
     }
     
     func executeAction(_ action: AppAction) -> String {

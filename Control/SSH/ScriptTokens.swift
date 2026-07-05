@@ -29,6 +29,13 @@ enum ScriptTokens {
     /// exactly by `AppController`.
     static let notRunning = "VC7NOTRUNNING_\(nonce)"
 
+    /// Field separator between the title/subtitle/isPlaying fields of platform
+    /// status output, split by `AppPlatform.parseSeparatedState`. Deliberately
+    /// distinctive so a media title can't collide with it. Fixed (no nonce):
+    /// it appears inside script string literals where a per-launch value adds
+    /// nothing — collision here garbles one parse, not control flow.
+    static let fieldSeparator = "~|VCF|~"
+
     /// Heartbeat reply token (matched via `contains`).
     static func heartbeat(_ counter: UInt32) -> String {
         "VC7HB_\(nonce)_\(String(format: "%05u", counter))"

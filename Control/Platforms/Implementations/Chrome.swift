@@ -37,9 +37,9 @@ struct ChromeApp: AppPlatform {
             \(actionScript)
             set windowCount to number of windows
             if windowCount is 0 then
-                return "No windows open~|VCF|~No media playing~|VCF|~false"
+                return "No windows open\(ScriptTokens.fieldSeparator)No media playing\(ScriptTokens.fieldSeparator)false"
             end if
-            
+
             repeat with w in windows
                 set tabCount to number of tabs in w
                 repeat with t in tabs of w
@@ -47,12 +47,12 @@ struct ChromeApp: AppPlatform {
                     if theURL starts with \"https://www.youtube.com/watch\" then
                         set videoTitle to title of t
                         set isPlaying to execute t javascript \"document.querySelector('video').paused ? 'false' : 'true'\"
-                        return videoTitle & \"~|VCF|~YouTube~|VCF|~\" & isPlaying
+                        return videoTitle & \"\(ScriptTokens.fieldSeparator)YouTube\(ScriptTokens.fieldSeparator)\" & isPlaying
                     end if
                 end repeat
             end repeat
-            
-            return \"No media playing~|VCF|~No media found~|VCF|~false\"
+
+            return \"No media playing\(ScriptTokens.fieldSeparator)No media found\(ScriptTokens.fieldSeparator)false\"
         end tell
         """
     }
@@ -65,41 +65,33 @@ struct ChromeApp: AppPlatform {
 
     // Parses the output into a friendly AppState
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "~|VCF|~")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Failed to parse Chrome state"
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse Chrome state")
     }
 
     // Executes the given AppAction in Chrome via AppleScript
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
+            // No bare `return` here: this script is injected at the top of
+            // statusScript's tell block, and a `return` would exit the whole
+            // combined script before the status section runs (leaving the UI
+            // stale after every tap).
             return """
-            set windowCount to number of windows
-            if windowCount is 0 then return
-
-            repeat with w in windows
-                set tabCount to number of tabs in w
-                repeat with t in tabs of w
-                    set theURL to URL of t
-                    if theURL starts with \"https://www.youtube.com/watch\" then
-                        execute t javascript \"document.querySelector('video').click()\"
-                        return
-                    end if
+            set didToggle to false
+            if (number of windows) > 0 then
+                repeat with w in windows
+                    if didToggle then exit repeat
+                    repeat with t in tabs of w
+                        set theURL to URL of t
+                        if theURL starts with \"https://www.youtube.com/watch\" then
+                            execute t javascript \"document.querySelector('video').click()\"
+                            set didToggle to true
+                            exit repeat
+                        end if
+                    end repeat
                 end repeat
-            end repeat
+            end if
             """
 
         case .skipForward(let seconds):

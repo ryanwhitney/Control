@@ -20,6 +20,13 @@ actor ChannelExecutor {
     private let executorId: Int
     private unowned let connection: Channel
     private var shellChannel: Channel?
+    /// True once shell setup failed or the executor was closed: commands fail
+    /// immediately instead of waiting on a channel that will never arrive.
+    private var shellFailed = false
+    /// Callers awaiting the shell channel, resumed by `setShellChannel` /
+    /// `markShellFailed` (or individually by their own watchdog).
+    private var shellWaiters: [Int: CheckedContinuation<Channel?, Never>] = [:]
+    private var nextShellWaiterId = 0
     private let shellHandler: StreamingShellHandler
     private let channelKey: String
     
@@ -94,6 +101,7 @@ actor ChannelExecutor {
                 case .success: break
                 case .failure(let error):
                     sshLog("☄︎ [E\(self.executorId)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
+                    Task { await self.markShellFailed() }
                 }
             }
     }
@@ -107,7 +115,7 @@ actor ChannelExecutor {
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
     func run(command: String, description: String?) async -> Result<String, Error> {
         // Perform a one-time warm-up if this is the first command on the channel.
-        if !isWarmedUp && channelKey != "system" {
+        if !isWarmedUp {
             // Mark as warmed-up immediately to avoid recursion.
             isWarmedUp = true
             // Fire a synchronous warm-up round-trip and ignore the result.
@@ -159,8 +167,7 @@ actor ChannelExecutor {
             let pending = workQueue
             workQueue.removeAll()
             for item in pending {
-                let cont = item.continuation
-                Task { @MainActor in cont.resume(returning: .failure(SSHError.channelError("Shell channel unavailable"))) }
+                item.continuation.resume(returning: .failure(SSHError.channelError("Shell channel unavailable")))
             }
             return
         }
@@ -195,8 +202,10 @@ actor ChannelExecutor {
 
         promise.futureResult.whenComplete { [weak self] result in
             timeoutTask.cancel()
-            let cont = item.continuation
-            Task { @MainActor in cont.resume(returning: result) }
+            // Resume directly: CheckedContinuation.resume is thread-safe, and
+            // hopping through the main actor here put every command completion
+            // (heartbeats included) on the main thread for no benefit.
+            item.continuation.resume(returning: result)
             Task { await self?.finish(result: result) }
         }
     }
@@ -219,18 +228,44 @@ actor ChannelExecutor {
         await processNext()
     }
 
+    /// Waits for the interactive shell channel. Resolved the moment channel
+    /// setup succeeds or fails (no polling); a per-waiter watchdog covers a
+    /// setup that hangs without ever completing, so callers can't be stranded.
     private func ensureShellChannelReady() async -> Channel? {
-        var retries = 0
-        while shellChannel == nil && retries < 150 {
-            retries += 1
-            try? await Task.sleep(nanoseconds: 10_000_000)
+        if let chan = shellChannel { return chan }
+        if shellFailed {
+            sshLog("☄︎ [E\(executorId):\(channelKey)] ❌ No shell channel available")
+            return nil
         }
-        if shellChannel == nil {
+
+        let waiterId = nextShellWaiterId
+        nextShellWaiterId += 1
+        let channel = await withCheckedContinuation { (continuation: CheckedContinuation<Channel?, Never>) in
+            shellWaiters[waiterId] = continuation
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                await self?.timeoutShellWaiter(waiterId)
+            }
+        }
+        if channel == nil {
             sshLog("☄︎ [E\(executorId):\(channelKey)] ❌ No shell channel available")
         }
-        return shellChannel
+        return channel
     }
-    
+
+    private func timeoutShellWaiter(_ id: Int) {
+        guard let continuation = shellWaiters.removeValue(forKey: id) else { return }
+        continuation.resume(returning: nil)
+    }
+
+    private func resumeShellWaiters(with channel: Channel?) {
+        let waiters = shellWaiters
+        shellWaiters.removeAll()
+        for (_, continuation) in waiters {
+            continuation.resume(returning: channel)
+        }
+    }
+
     /// Close shell channel
     func close() {
         sshLog("☄︎ [E\(executorId)] ChannelExecutor: Closing shell channel")
@@ -242,16 +277,31 @@ actor ChannelExecutor {
         let pendingWork = workQueue
         workQueue.removeAll()
         for item in pendingWork {
-            let cont = item.continuation
-            Task { @MainActor in cont.resume(returning: .failure(SSHError.channelError("Executor closed"))) }
+            item.continuation.resume(returning: .failure(SSHError.channelError("Executor closed")))
         }
         // Reset internal state so this executor cannot be reused accidentally.
         self.shellChannel = nil
+        self.shellFailed = true
         self.isBusy = false
+        resumeShellWaiters(with: nil)
     }
-    
+
     /// Set shell channel from async context
     private func setShellChannel(_ channel: Channel) {
+        // A failure or close may already have been recorded — don't resurrect.
+        guard !shellFailed else { return }
         self.shellChannel = channel
+        resumeShellWaiters(with: channel)
     }
-} 
+
+    /// Shell setup failed: fail fast for current and future commands instead of
+    /// making every batch wait out a watchdog before erroring.
+    private func markShellFailed() {
+        shellFailed = true
+        if let chan = shellChannel {
+            chan.close(mode: .all, promise: nil)
+            shellChannel = nil
+        }
+        resumeShellWaiters(with: nil)
+    }
+}

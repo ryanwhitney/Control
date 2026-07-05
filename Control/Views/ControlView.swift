@@ -22,8 +22,6 @@ struct ControlView: View, SSHConnectedView {
     @State private var volume: Float = 0.5
     @State private var volumeInitialized: Bool = false 
     @State private var errorMessage: String?
-    @State private var volumeChangeWorkItem: DispatchWorkItem? // unused but keep for other logic
-    @State private var lastVolumeCommandDate: Date = .distantPast
     @State private var isReady: Bool = false
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var _showingConnectionLostAlert = false
@@ -40,7 +38,21 @@ struct ControlView: View, SSHConnectedView {
     var showingConnectionLostAlert: Binding<Bool> { $_showingConnectionLostAlert }
     var connectionError: Binding<(title: String, message: String)?> { $_connectionError }
     var showingError: Binding<Bool> { $_showingError }
-    
+
+    /// Drives the single connection-problem alert off either underlying flag
+    /// (mid-session loss or failed reconnect) and clears both on dismiss.
+    private var showingConnectionProblem: Binding<Bool> {
+        Binding(
+            get: { _showingConnectionLostAlert || _showingError },
+            set: { newValue in
+                if !newValue {
+                    _showingConnectionLostAlert = false
+                    _showingError = false
+                }
+            }
+        )
+    }
+
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
         // Refresh the tab you're looking at first (even a foreground-only app),
@@ -168,11 +180,9 @@ struct ControlView: View, SSHConnectedView {
                                 set: { newValue in
                                     if volumeInitialized {
                                         volume = Float(newValue)
-                                        let now = Date()
-                                        if now.timeIntervalSince(lastVolumeCommandDate) > 0.4 {
-                                            lastVolumeCommandDate = now
-                                            Task { await appController.setVolume(volume) }
-                                        }
+                                        // Rate limiting/coalescing lives in
+                                        // AppController.setVolume — just report.
+                                        appController.setVolume(volume)
                                     }
                                 }
                             ),
@@ -180,8 +190,8 @@ struct ControlView: View, SSHConnectedView {
                             step: 0.01,
                             onEditingChanged: { isEditing in
                                 if !isEditing && volumeInitialized {
-                                    // Send the final value immediately
-                                    Task { await appController.setVolume(volume) }
+                                    // Send the final value
+                                    appController.setVolume(volume)
                                 }
                             }
                         )
@@ -309,6 +319,12 @@ struct ControlView: View, SSHConnectedView {
                 connectToSSH()
             }
 
+            // Let the manager re-drive our full connect path when it auto-reconnects
+            // after an involuntary drop (heartbeat/network loss).
+            connectionManager.setReconnectHandler {
+                connectToSSH()
+            }
+
             // Set initial platform to open to
             if let lastPlatform = savedConnections.lastViewedPlatform(host),
                let index = appController.platforms.firstIndex(where: { $0.id == lastPlatform }) {
@@ -325,6 +341,11 @@ struct ControlView: View, SSHConnectedView {
             viewLog("View disappeared", view: "ControlView")
             Task { @MainActor in
                 appController.cleanup()
+                // Drop the reconnect/fallback handlers registered in onAppear:
+                // they capture this Mac's credentials, and a loss during a later
+                // session (possibly with a different Mac) must not re-drive a
+                // dismissed view's connect path.
+                connectionManager.clearViewHandlers()
             }
         }
         .onReceive(appController.$currentVolume) { newVolume in
@@ -357,12 +378,17 @@ struct ControlView: View, SSHConnectedView {
                 viewLog("❌ Connection failed: \(error)", view: "ControlView")
             }
         }
-        .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
+        // Single alert for any connection problem (lost mid-session, or a
+        // reconnect that exhausted its retries). OK returns to the connections
+        // list, so a greyed-out ControlView is never a dead-end. One modifier
+        // avoids the two-`.alert`-on-one-view conflict.
+        .alert(connectionError.wrappedValue?.title ?? "Connection Lost",
+               isPresented: showingConnectionProblem) {
             Button("OK") { dismiss() }
         } message: {
-            Text(SSHError.timeout.formatError(displayName: displayName).message)
+            Text(connectionError.wrappedValue?.message
+                 ?? SSHError.timeout.formatError(displayName: displayName).message)
         }
-        .alert(isPresented: showingError) { connectionErrorAlert() }
         .sheet(isPresented: $showingCompatibilityNotice) {
             CompatibilityFallbackNotice(displayName: displayName)
         }
@@ -403,13 +429,7 @@ struct ControlView: View, SSHConnectedView {
         viewLog("Adjusting volume by \(amount)% (\(oldVolume)% -> \(newVolume)%)", view: "ControlView")
         
         volume = Float(newVolume) / 100.0
-        let now = Date()
-        if now.timeIntervalSince(lastVolumeCommandDate) > 0.05 {
-            lastVolumeCommandDate = now
-            Task {
-                await appController.setVolume(volume)
-            }
-        }
+        appController.setVolume(volume)
     }
 }
 

@@ -33,20 +33,27 @@ struct IINAApp: AppPlatform {
         """
     }
     
-    // Everything must be done through System Events since IINA has no AppleScript support
+    /// `fetchState()` self-guards (first lines below) and must stay valid
+    /// stand-alone for PermissionsView, so combinedStatusScript's second
+    /// System Events process check is skipped.
+    var fetchStateIsSelfGuarding: Bool { true }
+
+    // Everything must be done through System Events since IINA has no AppleScript support.
+    // IINA is always foregrounded — reading play/pause requires its menu bar —
+    // but focus is only restored for status-only polls: after a user action,
+    // IINA deliberately stays in front.
     private func statusScript(precededBy actionScript: String = "") -> String {
-        """
+        let sep = ScriptTokens.fieldSeparator
+        return """
         tell application "System Events"
             if (count of (processes where name is "IINA")) = 0 then
-                return "Not running~|VCF|~   ~|VCF|~false"
+                return "Not running\(sep)   \(sep)false"
             end if
             set isPlaying to false
             set previousFrontmostApp to null
             set shouldRestoreOrder to false
             if not (frontmost of process "IINA") then
-                set previousFrontmostApp to name of first application process whose frontmost is true
-                set frontmost of process "IINA" to true
-                delay 0.1
+                \(captureAndForegroundProcessFragment("IINA"))
                 if "\(actionScript)" is "" then
                     set shouldRestoreOrder to true
                 end if
@@ -62,14 +69,12 @@ struct IINAApp: AppPlatform {
                 -- Get window info
                 if (count of windows) > 0 then
                     set windowTitle to name of front window
-                    set resultString to windowTitle & "~|VCF|~   ~|VCF|~" & isPlaying
+                    set resultString to windowTitle & "\(sep)   \(sep)" & isPlaying
                 else
-                    set resultString to "No window~|VCF|~   ~|VCF|~" & isPlaying
+                    set resultString to "No window\(sep)   \(sep)" & isPlaying
                 end if
             end tell
-            if shouldRestoreOrder and previousFrontmostApp is not null then
-                set frontmost of process previousFrontmostApp to true
-            end if
+            \(restorePreviousFrontmostFragment())
             return resultString
         end tell
         """
@@ -85,27 +90,14 @@ struct IINAApp: AppPlatform {
     }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "~|VCF|~")
-        if components.count >= 3 {
-            var title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            // IINA shows "filename  —  /full/path" (two spaces + em dash).
-            if let range = title.range(of: "  —  ") {
-                title = String(title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            
-            return AppState(
-                title: title,
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
+        guard var state = parseSeparatedState(output) else {
+            return AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
         }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: nil
-        )
+        // IINA shows "filename  —  /full/path" (two spaces + em dash).
+        if let range = state.title.range(of: "  —  ") {
+            state.title = String(state.title[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return state
     }
     
     func executeAction(_ action: AppAction) -> String {

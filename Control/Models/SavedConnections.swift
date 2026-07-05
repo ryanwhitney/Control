@@ -197,7 +197,7 @@ class SavedConnections: ObservableObject {
         // Remove from saved items
         items.removeAll { $0.hostname == hostname }
         save()
-        
+
         // Remove password from keychain
         removePassword(for: hostname)
     }

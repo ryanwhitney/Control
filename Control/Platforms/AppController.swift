@@ -48,6 +48,11 @@ class AppController: ObservableObject {
         isActive = true
         isUpdating = false
         hasCompletedInitialUpdate = false
+        // Forget refresh/action timestamps: after a reconnect the on-screen data
+        // may be stale, and a pre-drop refresh must not dedupe the first
+        // post-reconnect one.
+        lastStateRefresh.removeAll()
+        lastActionTime.removeAll()
     }
 
     func cleanup() {
@@ -97,10 +102,15 @@ class AppController: ObservableObject {
         if sshClient.serializesAppCommands {
             // No warm-up sleep: the app channel's ChannelExecutor waits for its
             // interactive shell and fires its own warm-up round-trip on first use.
-            await updateSystemVolume()
-            if let id = visiblePlatformId,
-               let platform = platforms.first(where: { $0.id == id }) {
-                await updateState(for: platform)
+            // Volume (system channel) and the visible tab's status (app-0 channel)
+            // are independent round-trips, so run them concurrently to save an RTT.
+            let visible = visiblePlatformId.flatMap { id in platforms.first(where: { $0.id == id }) }
+            if let visible {
+                async let volume: Void = updateSystemVolume()
+                async let status: Void = updateState(for: visible)
+                _ = await (volume, status)
+            } else {
+                await updateSystemVolume()
             }
             hasCompletedInitialUpdate = true
             appControllerLog("✓ Initial visible-first refresh complete")
@@ -185,20 +195,22 @@ class AppController: ObservableObject {
         }
 
         // Slow-start strategy: the very first comprehensive refresh runs
+        // (force: an explicit "Refresh All" or post-connect sweep must never be
+        // silently deduped against a refresh from moments earlier).
         if hasCompletedInitialUpdate {
             // Parallel path – after the initial warm-up everything is fast again.
             await withTaskGroup(of: Void.self) { group in
                 for platform in platformsToCheck {
                     group.addTask { [weak self] in
                         guard let self else { return }
-                        await self.updateState(for: platform)
+                        await self.updateState(for: platform, force: true)
                     }
                 }
             }
         } else {
             // Initial sweep: do one platform at a time.
             for platform in platformsToCheck {
-                await updateState(for: platform)
+                await updateState(for: platform, force: true)
             }
         }
         
@@ -206,20 +218,20 @@ class AppController: ObservableObject {
         appControllerLog("✓ State update complete")
     }
     
-    func updateState(for platform: any AppPlatform) async {
+    func updateState(for platform: any AppPlatform, force: Bool = false) async {
         guard isActive else { return }
-        
+
         // Prevent duplicate refreshes within 2 s
-        if let last = lastStateRefresh[platform.id], Date().timeIntervalSince(last) < 2 {
+        if !force, let last = lastStateRefresh[platform.id], Date().timeIntervalSince(last) < 2 {
             appControllerLog("⏭️ \(platform.name): skipping refresh (< 2s since last)")
             return
         }
         lastStateRefresh[platform.id] = Date()
-        
+
         appControllerLog("⚐ \(platform.name): checking status")
-        
+
         let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
-        
+
         switch result {
         case .success(let output):
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -254,7 +266,10 @@ class AppController: ObservableObject {
             }
         case .failure(let error):
             appControllerLog("❌ \(platform.name) status fetch failed: \(error)")
-            
+            // A failed fetch shouldn't count as "fresh": let the next attempt
+            // (e.g. right after an auto-reconnect) run instead of deduping it.
+            lastStateRefresh[platform.id] = nil
+
             // For AppleScript errors, show a more user-friendly message
             if error.localizedDescription.contains("AppleScript error") {
                 let newState = AppState(
@@ -281,11 +296,13 @@ class AppController: ObservableObject {
             return 
         }
         
-        // Rate limit TV actions to prevent channel overload
-        if platform.id == "tv" {
+        // Rate limit actions for platforms that declare a minimum interval
+        // (e.g. TV's key-code driven actions can overload the channel).
+        let minInterval = platform.minActionInterval
+        if minInterval > 0 {
             if let lastAction = lastActionTime[platform.id],
-               Date().timeIntervalSince(lastAction) < 0.3 {
-                appControllerLog("⏭️ \(platform.name): rate limiting action (< 0.3s since last)")
+               Date().timeIntervalSince(lastAction) < minInterval {
+                appControllerLog("⏭️ \(platform.name): rate limiting action (< \(minInterval)s since last)")
                 return
             }
             lastActionTime[platform.id] = Date()
@@ -328,41 +345,53 @@ class AppController: ObservableObject {
                 states[platform.id] = newState
             }
         case .failure(let error):
+            // Connection-loss handling lives in executeCommand, which already
+            // saw this error.
             appControllerLog("❌ Action execution failed: \(error)")
-            // Check if this is a connection loss and mark controller as inactive
-            if let sshClient = self.sshClient as? SSHConnectionManager,
-               sshClient.isConnectionLossError(error) {
-                appControllerLog("🚨 Connection lost during action execution - marking controller inactive")
-                self.isActive = false
-                sshClient.handleConnectionLost(because: error)
-            }
         }
     }
-    
-    func setVolume(_ volume: Float) async {
+
+    // MARK: - Volume
+
+    private var pendingVolume: Float?
+    private var volumeSendTask: Task<Void, Never>?
+    private var lastVolumeSendAt = Date.distantPast
+    /// At most one volume command per interval, trailing-edge coalesced: the
+    /// latest value always wins and is always sent. This is the single rate
+    /// limit for every caller (slider, buttons, future shortcuts) — the views
+    /// just report values.
+    private let volumeSendInterval: TimeInterval = 0.15
+
+    func setVolume(_ volume: Float) {
         guard isActive else { return }
-        
-        let target = Int(volume * 100)
-        let script = "set volume output volume \(target)"
-        appControllerLog("🔊 Set volume request · \(target)%")
-        let result = await executeCommand(script, channelKey: "system", description: "system: set volume to \(target)%")
-        
-        switch result {
-        case .success(_):
-            // Success is implied, no need to log
-            break
-        case .failure(let error):
-            appControllerLog("❌ Failed to set volume: \(error)")
-            // Check if this is a connection loss
-            if let sshClient = self.sshClient as? SSHConnectionManager,
-               sshClient.isConnectionLossError(error) {
-                appControllerLog("🚨 Connection lost during volume change - marking controller inactive")
-                self.isActive = false
-                sshClient.handleConnectionLost(because: error)
+        pendingVolume = volume
+        scheduleVolumeSendIfNeeded()
+    }
+
+    private func scheduleVolumeSendIfNeeded() {
+        guard volumeSendTask == nil, pendingVolume != nil else { return }
+        let wait = volumeSendInterval - Date().timeIntervalSince(lastVolumeSendAt)
+        volumeSendTask = Task { [weak self] in
+            if wait > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             }
+            guard let self else { return }
+            if let target = self.pendingVolume {
+                self.pendingVolume = nil
+                self.lastVolumeSendAt = Date()
+                let percent = Int(target * 100)
+                appControllerLog("🔊 Set volume request · \(percent)%")
+                let result = await self.executeCommand("set volume output volume \(percent)", channelKey: "system", description: "system: set volume to \(percent)%")
+                if case .failure(let error) = result {
+                    appControllerLog("❌ Failed to set volume: \(error)")
+                }
+            }
+            self.volumeSendTask = nil
+            // A newer value may have arrived while the command was in flight.
+            self.scheduleVolumeSendIfNeeded()
         }
     }
-    
+
     private func updateSystemVolume() async {
         guard isActive else {
             return
@@ -384,16 +413,10 @@ class AppController: ObservableObject {
                 currentVolume = nil
             }
         case .failure(let error):
+            // Connection-loss handling lives in executeCommand, which already
+            // saw this error.
             appControllerLog("❌ Failed to get current volume: \(error)")
             currentVolume = nil
-            
-            // Check if this is a connection loss
-            if let sshClient = self.sshClient as? SSHConnectionManager,
-               sshClient.isConnectionLossError(error) {
-                appControllerLog("🚨 Connection lost during volume update - marking controller inactive")
-                self.isActive = false
-                sshClient.handleConnectionLost(because: error)
-            }
         }
     }
     
@@ -428,8 +451,10 @@ class AppController: ObservableObject {
     }
     
     private func updateStateIfChanged(_ platformId: String, _ newState: AppState) {
-        // Only update if we don't have a previous state or if the state has changed
-        if states[platformId]?.title != newState.title {
+        // Compare the whole state, not just the title — a play/pause flip on the
+        // same track changes isPlaying/subtitle but not the title, and would
+        // otherwise be dropped, leaving a stale icon.
+        if states[platformId] != newState {
             states[platformId] = newState
             lastKnownStates[platformId] = newState
         }

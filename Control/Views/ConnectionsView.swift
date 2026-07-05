@@ -152,6 +152,15 @@ struct ConnectionsView: View {
         }
         .onChange(of: viewModel.showingSetupFlow) { _, newValue in
             if !newValue {
+                // Backing out of first-time setup leaves the SSH session from
+                // PermissionsView/ChooseAppsView live — tear it down like the
+                // ControlView return path above. Setup *completion* instead
+                // hands the connection to ControlView (navigateToControl is
+                // already true by the time this fires), so leave it alone then.
+                if !viewModel.navigateToControl {
+                    SSHConnectionManager.shared.disconnect()
+                    viewLog("ConnectionsView: setup flow dismissed, disconnected active SSH session", view: "ConnectionsView")
+                }
                 viewModel.connectingComputer = nil
             }
         }

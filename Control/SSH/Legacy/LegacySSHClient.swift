@@ -10,29 +10,25 @@ import NIOPosix
 ///
 /// Conforms to `SSHClientProtocol` by ignoring `channelKey` and bash-wrapping the
 /// raw AppleScript (`AppController` sends the same raw scripts to both transports;
-/// only the framing/execution differs). Shared types (`SSHError`,
-/// `PasswordAuthDelegate`, `AcceptAllHostKeysDelegate`) live with the streaming
-/// `SSHClient`, so they are not redeclared here.
+/// only the framing/execution differs). The connect sequence, auth handling, and
+/// error classification are shared with the streaming client via
+/// `SSHTransportConnector` / `SSHError.classify`, so they are not redeclared here.
 class LegacySSHClient: SSHClientProtocol {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var session: Channel?
-    private var authDelegate: PasswordAuthDelegate?
-    private var hasCompletedConnection = false
 
     init() {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     }
 
     deinit {
-        try? group.syncShutdownGracefully()
         disconnect()
+        try? group.syncShutdownGracefully()
     }
 
     func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        hasCompletedConnection = false
-
-        let connectionId = UUID().uuidString.prefix(8)
+        let connectionId = String(UUID().uuidString.prefix(8))
         sshLog("🆔 [\(connectionId)] LegacySSHClient: Starting connection process")
         sshLog("Host: \(host.prefix(10))***")
         sshLog("Username: \(username.prefix(3))***")
@@ -42,178 +38,28 @@ class LegacySSHClient: SSHClientProtocol {
             disconnect()
         }
 
-        let timeout = DispatchWorkItem { [weak self] in
-            guard let self = self, !self.hasCompletedConnection else { return }
-            sshLog("❌ [\(connectionId)] Connection timed out after 5 seconds")
-            self.hasCompletedConnection = true
-            self.disconnect()
-            completion(.failure(SSHError.timeout))
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: timeout)
-
-        let authDelegate = PasswordAuthDelegate(username: username, password: password)
-        authDelegate.onAuthFailure = { [weak self] in
-            guard let self = self, !self.hasCompletedConnection else { return }
-            timeout.cancel()
-            sshLog("❌ [\(connectionId)] Authentication failed")
-            self.hasCompletedConnection = true
-            self.disconnect()
-            completion(.failure(SSHError.authenticationFailed))
-        }
-        self.authDelegate = authDelegate
-
-        let bootstrap = ClientBootstrap(group: group)
-            .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
-            .channelOption(ChannelOptions.connectTimeout, value: .seconds(4))
-            .channelInitializer { [weak self] channel in
-                self?.setupChannel(channel, authDelegate: authDelegate) ?? channel.eventLoop.makeFailedFuture(SSHError.channelError("Failed to setup channel"))
-            }
-
         let isLocal = host.contains(".local")
         let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
         sshLog("Attempting TCP connection: \(connectionType)")
 
-        bootstrap.connect(host: host, port: 22).whenComplete { [weak self] result in
-            guard let self = self, !self.hasCompletedConnection else {
-                sshLog("⚠️ [\(connectionId)] Connection attempt completed but already handled, ignoring result")
-                return
-            }
-            timeout.cancel()
-
+        SSHTransportConnector.connect(
+            group: group,
+            host: host,
+            username: username,
+            password: password,
+            connectionId: connectionId,
+            makeChildHandlers: { [SSHCommandHandler(), LegacyErrorHandler()] }
+        ) { [weak self] result in
+            guard let self = self else { return }
             switch result {
-            case .success(let channel):
-                sshLog("✓ [\(connectionId)] TCP connection established")
-                self.connection = channel
-                // Opening a session gates success on auth completing (a channel
-                // can't open until authenticated), matching the original client.
-                self.createSession { [weak self] sessionResult in
-                    guard let self = self, !self.hasCompletedConnection else {
-                        sshLog("⚠️ [\(connectionId)] Session creation completed but already handled, ignoring result")
-                        return
-                    }
-
-                    switch sessionResult {
-                    case .success:
-                        if authDelegate.authFailed {
-                            self.hasCompletedConnection = true
-                            completion(.failure(SSHError.authenticationFailed))
-                        } else {
-                            sshLog("✓ [\(connectionId)] SSH connection fully established")
-                            self.hasCompletedConnection = true
-                            completion(.success(()))
-                        }
-                    case .failure(let error):
-                        sshLog("❌ [\(connectionId)] Session creation failed: \(error)")
-                        self.hasCompletedConnection = true
-                        completion(.failure(error))
-                    }
-                }
-
-            case .failure(let error):
-                sshLog("❌ [\(connectionId)] TCP connection failed: \(error.localizedDescription)")
-                self.hasCompletedConnection = true
-                completion(.failure(self.processError(error)))
-            }
-        }
-    }
-
-    private func setupChannel(_ channel: Channel, authDelegate: PasswordAuthDelegate) -> EventLoopFuture<Void> {
-        let sshHandler = NIOSSHHandler(
-            role: .client(.init(
-                userAuthDelegate: authDelegate,
-                serverAuthDelegate: AcceptAllHostKeysDelegate()
-            )),
-            allocator: channel.allocator,
-            inboundChildChannelInitializer: { childChannel, channelType in
-                guard channelType == .session else {
-                    return channel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
-                }
-                return childChannel.pipeline.addHandlers([
-                    SSHCommandHandler(),
-                    LegacyErrorHandler()
-                ])
-            }
-        )
-        return channel.pipeline.addHandler(sshHandler)
-    }
-
-    private func processError(_ error: Error) -> Error {
-        let errorString = error.localizedDescription.lowercased()
-        let errorTypeName = String(describing: type(of: error))
-
-        if errorString.contains("nioconnectionerror") || errorTypeName.contains("NIOConnectionError") {
-            if errorString.contains("connecttimeout") || errorString.contains("timeout") {
-                return SSHError.timeout
-            } else if errorString.contains("dnsaerror") || errorString.contains("dnsaaaerror") {
-                return SSHError.connectionFailed("Could not find the device on your network")
-            } else {
-                return SSHError.connectionFailed("Network connection failed")
-            }
-        }
-
-        if errorString.contains("network is unreachable") ||
-           errorString.contains("host is unreachable") ||
-           errorString.contains("no route to host") ||
-           errorString.contains("connection timed out") {
-            return SSHError.connectionFailed("Network connectivity lost")
-        }
-
-        if errorString.contains("dns") ||
-           errorString.contains("unknown host") ||
-           errorString.contains("nodename nor servname provided") {
-            return SSHError.connectionFailed("Could not find the device on your network")
-        }
-
-        if errorString.contains("auth failed") || errorString.contains("permission denied") {
-            return SSHError.authenticationFailed
-        }
-
-        if let posixError = error as? POSIXError {
-            switch posixError.code {
-            case .ECONNREFUSED: return SSHError.connectionFailed("Remote Login is not enabled")
-            case .EHOSTUNREACH: return SSHError.connectionFailed("Computer is not reachable")
-            case .ETIMEDOUT: return SSHError.timeout
-            case .ENETUNREACH: return SSHError.connectionFailed("Network connectivity lost")
-            case .ENOTCONN: return SSHError.connectionFailed("Connection was lost")
-            default: return SSHError.connectionFailed("Network error: \(posixError.localizedDescription)")
-            }
-        }
-
-        if errorString.contains("connection reset") ||
-           errorString.contains("eof") ||
-           errorString.contains("broken pipe") {
-            return SSHError.connectionFailed("Connection was interrupted")
-        }
-
-        return SSHError.connectionFailed("Could not establish connection")
-    }
-
-    private func createSession(completion: @escaping (Result<Void, Error>) -> Void) {
-        guard let connection = connection else {
-            completion(.failure(SSHError.channelNotConnected))
-            return
-        }
-
-        let promise = connection.eventLoop.makePromise(of: Channel.self)
-        connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { handler -> EventLoopFuture<Channel> in
-            handler.createChannel(promise) { channel, channelType in
-                guard channelType == .session else {
-                    return channel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
-                }
-                return channel.pipeline.addHandlers([
-                    SSHCommandHandler(),
-                    LegacyErrorHandler()
-                ])
-            }
-            return promise.futureResult
-        }.whenComplete { [weak self] result in
-            switch result {
-            case .success(let channel):
-                self?.session = channel
+            case .success(let established):
+                // Keep the auth-gating session channel as the long-lived session.
+                self.connection = established.connection
+                self.session = established.session
+                sshLog("✓ [\(connectionId)] SSH connection fully established")
                 completion(.success(()))
             case .failure(let error):
-                completion(.failure(self?.processError(error) ?? error))
+                completion(.failure(error))
             }
         }
     }
@@ -261,12 +107,7 @@ class LegacySSHClient: SSHClientProtocol {
                 commandChannel = channel
                 return channel
             }.flatMapError { error in
-                let errorString = error.localizedDescription.lowercased()
-                if errorString.contains("tcp shutdown") ||
-                   errorString.contains("connection reset") ||
-                   errorString.contains("broken pipe") ||
-                   errorString.contains("connection closed") ||
-                   errorString.contains("eof") {
+                if SSHError.isConnectionLoss(error) {
                     self.disconnect()
                     return connection.eventLoop.makeFailedFuture(SSHError.channelError("Connection lost"))
                 }
@@ -297,12 +138,7 @@ class LegacySSHClient: SSHClientProtocol {
             case .success(let output):
                 completion(.success(output))
             case .failure(let error):
-                let errorString = error.localizedDescription.lowercased()
-                if errorString.contains("eof") ||
-                   errorString.contains("connection reset") ||
-                   errorString.contains("broken pipe") ||
-                   errorString.contains("connection closed") ||
-                   errorString.contains("tcp shutdown") {
+                if SSHError.isConnectionLoss(error) {
                     self.disconnect()
                     completion(.failure(SSHError.channelError("Connection lost")))
                 } else {
@@ -313,8 +149,6 @@ class LegacySSHClient: SSHClientProtocol {
     }
 
     func disconnect() {
-        hasCompletedConnection = false
-
         if let session = session {
             let exitRequest = SSHChannelRequestEvent.ExecRequest(command: "exit", wantReply: false)
             _ = session.triggerUserOutboundEvent(exitRequest)
@@ -323,7 +157,6 @@ class LegacySSHClient: SSHClientProtocol {
             }
         }
 
-        authDelegate = nil
         session?.close(promise: nil)
         session = nil
         connection?.close(promise: nil)
