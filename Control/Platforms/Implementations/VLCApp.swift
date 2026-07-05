@@ -21,7 +21,7 @@ struct VLCApp: AppPlatform {
         "tell application \"System Events\" to exists (processes where name is \"VLC\")"
     }
     
-    private func defensiveStatusScript(actionLines: String = "") -> String {
+    private func defensiveStatusScript(precededBy actionScript: String = "") -> String {
         // This is to avoid opening VLC from a running/status check.
         // The interactive osascript shell executes line by line,
         // so if a "tell VLC" block is behind a >0 process count check,
@@ -30,7 +30,7 @@ struct VLCApp: AppPlatform {
         """
         -- this relies on being wrapped in the outer Tell System Events block
         set vlcScript to "tell application \\"VLC\\"
-            \(actionLines)
+            \(actionScript)
             try
                 set mediaName to name of current item
                 if playing then
@@ -48,13 +48,13 @@ struct VLCApp: AppPlatform {
         end tell"
         if (count of (processes where name is "VLC")) > 0 then
             return run script vlcScript
-        else if "\(actionLines)" is "" then
+        else if "\(actionScript)" is "" then
                return "NOT_RUNNING"
         end if
         """
     }
     
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "System Events"
             if (count of (processes where name is "VLC")) = 0 then
@@ -62,7 +62,7 @@ struct VLCApp: AppPlatform {
                 return "Nothing playing ~|VCF|~   ~|VCF|~ paused ~|VCF|~ false"
             else
                 tell application "VLC"
-                    \(actionLines)
+                    \(actionScript)
                     try
                         set mediaName to name of current item
                         if playing then
@@ -96,7 +96,7 @@ struct VLCApp: AppPlatform {
             delayScript = ""
         }
         
-        return statusScript(actionLines: executeAction(action) + "\n" + delayScript)
+        return statusScript(precededBy: executeAction(action) + "\n" + delayScript)
     }
     
     func parseState(_ output: String) -> AppState {

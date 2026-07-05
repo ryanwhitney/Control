@@ -31,10 +31,10 @@ struct ChromeApp: AppPlatform {
     }
 
     // Template status script that can optionally inject action AppleScript
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "Google Chrome"
-            \(actionLines)
+            \(actionScript)
             set windowCount to number of windows
             if windowCount is 0 then
                 return "No windows open~|VCF|~No media playing~|VCF|~false"
@@ -60,7 +60,7 @@ struct ChromeApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        statusScript(precededBy: executeAction(action))
     }
 
     // Parses the output into a friendly AppState

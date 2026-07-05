@@ -4,6 +4,9 @@ struct IINAApp: AppPlatform {
     let id = "iina"
     let name = "IINA"
     let defaultEnabled = false
+    // Reading play/pause requires foregrounding IINA to reach its menu bar, so
+    // it's kept out of the global sweep and refreshed only when its tab is visible.
+    let checksStatusOnlyWhenVisible = true
     
     var supportedActions: [ActionConfig] {
         [
@@ -31,7 +34,7 @@ struct IINAApp: AppPlatform {
     }
     
     // Everything must be done through System Events since IINA has no AppleScript support
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "System Events"
             if (count of (processes where name is "IINA")) = 0 then
@@ -44,14 +47,14 @@ struct IINAApp: AppPlatform {
                 set previousFrontmostApp to name of first application process whose frontmost is true
                 set frontmost of process "IINA" to true
                 delay 0.1
-                if "\(actionLines)" is "" then
+                if "\(actionScript)" is "" then
                     set shouldRestoreOrder to true
                 end if
             end if
             tell process "IINA"
                 -- Execute any action lines
-                if "\(actionLines)" is not "" then
-                    \(actionLines)
+                if "\(actionScript)" is not "" then
+                    \(actionScript)
                 end if
                 -- Get the playing state
                 set playPauseMenu to menu item 1 of menu "Playback" of menu bar 1
@@ -78,7 +81,7 @@ struct IINAApp: AppPlatform {
         // executeAction already brings the app frontmost and inserts a small
         // delay *only when needed*. We therefore no longer add an unconditional
         // delay here.
-        return statusScript(actionLines: executeAction(action))
+        return statusScript(precededBy: executeAction(action))
     }
     
     func parseState(_ output: String) -> AppState {

@@ -220,6 +220,10 @@ class LegacySSHClient: SSHClientProtocol {
 
     // MARK: - SSHClientProtocol
 
+    /// Each command opens its own channel and runs concurrently, so a bulk
+    /// status refresh doesn't queue behind itself — unlike the streaming transport.
+    var serializesAppCommands: Bool { false }
+
     /// The streaming transport reuses channels keyed by `channelKey`; the legacy
     /// transport ignores it (fresh channel per command) but bash-wraps the raw
     /// AppleScript the caller supplies.

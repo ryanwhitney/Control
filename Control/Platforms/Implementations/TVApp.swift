@@ -19,10 +19,10 @@ struct TVApp: AppPlatform {
         "tell application \"System Events\" to exists (processes where name is \"TV\")"
     }
     
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "TV"
-            \(actionLines)
+            \(actionScript)
             set rawState to player state as text
             if rawState is "stopped" then
                 return "Nothing playing~|VCF|~   ~|VCF|~false"
@@ -63,7 +63,7 @@ struct TVApp: AppPlatform {
             return executeAction(action) + "\n" + fetchState()
         default:
             // For simple actions, inject them into the status script as before.
-            return statusScript(actionLines: executeAction(action))
+            return statusScript(precededBy: executeAction(action))
         }
     }
     

@@ -19,11 +19,11 @@ struct MusicApp: AppPlatform {
         "tell application \"System Events\" to exists (processes where name is \"Music\")"
     }
     
-    // Template status script that can optionally inject action AppleScript
-    private func statusScript(actionLines: String = "") -> String {
+    // Template status script that can optionally run action AppleScript first.
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "Music"
-            \(actionLines)
+            \(actionScript)
             if player state is stopped then
                 return "Nothing playing ~|VCF|~    ~|VCF|~ false"
             end if
@@ -41,7 +41,7 @@ struct MusicApp: AppPlatform {
     // Override the default helper to make use of the shared template so the
     // action and status execute inside the same `tell application` block.
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: actionLines(for: action))
+        statusScript(precededBy: actionScript(for: action))
     }
 
     /// AppleScript run *before* the status read. Music's `next track` /
@@ -56,7 +56,7 @@ struct MusicApp: AppPlatform {
     /// out the full ~1s is a single-track/repeat-one context where the track can
     /// never change — and there the title is identical anyway, so it's invisible.
     /// Other actions (e.g. play/pause) don't change the track and read immediately.
-    private func actionLines(for action: AppAction) -> String {
+    private func actionScript(for action: AppAction) -> String {
         switch action {
         case .nextTrack, .previousTrack:
             return """

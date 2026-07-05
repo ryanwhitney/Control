@@ -4,6 +4,9 @@ struct MPVApp: AppPlatform {
     let id = "mpv"
     let name = "mpv"
     let defaultEnabled = false
+    // Status uses System Events (title read; actions foreground the app), so it's
+    // kept out of the global sweep and refreshed only when its tab is on screen.
+    let checksStatusOnlyWhenVisible = true
 
     var supportedActions: [ActionConfig] {
         [
@@ -46,7 +49,7 @@ struct MPVApp: AppPlatform {
     // frontmost when there's an action to deliver — keystrokes go to the frontmost
     // app regardless of the enclosing `tell process`. Poll-only status never
     // steals focus.
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "System Events"
             if (count of (processes where name is "mpv")) = 0 then
@@ -54,7 +57,7 @@ struct MPVApp: AppPlatform {
             end if
             set previousFrontmostApp to null
             set shouldRestoreOrder to false
-            if "\(actionLines)" is not "" then
+            if "\(actionScript)" is not "" then
                 if not (frontmost of process "mpv") then
                     set previousFrontmostApp to name of first application process whose frontmost is true
                     set frontmost of process "mpv" to true
@@ -64,8 +67,8 @@ struct MPVApp: AppPlatform {
             end if
             set resultString to "Nothing playing~|VCF|~   ~|VCF|~false"
             tell process "mpv"
-                if "\(actionLines)" is not "" then
-                    \(actionLines)
+                if "\(actionScript)" is not "" then
+                    \(actionScript)
                 end if
                 if (count of windows) > 0 then
                     set windowTitle to name of front window
@@ -93,7 +96,7 @@ struct MPVApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        statusScript(precededBy: executeAction(action))
     }
 
     func parseState(_ output: String) -> AppState {

@@ -27,10 +27,10 @@ struct QuickTimeApp: AppPlatform {
         """
     }
     
-    private func statusScript(actionLines: String = "") -> String {
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "QuickTime Player"
-            \(actionLines)
+            \(actionScript)
             if not (exists document 1) then
                 return "Nothing playing ~|VCF|~   ~|VCF|~false"
             end if
@@ -104,6 +104,6 @@ struct QuickTimeApp: AppPlatform {
     }
     
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: executeAction(action))
+        statusScript(precededBy: executeAction(action))
     }
 } 

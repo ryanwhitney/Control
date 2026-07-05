@@ -27,11 +27,11 @@ struct SpotifyApp: AppPlatform {
         """
     }
     
-    // Template status script that can optionally inject action AppleScript
-    private func statusScript(actionLines: String = "") -> String {
+    // Template status script that can optionally run action AppleScript first.
+    private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "Spotify"
-            \(actionLines)
+            \(actionScript)
             if not running then
                 return "Not running ~|VCF|~  ~|VCF|~false"
             end if
@@ -81,7 +81,7 @@ struct SpotifyApp: AppPlatform {
     }
     
     func actionWithStatus(_ action: AppAction) -> String {
-        statusScript(actionLines: actionLines(for: action))
+        statusScript(precededBy: actionScript(for: action))
     }
 
     /// AppleScript run *before* the status read. Like Music, Spotify's
@@ -92,7 +92,7 @@ struct SpotifyApp: AppPlatform {
     /// the read reflects the settled track. Play/pause changes player state rather
     /// than the track and reads immediately (matching Music) — pending live
     /// testing that Spotify's `player state` updates fast enough without a delay.
-    private func actionLines(for action: AppAction) -> String {
+    private func actionScript(for action: AppAction) -> String {
         switch action {
         case .nextTrack, .previousTrack:
             return """

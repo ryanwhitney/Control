@@ -28,6 +28,7 @@ struct ControlView: View, SSHConnectedView {
     @State private var shouldShowLoadingOverlay: Bool = false
     @State private var _showingConnectionLostAlert = false
     @State private var showingCompatibilityNotice = false
+    @State private var pendingVisibleCheck: Task<Void, Never>?
     @State private var showingThemeSettings: Bool = false
     @State private var showingDebugLogs: Bool = false
     @State private var selectedPlatformIndex: Int = 0
@@ -42,9 +43,13 @@ struct ControlView: View, SSHConnectedView {
     
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
+        // Refresh the tab you're looking at first (even a foreground-only app),
+        // so it shows status right away on connect. On Fast this is all that runs;
+        // other tabs load lazily. On Compatibility this is the full sweep.
+        let visiblePlatformId = appController.platforms[safe: selectedPlatformIndex]?.id
         Task {
             appController.reset()
-            await appController.updateAllStates()
+            await appController.performInitialRefresh(visiblePlatformId: visiblePlatformId)
             connectionManager.startHeartbeat()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
@@ -120,15 +125,26 @@ struct ControlView: View, SSHConnectedView {
                     }
                     .tabViewStyle(.page)
                     .onChange(of: selectedPlatformIndex) { _, newValue in
-                        if let platform = appController.platforms[safe: newValue] {
-                            savedConnections.updateLastViewedPlatform(host, platform: platform.id)
-                            
-                            if appController.hasCompletedInitialUpdate {
-                                Task {
-                                    await appController.updateState(for: platform)
-                                }
+                        guard let platform = appController.platforms[safe: newValue] else { return }
+                        savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+                        guard appController.hasCompletedInitialUpdate else { return }
+
+                        // Drop any deferred check queued for a tab we've moved off.
+                        pendingVisibleCheck?.cancel()
+                        if platform.checksStatusOnlyWhenVisible {
+                            // Reading these foregrounds the Mac app, so wait until
+                            // you actually settle here — a quick swipe past cancels.
+                            pendingVisibleCheck = Task {
+                                try? await Task.sleep(nanoseconds: 350_000_000)
+                                guard !Task.isCancelled else { return }
+                                await appController.updateState(for: platform)
                             }
+                        } else {
+                            Task { await appController.updateState(for: platform) }
                         }
+                        // Re-center the background prefetch on the tab now on
+                        // screen so nearby tabs fill first. No-op on Compatibility.
+                        appController.prefetchBackgroundTabs(around: platform.id)
                     }
                     Spacer()
                 }
@@ -217,7 +233,7 @@ struct ControlView: View, SSHConnectedView {
                 Menu {
                     Button {
                         Task {
-                            await appController.updateAllStates()
+                            await appController.updateAllStates(alwaysInclude: appController.platforms[safe: selectedPlatformIndex]?.id)
                         }
                     } label: {
                         Label("Refresh All", systemImage: "arrow.clockwise")

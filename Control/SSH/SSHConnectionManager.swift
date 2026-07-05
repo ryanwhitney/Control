@@ -119,6 +119,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return sshClient
     }
 
+    /// Forward the active transport's channel model so callers (AppController)
+    /// can pick a refresh strategy without knowing which transport is selected.
+    nonisolated var serializesAppCommands: Bool {
+        sshClient.serializesAppCommands
+    }
+
     /// Builds the SSH transport for the selected connection method.
     private static func makeTransport(for method: ConnectionMethod) -> SSHClientProtocol {
         switch method {

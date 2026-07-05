@@ -83,6 +83,7 @@ protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
     var defaultEnabled: Bool { get }
+    var checksStatusOnlyWhenVisible: Bool { get }
     var experimental: Bool { get }
     var reasonForExperimental: String { get }
     var supportedActions: [ActionConfig] { get }
@@ -101,7 +102,14 @@ protocol AppPlatform: Identifiable {
 extension AppPlatform {
     var experimental: Bool { false }
     var reasonForExperimental: String { "" }
-    
+
+    /// Most platforms expose status over AppleScript and can be polled quietly in
+    /// the background as part of the global multi-app refresh. Apps without it
+    /// (IINA, mpv) must foreground the Mac app or UI-script it via System Events
+    /// to read status, so they override this to `true`: the bulk sweep skips them
+    /// and they're refreshed only when their own tab is the one on screen.
+    var checksStatusOnlyWhenVisible: Bool { false }
+
     var menuActions: [ActionConfig] {
         [
             ActionConfig(action: .closeApp(name), icon: "xmark.circle.fill"),

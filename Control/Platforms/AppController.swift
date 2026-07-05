@@ -19,7 +19,11 @@ class AppController: ObservableObject {
     
     // Track last action per platform to prevent rapid-fire commands
     private var lastActionTime: [String: Date] = [:]
-    
+
+    // Background prefetch that fills the non-visible tabs on the streaming
+    // transport (see `prefetchBackgroundTabs`). One at a time, cancellable.
+    private var prefetchTask: Task<Void, Never>?
+
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
@@ -39,13 +43,17 @@ class AppController: ObservableObject {
     
     func reset() {
         appControllerLog("Resetting state")
+        prefetchTask?.cancel()
+        prefetchTask = nil
         isActive = true
         isUpdating = false
         hasCompletedInitialUpdate = false
     }
-    
+
     func cleanup() {
         appControllerLog("Cleaning up")
+        prefetchTask?.cancel()
+        prefetchTask = nil
         isActive = false
     }
     
@@ -75,30 +83,112 @@ class AppController: ObservableObject {
         isActive = true
     }
     
-    func updateAllStates() async {
+    /// First refresh after a (re)connect. Chosen by transport so we don't hog a
+    /// serial channel: on streaming (`serializesAppCommands`) all app commands
+    /// share one channel, so a bulk sweep would queue behind itself and make
+    /// swipes feel slow — refresh only the visible tab and let the rest load
+    /// lazily as you navigate. On legacy (channel-per-command, concurrent) the
+    /// existing global sweep is fine and stays unchanged.
+    func performInitialRefresh(visiblePlatformId: String?) async {
+        guard isActive else {
+            appControllerLog("⚠️ Controller not active, skipping initial refresh")
+            return
+        }
+        if sshClient.serializesAppCommands {
+            // No warm-up sleep: the app channel's ChannelExecutor waits for its
+            // interactive shell and fires its own warm-up round-trip on first use.
+            await updateSystemVolume()
+            if let id = visiblePlatformId,
+               let platform = platforms.first(where: { $0.id == id }) {
+                await updateState(for: platform)
+            }
+            hasCompletedInitialUpdate = true
+            appControllerLog("✓ Initial visible-first refresh complete")
+            // Fill the remaining tabs in the background, nearest-first.
+            prefetchBackgroundTabs(around: visiblePlatformId)
+        } else {
+            await updateAllStates(alwaysInclude: visiblePlatformId)
+        }
+    }
+
+    /// Streaming only: proactively refresh the *other* tabs so swiping shows data
+    /// instead of "Loading", without the contention a bulk sweep would cause on
+    /// the serial app channel. Runs one check at a time, ordered by distance from
+    /// the visible tab (nearest first, expanding out), yielding the channel
+    /// between checks so a swipe or action is only ever behind ≤1 in-flight
+    /// command. Re-centers (cancel + restart) whenever the visible tab changes.
+    /// Foreground-only apps (IINA/mpv) are never prefetched — they'd pop to the
+    /// front off screen — and the visible tab is refreshed separately.
+    func prefetchBackgroundTabs(around visiblePlatformId: String?) {
+        prefetchTask?.cancel()
+        // Legacy already populated every tab via its concurrent sweep.
+        guard sshClient.serializesAppCommands, isActive else { return }
+
+        let order = backgroundPrefetchOrder(around: visiblePlatformId)
+        guard !order.isEmpty else { return }
+
+        prefetchTask = Task { [weak self] in
+            for platform in order {
+                guard let self, self.isActive, !Task.isCancelled else { return }
+                await self.updateState(for: platform)
+                if Task.isCancelled { return }
+                // Gentle spacing: leave the channel idle between checks so a
+                // user action/swipe slips in rather than queueing behind prefetch.
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+    }
+
+    /// Background-checkable platforms except the visible one, ordered by tab
+    /// distance from it (nearest first).
+    private func backgroundPrefetchOrder(around visiblePlatformId: String?) -> [any AppPlatform] {
+        let center = platforms.firstIndex(where: { $0.id == visiblePlatformId }) ?? 0
+        return platforms.enumerated()
+            .filter { !$0.element.checksStatusOnlyWhenVisible && $0.element.id != visiblePlatformId }
+            .sorted { abs($0.offset - center) < abs($1.offset - center) }
+            .map { $0.element }
+    }
+
+    /// Refreshes system volume and every platform's status. Platforms that must
+    /// foreground the Mac app to read status (`checksStatusOnlyWhenVisible`) are
+    /// excluded so a bulk refresh never pops them to the front — except the one
+    /// named by `alwaysInclude` (the tab currently on screen), which is refreshed
+    /// first so it shows status immediately.
+    func updateAllStates(alwaysInclude currentPlatformId: String? = nil) async {
         appControllerLog("❇︎ Starting update for \(platforms.count) platforms")
-        
+
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping state update")
             return
         }
         
-        // If this is the initial update, give channels a moment to fully initialize
-        if !hasCompletedInitialUpdate {
-            // A shorter 0.5-second pause is typically enough for the dedicated
-            // AppleScript channels to finish their interactive shell handshake.
-            // Reducing this delay brings the system-volume fetch forward and
-            // makes the UI feel snappier without sacrificing reliability.
+        // Legacy-only warm-up pause: give its per-command channels a moment to
+        // settle on the very first sweep. Streaming skips this — it refreshes
+        // visible-first via `performInitialRefresh` and never reaches here cold,
+        // and the ChannelExecutor does its own per-channel warm-up round-trip.
+        if !hasCompletedInitialUpdate && !sshClient.serializesAppCommands {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         }
         
         // Update system volume first (sequential – very fast)
         await updateSystemVolume()
+
+        // Exclude foreground-only apps (IINA/mpv) from the bulk sweep so they
+        // don't pop to the front; keep the currently-visible one so it refreshes.
+        var platformsToCheck = platforms.filter {
+            !$0.checksStatusOnlyWhenVisible || $0.id == currentPlatformId
+        }
+        // Refresh the visible tab first so it paints before the rest (matters on
+        // the legacy sequential first sweep and on a Fast "Refresh All").
+        if let idx = platformsToCheck.firstIndex(where: { $0.id == currentPlatformId }) {
+            platformsToCheck.insert(platformsToCheck.remove(at: idx), at: 0)
+        }
+
         // Slow-start strategy: the very first comprehensive refresh runs
         if hasCompletedInitialUpdate {
             // Parallel path – after the initial warm-up everything is fast again.
             await withTaskGroup(of: Void.self) { group in
-                for platform in platforms {
+                for platform in platformsToCheck {
                     group.addTask { [weak self] in
                         guard let self else { return }
                         await self.updateState(for: platform)
@@ -107,7 +197,7 @@ class AppController: ObservableObject {
             }
         } else {
             // Initial sweep: do one platform at a time.
-            for platform in platforms {
+            for platform in platformsToCheck {
                 await updateState(for: platform)
             }
         }

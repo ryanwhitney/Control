@@ -94,6 +94,10 @@ struct PlatformControl: View {
             Task {
                 // Wait until the initial batch update has completed
                 guard controller.hasCompletedInitialUpdate else { return }
+                // Foreground-only apps (IINA/mpv) are refreshed by ControlView when
+                // their tab is the active selection — not here, since a paged
+                // TabView pre-renders adjacent panels and would foreground them.
+                guard platform.checksStatusOnlyWhenVisible == false else { return }
                 await controller.updateState(for: platform)
             }
         }

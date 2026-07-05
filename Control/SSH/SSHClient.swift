@@ -19,7 +19,10 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var hasCompletedConnection = false
     
     // MARK: - Dedicated Channel Support
-    // Using a single app channel improves stability by serialising all app commands
+    // Using a single app channel improves stability by serialising all app commands.
+    // This is why `serializesAppCommands` is true here (the protocol default): all
+    // platform status/action commands funnel through one `app-0` executor, so a
+    // bulk refresh queues behind itself — AppController refreshes visible-first.
     private let appChannelPoolSize = 1
     
     /// Executors keyed by physical channel name (e.g. "system", "app-0", "app-1")
