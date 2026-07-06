@@ -8,13 +8,7 @@ struct ChromeApp: AppPlatform {
     let reasonForExperimental = "Only works with YouTube videos in Chrome. Requires Chrome to be running and may be unreliable."
 
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise")
-        ]
+        [.skipBackward(5), .playPause, .skipForward(5)]
     }
 
     // Template status script that can optionally inject action AppleScript
@@ -50,13 +44,6 @@ struct ChromeApp: AppPlatform {
         statusScript(precededBy: executeAction(action))
     }
 
-    // Parses the output into a friendly AppState
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse Chrome state")
-    }
-
-    // Executes the given AppAction in Chrome via AppleScript
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:

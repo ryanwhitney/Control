@@ -6,15 +6,10 @@ struct MusicApp: AppPlatform {
     let defaultEnabled = true
 
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in 
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
-        ]
+        [.previousTrack, .playPause, .nextTrack]
     }
-    
+
+
     // Template status script that can optionally run action AppleScript first.
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
@@ -26,7 +21,6 @@ struct MusicApp: AppPlatform {
             end if
             set trackName to name of current track
             set artistName to artist of current track
-            set playerState to player state as text
             set isPlaying to player state is playing
             return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
         end tell
@@ -41,11 +35,9 @@ struct MusicApp: AppPlatform {
         statusScript(precededBy: actionScript(for: action))
     }
 
-    /// AppleScript run *before* the status read, waiting for the app's state to
-    /// settle so the read doesn't capture the pre-action value: track changes
-    /// via `waitForTrackChangeScript`, play/pause via
-    /// `waitForPlayStateChangeScript`. Both polls exit the instant the state
-    /// updates, so a synchronous player pays no penalty.
+    /// AppleScript run *before* the status read, waiting for the player's state
+    /// to settle so the read doesn't capture the pre-action value (see the
+    /// waitFor… helpers in Types.swift).
     private func actionScript(for action: AppAction) -> String {
         switch action {
         case .nextTrack, .previousTrack:
@@ -57,11 +49,6 @@ struct MusicApp: AppPlatform {
         }
     }
 
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Error")
-    }
-    
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
