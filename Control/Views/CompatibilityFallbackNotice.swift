@@ -29,7 +29,7 @@ struct CompatibilityFallbackNotice: View {
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
 
-            Text("Fast mode wasn’t responding on “\(displayName)”, so it’s now using Compatibility mode. It’s a little slower but works on more Macs.")
+            Text("Due to connection issues, Control is switching to Compatability mode. It’s a little slower, but more reliable for communicating with some Macs.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -42,16 +42,24 @@ struct CompatibilityFallbackNotice: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
 
             Spacer()
-
             Button {
                 dismiss()
             } label: {
-                Text("Got it")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
+                HStack {
+                    Text("OK")
+                        .multiblur([(10,0.25), (50,0.35)])
+                }
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity)
+                .foregroundStyle(.tint)
+                .tint(.accentColor)
+                .fontWeight(.bold)
             }
-            .buttonStyle(.borderedProminent)
+            .cornerRadius(.infinity)
+            .buttonStyle(.bordered)
+            .tint(.accentColor)
+            .frame(maxWidth: .infinity)
+
         }
         .padding(24)
         .tint(preferences.tintColorValue)
