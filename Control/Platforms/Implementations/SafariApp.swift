@@ -8,13 +8,7 @@ struct SafariApp: AppPlatform {
     let reasonForExperimental = "Only looks for video in the current tab of the frontmost window. Does not work with content in iframes. Play/pause may be unreliable."
 
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise")
-        ]
+        [.skipBackward(5), .playPause, .skipForward(5)]
     }
 
     private func jsForStatus() -> String {

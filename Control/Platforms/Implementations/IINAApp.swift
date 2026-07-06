@@ -9,17 +9,10 @@ struct IINAApp: AppPlatform {
     let checksStatusOnlyWhenVisible = true
     
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise"),
-            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
-        ]
+        [.previousTrack, .skipBackward(10), .playPause, .skipForward(10), .nextTrack]
     }
-    
+
+
     /// `fetchState()` self-guards (first lines below) and must stay valid
     /// stand-alone for PermissionsView, so combinedStatusScript's second
     /// System Events process check is skipped.
@@ -77,7 +70,7 @@ struct IINAApp: AppPlatform {
     
     func parseState(_ output: String) -> AppState {
         guard var state = parseSeparatedState(output) else {
-            return AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
+            return AppState(title: "", subtitle: "")
         }
         // IINA shows "filename  —  /full/path" (two spaces + em dash).
         if let range = state.title.range(of: "  —  ") {

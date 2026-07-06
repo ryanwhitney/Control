@@ -5,19 +5,6 @@ struct ThemePreferenceView: View {
     @StateObject private var savedConnections = SavedConnections()
     @State private var previewVolume: Float = 0.5
 
-    private static let colors = [
-        ("Blue", "blue", Color.blue),
-        ("Indigo", "indigo", Color.indigo),
-        ("Purple", "purple", Color.purple),
-        ("Pink", "pink", Color.pink),
-        ("Red", "red", Color.red),
-        ("Orange", "orange", Color.orange),
-        ("Green", "green", Color.green),
-        ("Mint", "mint", Color.mint),
-        ("Teal", "teal", Color.teal),
-        ("Cyan", "cyan", Color.cyan)
-    ]
-
     // show their an actual saved connection if they have one
     private var defaultComputerInfo: (name: String, host: String, username: String) {
         if let firstSaved = savedConnections.items.first {
@@ -104,8 +91,8 @@ struct ThemePreferenceView: View {
                 .padding(.bottom, 24)
                 List {
                     Section {
-                        ForEach(Self.colors.indices, id: \.self) { index in
-                            let (name, value, color) = Self.colors[index]
+                        ForEach(UserPreferences.themeColors.indices, id: \.self) { index in
+                            let (name, value, color) = UserPreferences.themeColors[index]
                             Button {
                                 preferences.tintColor = value
                             } label: {

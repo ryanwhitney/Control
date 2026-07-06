@@ -3,19 +3,6 @@ import SwiftUI
 struct ThemePreferenceSheet: View {
     @StateObject private var preferences = UserPreferences.shared
 
-    private static let colors = [
-        ("Blue", "blue", Color.blue),
-        ("Indigo", "indigo", Color.indigo),
-        ("Purple", "purple", Color.purple),
-        ("Pink", "pink", Color.pink),
-        ("Red", "red", Color.red),
-        ("Orange", "orange", Color.orange),
-        ("Green", "green", Color.green),
-        ("Mint", "mint", Color.mint),
-        ("Teal", "teal", Color.teal),
-        ("Cyan", "cyan", Color.cyan)
-    ]
-
     var body: some View {
         VStack(spacing:16) {
             Text("Pick a theme color".uppercased())
@@ -23,8 +10,8 @@ struct ThemePreferenceSheet: View {
                 .foregroundStyle(.secondary)
             ScrollView(.horizontal){
                 HStack(spacing: 16) {
-                    ForEach(Self.colors.indices, id: \.self) { index in
-                        let (_, value, color) = Self.colors[index]
+                    ForEach(UserPreferences.themeColors.indices, id: \.self) { index in
+                        let (_, value, color) = UserPreferences.themeColors[index]
                         Button {
                             preferences.tintColor = value
                         } label: {

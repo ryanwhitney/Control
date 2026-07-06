@@ -49,20 +49,23 @@ class UserPreferences: ObservableObject {
         self.connectionMethod = ConnectionMethod(rawValue: UserDefaults.standard.string(forKey: "connectionMethod") ?? "") ?? .streaming
     }
     
+    /// Theme palette (display name, persisted key, color) — the single source
+    /// for the theme pickers and `tintColorValue`.
+    static let themeColors: [(name: String, key: String, color: Color)] = [
+        ("Blue", "blue", .blue),
+        ("Indigo", "indigo", .indigo),
+        ("Purple", "purple", .purple),
+        ("Pink", "pink", .pink),
+        ("Red", "red", .red),
+        ("Orange", "orange", .orange),
+        ("Green", "green", .green),
+        ("Mint", "mint", .mint),
+        ("Teal", "teal", .teal),
+        ("Cyan", "cyan", .cyan)
+    ]
+
     var tintColorValue: Color {
-        switch tintColor {
-        case "blue": return .blue
-        case "indigo": return .indigo
-        case "purple": return .purple
-        case "pink": return .pink
-        case "red": return .red
-        case "orange": return .orange
-        case "green": return .green
-        case "mint": return .mint
-        case "teal": return .teal
-        case "cyan": return .cyan
-        default: return .green
-        }
+        Self.themeColors.first { $0.key == tintColor }?.color ?? .green
     }
     
     // Update to show the what's new screen

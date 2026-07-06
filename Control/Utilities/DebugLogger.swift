@@ -89,15 +89,10 @@ class DebugLogger: ObservableObject {
         
         // Sanitize network-related sensitive information
         sanitized = sanitizeNetworkInfo(sanitized)
-        
-        // Sanitize media titles and subtitles from command outputs
-        if sanitized.contains("Full output:") {
-            sanitized = sanitizeMediaContent(sanitized)
-        }
-        
-        // Also sanitize any other potential media content patterns
-        sanitized = sanitizeGeneralMediaContent(sanitized)
-        
+
+        // Sanitize media titles/artists from script output
+        sanitized = sanitizeMediaContent(sanitized)
+
         return sanitized
     }
     
@@ -160,104 +155,46 @@ class DebugLogger: ObservableObject {
         return sanitized
     }
     
+    /// Redacts probable media titles/artists (the first two fields of the
+    /// separated status shape) while leaving system messages readable.
     private func sanitizeMediaContent(_ message: String) -> String {
-        // Extract the output part after "Full output: "
-        guard let outputRange = message.range(of: "Full output: ") else {
-            return message
-        }
-        
-        let prefix = String(message[..<outputRange.upperBound])
-        let output = String(message[outputRange.upperBound...])
-        
-        // Look for AppleScript output format: "title~|VCF|~subtitle~|VCF|~state~|VCF|~playing"
-        let components = output.components(separatedBy: ScriptTokens.fieldSeparator)
-        
-        if components.count >= 2 {
-            var sanitizedComponents = components
-            
-            // System messages that should not be redacted
-            let systemMessages = [
-                "not running", "nothing playing", "loading...", "permissions required",
-                "no media playing", "error:", "no windows open", "no media found",
-                "stopped", "", "   ", "false", "true", "playing", "paused"
+        guard message.contains(ScriptTokens.fieldSeparator) else { return message }
+
+        // Redact only the payload after "Full output: " when present; plain
+        // messages carrying system/error keywords are left alone entirely.
+        let prefix: String
+        let payload: String
+        if let range = message.range(of: "Full output: ") {
+            prefix = String(message[..<range.upperBound])
+            payload = String(message[range.upperBound...])
+        } else {
+            let lowered = message.lowercased()
+            let systemKeywords = [
+                "not running", "nothing playing", "loading", "permissions required",
+                "no media", "error", "failed", "connection", "timeout", "authentication"
             ]
-            
-            // Redact title (first component) if it's not a system message
-            let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let isSystemMessage = systemMessages.contains { systemMsg in
-                title.contains(systemMsg) || systemMsg.contains(title)
-            }
-            
-            if !isSystemMessage && components[0].trimmingCharacters(in: .whitespacesAndNewlines).count > 3 {
-                let originalTitle = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                sanitizedComponents[0] = String(originalTitle.prefix(3)) + "***"
-            }
-            
-            // Redact subtitle (second component) if it's not empty/spaces and looks like media info
-            if components.count >= 2 {
-                let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if subtitle.count > 3 && !subtitle.isEmpty && subtitle != "   " {
-                    sanitizedComponents[1] = String(subtitle.prefix(3)) + "***"
-                }
-            }
-            
-            return prefix + sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
+            if systemKeywords.contains(where: lowered.contains) { return message }
+            prefix = ""
+            payload = message
         }
-        
-        return message
-    }
-    
-    private func sanitizeGeneralMediaContent(_ message: String) -> String {
-        var sanitized = message
-        
-        // Don't sanitize system/error messages
-        let systemKeywords = [
-            "not running", "nothing playing", "loading", "permissions required",
-            "no media", "error", "failed", "connection", "timeout", "authentication"
+
+        var components = payload.components(separatedBy: ScriptTokens.fieldSeparator)
+        guard components.count >= 2 else { return message }
+
+        let systemValues = [
+            "not running", "nothing playing", "loading...", "permissions required",
+            "no media playing", "error:", "no windows open", "no media found",
+            "stopped", "false", "true", "playing", "paused"
         ]
-        
-        let messageText = message.lowercased()
-        let containsSystemKeyword = systemKeywords.contains { keyword in
-            messageText.contains(keyword)
-        }
-        
-        if containsSystemKeyword {
-            return message
-        }
-        
-        // Look for standalone media info patterns (not in Full output format)
-        // Pattern: anything~|VCF|~anything format that might be media content
-        if message.contains(ScriptTokens.fieldSeparator) && !message.contains("Full output:") {
-            let components = message.components(separatedBy: ScriptTokens.fieldSeparator)
-            
-            if components.count >= 2 {
-                var sanitizedComponents = components
-                
-                // Check first component for potential media title
-                if components[0].trimmingCharacters(in: .whitespacesAndNewlines).count > 3 {
-                    let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Only redact if it doesn't look like a system message
-                    if !title.lowercased().contains("stopped") && 
-                       !title.lowercased().contains("false") &&
-                       !title.lowercased().contains("true") &&
-                       !title.isEmpty {
-                        sanitizedComponents[0] = String(title.prefix(3)) + "***"
-                    }
-                }
-                
-                // Check second component for potential artist/subtitle
-                if components.count >= 2 {
-                    let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if subtitle.count > 3 && !subtitle.isEmpty && subtitle != "   " {
-                        sanitizedComponents[1] = String(subtitle.prefix(3)) + "***"
-                    }
-                }
-                
-                sanitized = sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
+        for index in 0...1 {
+            let value = components[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            let lowered = value.lowercased()
+            let isSystemValue = systemValues.contains { lowered.contains($0) || $0.contains(lowered) }
+            if value.count > 3 && !isSystemValue {
+                components[index] = String(value.prefix(3)) + "***"
             }
         }
-        
-        return sanitized
+        return prefix + components.joined(separator: ScriptTokens.fieldSeparator)
     }
     
     private func performCleanup() {

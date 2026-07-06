@@ -32,8 +32,12 @@ class AppController: ObservableObject {
         appControllerLog("Initializing with \(platformRegistry.activePlatforms.count) active platforms")
         self.sshClient = sshClient
         self.platformRegistry = platformRegistry
-        
-        // Initialize states
+        resetPlatformStates()
+    }
+
+    private func resetPlatformStates() {
+        states.removeAll()
+        lastKnownStates.removeAll()
         for platform in platformRegistry.platforms {
             let initialState = AppState(title: "Loading...", subtitle: "")
             states[platform.id] = initialState
@@ -70,20 +74,8 @@ class AppController: ObservableObject {
     
     func updatePlatformRegistry(_ newRegistry: PlatformRegistry) {
         appControllerLog("Updating platform registry to \(newRegistry.activePlatforms.map { $0.name })")
-        
         self.platformRegistry = newRegistry
-        
-        // Clear existing states
-        states.removeAll()
-        lastKnownStates.removeAll()
-        
-        // Initialize states for new platforms
-        for platform in platformRegistry.platforms {
-            let initialState = AppState(title: "Loading...", subtitle: "")
-            states[platform.id] = initialState
-            lastKnownStates[platform.id] = initialState
-        }
-        
+        resetPlatformStates()
         isActive = true
     }
     
@@ -237,24 +229,12 @@ class AppController: ObservableObject {
 
             // Detect sentinel for not-running state
             if trimmed == ScriptTokens.notRunning {
-                let newState = AppState(
-                    title: "Not running",
-                    subtitle: "",
-                    isPlaying: nil,
-                    error: nil
-                )
-                updateStateIfChanged(platform.id, newState)
+                updateStateIfChanged(platform.id, AppState(title: "Not running", subtitle: ""))
                 return
             }
-            
+
             if output.contains("Not authorized to send Apple events") {
-                let newState = AppState(
-                    title: "Permissions Required",
-                    subtitle: "Grant permission in System Settings > Privacy > Automation",
-                    isPlaying: nil,
-                    error: nil
-                )
-                updateStateIfChanged(platform.id, newState)
+                updateStateIfChanged(platform.id, Self.permissionsRequiredState)
             } else {
                 let newState = platform.parseState(output)
                 let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
@@ -321,19 +301,14 @@ class AppController: ObservableObject {
         case .success(let output):
             // Menu actions like Close App report the app is gone via this sentinel.
             if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.notRunning {
-                updateStateIfChanged(platform.id, AppState(title: "Not running", subtitle: "", isPlaying: nil, error: nil))
+                updateStateIfChanged(platform.id, AppState(title: "Not running", subtitle: ""))
                 return
             }
             let lines = output.components(separatedBy: .newlines)
             if let firstLine = lines.first,
                firstLine.contains("Not authorized to send Apple events") {
                 appControllerLog("⚠️ Permission required for \(platform.name)")
-                states[platform.id] = AppState(
-                    title: "Permissions Required",
-                    subtitle: "Grant permission in System Settings > Privacy > Automation",
-                    isPlaying: nil,
-                    error: nil
-                )
+                states[platform.id] = Self.permissionsRequiredState
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
@@ -449,6 +424,11 @@ class AppController: ObservableObject {
         }
     }
     
+    private static let permissionsRequiredState = AppState(
+        title: "Permissions Required",
+        subtitle: "Grant permission in System Settings > Privacy > Automation"
+    )
+
     private func updateStateIfChanged(_ platformId: String, _ newState: AppState) {
         // Compare the whole state, not just the title — a play/pause flip on the
         // same track changes isPlaying/subtitle but not the title, and would

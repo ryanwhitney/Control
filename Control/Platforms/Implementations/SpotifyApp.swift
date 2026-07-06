@@ -6,15 +6,10 @@ struct SpotifyApp: AppPlatform {
     let defaultEnabled = false
     
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
-        ]
+        [.previousTrack, .playPause, .nextTrack]
     }
-    
+
+
     // Template status script that can optionally run action AppleScript first.
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
@@ -27,7 +22,6 @@ struct SpotifyApp: AppPlatform {
             try
                 set trackName to name of current track
                 set artistName to artist of current track
-                set playerState to player state as text
                 set isPlaying to player state is playing
                 return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
             end try
@@ -38,11 +32,6 @@ struct SpotifyApp: AppPlatform {
 
     func fetchState() -> String { statusScript() }
 
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
-    }
-    
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
@@ -60,12 +49,9 @@ struct SpotifyApp: AppPlatform {
         statusScript(precededBy: actionScript(for: action))
     }
 
-    /// AppleScript run *before* the status read. Both track changes and
-    /// play/pause update Spotify's state a beat after the command returns, so
-    /// each waits for the change (bounded poll) before the status is read:
-    /// track changes via `waitForTrackChangeScript`, play/pause via
-    /// `waitForPlayStateChangeScript`. Reading immediately would report the
-    /// pre-action state.
+    /// AppleScript run *before* the status read. Spotify updates its state a
+    /// beat after a command returns, so each action waits for the change before
+    /// the status is read (see the waitFor… helpers in Types.swift).
     private func actionScript(for action: AppAction) -> String {
         switch action {
         case .nextTrack, .previousTrack:
