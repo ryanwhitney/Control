@@ -53,15 +53,6 @@ extension SSHConnectedView {
         connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
     }
     
-    /// Standard SSH connection lost alert
-    func connectionLostAlert() -> Alert {
-        Alert(
-            title: Text("Connection Lost"),
-            message: Text(SSHError.timeout.formatError(displayName: displayName).message),
-            dismissButton: .default(Text("OK"))
-        )
-    }
-    
     /// Standard SSH error alert
     func connectionErrorAlert() -> Alert {
         Alert(

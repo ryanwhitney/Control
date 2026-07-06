@@ -30,8 +30,6 @@ class LegacySSHClient: SSHClientProtocol {
     func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
         let connectionId = String(UUID().uuidString.prefix(8))
         sshLog("🆔 [\(connectionId)] LegacySSHClient: Starting connection process")
-        sshLog("Host: \(host.prefix(10))***")
-        sshLog("Username: \(username.prefix(3))***")
 
         if connection != nil {
             sshLog("Cleaning up existing connection before reconnecting")
@@ -48,7 +46,7 @@ class LegacySSHClient: SSHClientProtocol {
             username: username,
             password: password,
             connectionId: connectionId,
-            makeChildHandlers: { [SSHCommandHandler(), LegacyErrorHandler()] }
+            makeChildHandlers: { [SSHCommandHandler(), SSHChannelErrorHandler()] }
         ) { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -99,7 +97,7 @@ class LegacySSHClient: SSHClientProtocol {
                 commandHandler.pendingCommandPromise = childChannel.eventLoop.makePromise(of: String.self)
                 return childChannel.pipeline.addHandlers([
                     commandHandler,
-                    LegacyErrorHandler()
+                    SSHChannelErrorHandler()
                 ])
             }
 
@@ -236,13 +234,6 @@ final class SSHCommandHandler: ChannelInboundHandler {
             promise.fail(error)
             pendingCommandPromise = nil
         }
-        context.close(promise: nil)
-    }
-}
-
-private final class LegacyErrorHandler: ChannelInboundHandler {
-    typealias InboundIn = Any
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
         context.close(promise: nil)
     }
 }
