@@ -49,7 +49,7 @@ class ConnectionsViewModel: ObservableObject {
     init() {
         viewLog("ConnectionsViewModel init starting", view: "ConnectionsViewModel")
 
-        updateSavedComputers()
+        updateSavedComputers(savedConnections.items)
         viewLog("Init: saved computers count: \(savedComputers.count)", view: "ConnectionsViewModel")
 
         isSearching = networkScanner.isScanning
@@ -86,10 +86,14 @@ class ConnectionsViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Map the published value directly and synchronously. @Published fires
+        // on willSet, so re-reading savedConnections.items here would see the
+        // old array — and deferring via receive(on:) updated the List a tick
+        // after a destructive swipe action's eager row removal, crashing
+        // UICollectionView with "invalid number of items in section".
         savedConnections.$items
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateSavedComputers()
+            .sink { [weak self] items in
+                self?.updateSavedComputers(items)
             }
             .store(in: &cancellables)
     }
@@ -341,8 +345,8 @@ class ConnectionsViewModel: ObservableObject {
         networkComputers = updatedNetworkComputers
     }
 
-    private func updateSavedComputers() {
-        savedComputers = savedConnections.items
+    private func updateSavedComputers(_ items: [SavedConnections.SavedConnection]) {
+        savedComputers = items
             .map(Connection.fromSavedConnection)
             .sorted { $0.name < $1.name }
     }

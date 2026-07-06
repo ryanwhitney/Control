@@ -284,6 +284,18 @@ final class SSHCommandHandler: ChannelInboundHandler {
         context.fireChannelInactive()
     }
 
+    /// Guaranteed teardown hook: a channel whose open is refused or aborted
+    /// never becomes active, so `channelInactive` is never delivered and a
+    /// still-pending promise would deallocate unfulfilled — NIO's debug leak
+    /// assertion aborts the app. For channels that did go active this runs
+    /// after `channelInactive`, where the promise is already nil.
+    func handlerRemoved(context: ChannelHandlerContext) {
+        if let promise = pendingCommandPromise {
+            pendingCommandPromise = nil
+            promise.fail(SSHError.channelError("Connection closed"))
+        }
+    }
+
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         if let promise = pendingCommandPromise {
             promise.fail(error)
