@@ -17,7 +17,7 @@ struct RemoteLoginInstructions: View {
         Text("Scroll to select ") + Text("Sharing").bold() + Text("."),
         Text("Enable ") + Text("Remote Login").bold() + Text(" near the bottom."),
         Text("Click the ") + Text(Image(systemName: "info.circle")).bold()
-            + Text(" icon and disable ") + Text("Allow full disk access").bold() + Text("."),
+            + Text(" icon and") + Text(" disable ").bold() + Text("“Allow full disk access”."),
     ]
 
     var body: some View {
@@ -74,7 +74,7 @@ struct RemoteLoginInstructions: View {
             stepHeader(3, "Troubleshooting:", verticalPadding: 16, topInset: 32)
 
             Section {
-                infoRow("building.2.fill", "Control won't work on large networks, such as those used by hotels, offices, or universities. Connecting the two devices via Personal Hotspot is a workaround.")
+                infoRow("building.2.fill", "Control may not work on large networks such as those used by hotels, offices, or universities. Connecting the Mac via Personal Hotspot is a workaround.")
                 infoRow("lock.shield.fill", "Control won't work with devices that have Lockdown Mode enabled.")
             }
             .listSectionSpacing(0)
