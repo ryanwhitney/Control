@@ -20,7 +20,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     var heartbeatTask: Task<Void, Never>?
     var consecutiveHeartbeatFailures = 0
     let maxHeartbeatFailures = 2
-    let minHeartbeatInterval: TimeInterval = 0.5
+    /// Fast pings are the streaming transport's wedge canary. On Compatibility
+    /// every ping spawns a login shell + osascript on the Mac, and LAN RTTs can
+    /// exceed 0.5 s (overlapping replies), so it pings less aggressively.
+    var minHeartbeatInterval: TimeInterval {
+        activeConnectionMethod == .compatibility ? 2 : 0.5
+    }
     let maxHeartbeatInterval: TimeInterval = 12
     var currentHeartbeatInterval: TimeInterval = 3
     var lastHeartbeatSuccess: Date?

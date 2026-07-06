@@ -163,15 +163,25 @@ class LegacySSHClient: SSHClientProtocol {
     }
 }
 
-/// Reads a single command's output on a legacy per-command channel; completes the
-/// promise once output arrives or the channel closes.
+/// Reads a single command's output on a legacy per-command channel; accumulates
+/// stdout/stderr and completes the promise when the channel closes.
+///
+/// Close is the only safe completion point. Completing on the first output
+/// chunk let split replies/stderr noise masquerade as the result, and
+/// completing on the exit-status *event* raced the data itself — NIOSSH
+/// delivers channel events immediately while stdout can still be queued in the
+/// child channel's read buffer, so commands intermittently resolved as '' under
+/// concurrent channels (empty heartbeat replies → spurious reconnect loops,
+/// unparseable volume/status). By channel close, all delivered data has
+/// arrived; the exit-status just marks a normal finish, which may legitimately
+/// have no output at all (e.g. `set volume output volume 40`).
 final class SSHCommandHandler: ChannelInboundHandler {
     typealias InboundIn = SSHChannelData
     typealias OutboundOut = SSHChannelData
 
     var pendingCommandPromise: EventLoopPromise<String>?
     private var buffer = ""
-    private var hasReceivedOutput = false
+    private var sawExitStatus = false
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let channelData = unwrapInboundIn(data)
@@ -180,51 +190,35 @@ final class SSHCommandHandler: ChannelInboundHandler {
             if case .byteBuffer(let buffer) = channelData.data,
                let output = buffer.getString(at: 0, length: buffer.readableBytes) {
                 self.buffer += output
-                hasReceivedOutput = true
-                if !output.isEmpty { completeCommand() }
             }
         case .stdErr:
             if case .byteBuffer(let buffer) = channelData.data,
                let error = buffer.getString(at: 0, length: buffer.readableBytes) {
                 self.buffer += "[Error] " + error
-                hasReceivedOutput = true
-                completeCommand()
             }
         default:
             break
         }
     }
 
-    private func completeCommand() {
-        if hasReceivedOutput {
-            let result = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            pendingCommandPromise?.succeed(result)
-            pendingCommandPromise = nil
-            buffer = ""
-            hasReceivedOutput = false
-        }
-    }
-
-    /// A command with no stdout (e.g. `set volume output volume 40`) never
-    /// triggers `channelRead`, so the remote's exit-status is the only signal
-    /// that it finished. Complete with whatever output accumulated — possibly
-    /// none — instead of letting `channelInactive` fail the command as
-    /// "Connection closed", which upstream classifies as connection loss and
-    /// answers every legacy volume set with a spurious reconnect.
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        if event is SSHChannelRequestEvent.ExitStatus, let promise = pendingCommandPromise {
-            pendingCommandPromise = nil
-            promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
-            buffer = ""
-            hasReceivedOutput = false
+        if event is SSHChannelRequestEvent.ExitStatus {
+            sawExitStatus = true
         }
         context.fireUserInboundEventTriggered(event)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        // A close with an exit-status (or with output) is a completed command;
+        // a close with neither is a genuine drop mid-command.
         if let promise = pendingCommandPromise {
-            promise.fail(SSHError.channelError("Connection closed"))
             pendingCommandPromise = nil
+            if sawExitStatus || !buffer.isEmpty {
+                promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+                buffer = ""
+            } else {
+                promise.fail(SSHError.channelError("Connection closed"))
+            }
         }
         context.fireChannelInactive()
     }
