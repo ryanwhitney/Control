@@ -51,6 +51,66 @@ struct LiveIntegrationTests {
         _ = try await env.run("set volume output volume \(originalInt)")   // restore
     }
 
+    /// Every one of a burst of concurrent commands on the compatibility
+    /// transport must get exactly its own reply back — the contract that eager
+    /// completion (first output chunk, then the exit-status event) violated,
+    /// surfacing in the field as empty or crossed replies whenever commands
+    /// overlapped (mismatched heartbeats → spurious reconnect loops).
+    @Test func legacyConcurrentRepliesStaySeparate() async throws {
+        let env = try await LivePool.shared.env(.compatibility)
+        try await withThrowingTaskGroup(of: (Int, String, String).self) { group in
+            for i in 0..<10 {
+                let token = "VC7LIVE_CONCURRENCY_\(i)_\(UInt32.random(in: 0..<UInt32.max))"
+                group.addTask {
+                    let reply = try await env.run("return \"\(token)\"")
+                    return (i, token, reply)
+                }
+            }
+            for try await (i, token, reply) in group {
+                #expect(reply == token, "command \(i) got '\(reply)' instead of its own token")
+            }
+        }
+    }
+
+    /// A real manager (transport + heartbeat + recovery state machine) must
+    /// stay `.connected` while user-style command bursts overlap the heartbeat.
+    /// This is the layer the per-command tests bypass — where completion races
+    /// surfaced as recover/reconnect loops. Point `VC_LIVE_HOST` at another Mac
+    /// over Wi-Fi to exercise real network RTTs.
+    @Test(arguments: LiveEnvironment.Transport.allCases)
+    @MainActor
+    func heartbeatStaysConnectedUnderLoad(_ transport: LiveEnvironment.Transport) async throws {
+        guard let user = LiveEnvironment.value("VC_LIVE_USER"), !user.isEmpty,
+              let pass = LiveEnvironment.value("VC_LIVE_PASS"), !pass.isEmpty else {
+            Issue.record("VC_LIVE_USER / VC_LIVE_PASS not set")
+            return
+        }
+        let host = LiveEnvironment.value("VC_LIVE_HOST") ?? "127.0.0.1"
+
+        // The manager picks its transport from preferences on connect.
+        let previousMethod = UserPreferences.shared.connectionMethod
+        UserPreferences.shared.connectionMethod = transport == .streaming ? .streaming : .compatibility
+        defer { UserPreferences.shared.connectionMethod = previousMethod }
+
+        let manager = SSHConnectionManager()
+        try await manager.connect(host: host, username: user, password: pass)
+        manager.startHeartbeat()
+        defer {
+            manager.stopHeartbeat()
+            manager.disconnect()
+        }
+
+        // ~4 s of overlapping volume reads while the heartbeat pings underneath.
+        for _ in 0..<10 {
+            manager.executeCommand(onChannel: "system",
+                                   "output volume of (get volume settings)",
+                                   description: "load-test volume read") { _ in }
+            try await Task.sleep(nanoseconds: 400_000_000)
+            #expect(manager.connectionState == .connected,
+                    "state left .connected under load on \(transport): \(manager.connectionState.description)")
+        }
+    }
+
     // MARK: - Status against real apps
 
     /// For every platform whose app is running, the real `combinedStatusScript()`

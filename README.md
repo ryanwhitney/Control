@@ -3,7 +3,7 @@
 
 # Control • Mac Remote Control
 
-Control is a free, open-source app for controlling media apps on a Mac. It'd designed for iOS, but also runs on MacOS and VisionOS. You can [download Control on the App Store](https://apps.apple.com/us/app/control-mac-remote-control/id6740011610).
+Control is a free, open-source app for controlling media apps on a Mac. It's designed for iOS, but also runs on MacOS and VisionOS. You can [download Control on the App Store](https://apps.apple.com/us/app/control-mac-remote-control/id6740011610).
 
 The app works by connecting directly to a Mac via SSH and uses AppleScript for commands. Nothing needs to be installed on the Mac. 
 

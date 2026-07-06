@@ -7,6 +7,11 @@ protocol SSHClientProtocol {
     /// The same channel is reused for subsequent calls with the same key.
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void)
 
+    /// Execute a command on its own throwaway channel, isolated from every
+    /// other command: it can block (e.g. on a macOS permission dialog) without
+    /// delaying anything else. Behaves the same on both transports.
+    func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void)
+
     /// True when app commands share one serial channel (streaming): callers
     /// should prefer refreshing only what's visible, since a bulk refresh would
     /// queue behind itself. False when each command gets its own channel
@@ -18,6 +23,12 @@ protocol SSHClientProtocol {
 extension SSHClientProtocol {
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, completion: @escaping (Result<String, Error>) -> Void) {
         executeCommandOnDedicatedChannel(channelKey, command, description: nil, completion: completion)
+    }
+
+    /// Transports whose dedicated channels are already one-per-command
+    /// (legacy) are inherently isolated; the streaming client overrides this.
+    func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        executeCommandOnDedicatedChannel("isolated", command, description: description, completion: completion)
     }
 
     /// Streaming is the default transport and serialises app commands on one

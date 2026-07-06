@@ -23,7 +23,6 @@ extension SSHConnectedView {
     /// Set up SSH connection with all common patterns
     @MainActor
     func setupSSHConnection() {
-        logConnectionMetadata()
         setConnectionLostHandler()
         connectToSSH()
     }
@@ -53,15 +52,6 @@ extension SSHConnectedView {
         connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
     }
     
-    /// Standard SSH connection lost alert
-    func connectionLostAlert() -> Alert {
-        Alert(
-            title: Text("Connection Lost"),
-            message: Text(SSHError.timeout.formatError(displayName: displayName).message),
-            dismissButton: .default(Text("OK"))
-        )
-    }
-    
     /// Standard SSH error alert
     func connectionErrorAlert() -> Alert {
         Alert(
@@ -72,19 +62,7 @@ extension SSHConnectedView {
     }
     
     // MARK: - Private Implementation
-    
-    @MainActor
-    private func logConnectionMetadata() {
-        let isLocal = host.contains(".local")
-        let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
-        let hostRedacted = String(host.prefix(3)) + "***"
-        
-        let viewNameMeta = String(describing: Self.self)
-        viewLog("Target: \(hostRedacted)", view: viewNameMeta)
-        viewLog("Protocol: \(connectionType)", view: viewNameMeta)
-        viewLog("Display name: \(String(displayName.prefix(3)))***", view: viewNameMeta)
-    }
-    
+
     @MainActor
     private func setConnectionLostHandler() {
         let viewNameMeta = String(describing: Self.self)

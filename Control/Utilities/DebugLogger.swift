@@ -89,15 +89,10 @@ class DebugLogger: ObservableObject {
         
         // Sanitize network-related sensitive information
         sanitized = sanitizeNetworkInfo(sanitized)
-        
-        // Sanitize media titles and subtitles from command outputs
-        if sanitized.contains("Full output:") {
-            sanitized = sanitizeMediaContent(sanitized)
-        }
-        
-        // Also sanitize any other potential media content patterns
-        sanitized = sanitizeGeneralMediaContent(sanitized)
-        
+
+        // Sanitize media titles/artists from script output
+        sanitized = sanitizeMediaContent(sanitized)
+
         return sanitized
     }
     
@@ -129,10 +124,9 @@ class DebugLogger: ObservableObject {
             return result
         }
         
-        // Redact hostnames (keep first 3 characters)
+        // Redact hostnames
         sanitized = regexReplace(pattern: #"[a-zA-Z0-9-]+\.local"#, in: sanitized) { match in
-            let prefix = String(match.prefix(3))
-            return "\(prefix)***"
+            match.redacted()
         }
         
         // Redact IPv4 addresses (keep first octet)
@@ -160,104 +154,48 @@ class DebugLogger: ObservableObject {
         return sanitized
     }
     
-    private func sanitizeMediaContent(_ message: String) -> String {
-        // Extract the output part after "Full output: "
-        guard let outputRange = message.range(of: "Full output: ") else {
-            return message
-        }
-        
-        let prefix = String(message[..<outputRange.upperBound])
-        let output = String(message[outputRange.upperBound...])
-        
-        // Look for AppleScript output format: "title~|VCF|~subtitle~|VCF|~state~|VCF|~playing"
-        let components = output.components(separatedBy: ScriptTokens.fieldSeparator)
-        
-        if components.count >= 2 {
-            var sanitizedComponents = components
-            
-            // System messages that should not be redacted
-            let systemMessages = [
-                "not running", "nothing playing", "loading...", "permissions required",
-                "no media playing", "error:", "no windows open", "no media found",
-                "stopped", "", "   ", "false", "true", "playing", "paused"
+    /// Redacts probable media titles/artists (the first two fields of the
+    /// separated status shape) while leaving system messages readable.
+    /// Internal (not private) so the privacy tests can exercise it directly.
+    func sanitizeMediaContent(_ message: String) -> String {
+        guard message.contains(ScriptTokens.fieldSeparator) else { return message }
+
+        // Redact only the payload after "Full output: " when present; plain
+        // messages carrying system/error keywords are left alone entirely.
+        let prefix: String
+        let payload: String
+        if let range = message.range(of: "Full output: ") {
+            prefix = String(message[..<range.upperBound])
+            payload = String(message[range.upperBound...])
+        } else {
+            let lowered = message.lowercased()
+            let systemKeywords = [
+                "not running", "nothing playing", "loading", "permissions required",
+                "no media", "error", "failed", "connection", "timeout", "authentication"
             ]
-            
-            // Redact title (first component) if it's not a system message
-            let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let isSystemMessage = systemMessages.contains { systemMsg in
-                title.contains(systemMsg) || systemMsg.contains(title)
-            }
-            
-            if !isSystemMessage && components[0].trimmingCharacters(in: .whitespacesAndNewlines).count > 3 {
-                let originalTitle = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                sanitizedComponents[0] = String(originalTitle.prefix(3)) + "***"
-            }
-            
-            // Redact subtitle (second component) if it's not empty/spaces and looks like media info
-            if components.count >= 2 {
-                let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if subtitle.count > 3 && !subtitle.isEmpty && subtitle != "   " {
-                    sanitizedComponents[1] = String(subtitle.prefix(3)) + "***"
-                }
-            }
-            
-            return prefix + sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
+            if systemKeywords.contains(where: lowered.contains) { return message }
+            prefix = ""
+            payload = message
         }
-        
-        return message
-    }
-    
-    private func sanitizeGeneralMediaContent(_ message: String) -> String {
-        var sanitized = message
-        
-        // Don't sanitize system/error messages
-        let systemKeywords = [
-            "not running", "nothing playing", "loading", "permissions required",
-            "no media", "error", "failed", "connection", "timeout", "authentication"
+
+        var components = payload.components(separatedBy: ScriptTokens.fieldSeparator)
+        guard components.count >= 2 else { return message }
+
+        // Exact match only: a real media title *containing* a status word
+        // (e.g. "Playing God") must still be redacted.
+        let systemValues = [
+            "not running", "nothing playing", "loading...", "permissions required",
+            "no media playing", "no windows open", "no media found",
+            "stopped", "false", "true", "playing", "paused"
         ]
-        
-        let messageText = message.lowercased()
-        let containsSystemKeyword = systemKeywords.contains { keyword in
-            messageText.contains(keyword)
-        }
-        
-        if containsSystemKeyword {
-            return message
-        }
-        
-        // Look for standalone media info patterns (not in Full output format)
-        // Pattern: anything~|VCF|~anything format that might be media content
-        if message.contains(ScriptTokens.fieldSeparator) && !message.contains("Full output:") {
-            let components = message.components(separatedBy: ScriptTokens.fieldSeparator)
-            
-            if components.count >= 2 {
-                var sanitizedComponents = components
-                
-                // Check first component for potential media title
-                if components[0].trimmingCharacters(in: .whitespacesAndNewlines).count > 3 {
-                    let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-                    // Only redact if it doesn't look like a system message
-                    if !title.lowercased().contains("stopped") && 
-                       !title.lowercased().contains("false") &&
-                       !title.lowercased().contains("true") &&
-                       !title.isEmpty {
-                        sanitizedComponents[0] = String(title.prefix(3)) + "***"
-                    }
-                }
-                
-                // Check second component for potential artist/subtitle
-                if components.count >= 2 {
-                    let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                    if subtitle.count > 3 && !subtitle.isEmpty && subtitle != "   " {
-                        sanitizedComponents[1] = String(subtitle.prefix(3)) + "***"
-                    }
-                }
-                
-                sanitized = sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
+        for index in 0...1 {
+            let value = components[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            let isSystemValue = systemValues.contains(value.lowercased())
+            if value.count > 3 && !isSystemValue {
+                components[index] = value.redacted()
             }
         }
-        
-        return sanitized
+        return prefix + components.joined(separator: ScriptTokens.fieldSeparator)
     }
     
     private func performCleanup() {
@@ -279,19 +217,9 @@ class DebugLogger: ObservableObject {
         logs.removeAll()
         lastCleanupTime = Date()
     }
-    
-    func forceCleanup() {
-        performCleanup()
-        lastCleanupTime = Date()
-    }
-    
+
     var allLogsText: String {
         logs.map { $0.formattedEntry }.joined(separator: "\n")
-    }
-    
-    var recentLogsText: String {
-        let recentLogs = logs.suffix(50) // Last 50 entries
-        return recentLogs.map { $0.formattedEntry }.joined(separator: "\n")
     }
 }
 
@@ -317,19 +245,3 @@ func appControllerLog(_ message: String) {
 func viewLog(_ message: String, view: String) {
     debugLog(message, category: view)
 }
-
-// Safe logging functions that automatically sanitize sensitive data
-func safeConnectionLog(host: String, username: String, action: String) {
-    let safeHost = String(host.prefix(10)) + (host.count > 10 ? "***" : "")
-    let safeUsername = String(username.prefix(3)) + (username.count > 3 ? "***" : "")
-    connectionLog("\(action) - Host: \(safeHost), User: \(safeUsername)")
-}
-
-func safeCommandLog(_ command: String, description: String? = nil) {
-    let safeCommand = command.count > 50 ? String(command.prefix(50)) + "..." : command
-    if let description = description {
-        appControllerLog("Command: \(description) (\(safeCommand.count) chars)")
-    } else {
-        appControllerLog("Command executed (\(safeCommand.count) chars)")
-    }
-} 

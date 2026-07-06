@@ -13,10 +13,10 @@ struct FeedbackPreferenceView: View {
                     Text("Hi, I'm [Ryan](https://rw.is).")
                         .font(.headline)
                         .foregroundStyle(.primary)
-                    Text("I made Control after getting tired of standing up to hit pause or lower the volume. Existing options required separate companion apps and paid subscriptions.")
+                    Text("I made Control after getting tired of standing up to pause movies or lower the volume. Existing options required separate companion apps and paid subscriptions.")
                     Text("Instead, Control is designed to not require any additional software on your Mac.")
                     Text("It's free, it's simple, and it usually works!")
-                    Text("Any feedback or requests for additional apps are always welcome. I want to make Control as useful and accessible as possible.")
+                    Text("Feedback and  requests for additional apps are always welcome. I want to make Control as useful and accessible as possible.")
                 }
                 .foregroundStyle(.secondary)
 

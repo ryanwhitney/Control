@@ -17,6 +17,7 @@ class LegacySSHClient: SSHClientProtocol {
     private var group: EventLoopGroup
     private var connection: Channel?
     private var session: Channel?
+    private let commandGate = CommandGate(maxInFlight: 5)
 
     init() {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -30,8 +31,6 @@ class LegacySSHClient: SSHClientProtocol {
     func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
         let connectionId = String(UUID().uuidString.prefix(8))
         sshLog("🆔 [\(connectionId)] LegacySSHClient: Starting connection process")
-        sshLog("Host: \(host.prefix(10))***")
-        sshLog("Username: \(username.prefix(3))***")
 
         if connection != nil {
             sshLog("Cleaning up existing connection before reconnecting")
@@ -48,7 +47,7 @@ class LegacySSHClient: SSHClientProtocol {
             username: username,
             password: password,
             connectionId: connectionId,
-            makeChildHandlers: { [SSHCommandHandler(), LegacyErrorHandler()] }
+            makeChildHandlers: { [SSHCommandHandler(), SSHChannelErrorHandler()] }
         ) { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -71,81 +70,41 @@ class LegacySSHClient: SSHClientProtocol {
     var serializesAppCommands: Bool { false }
 
     /// The streaming transport reuses channels keyed by `channelKey`; the legacy
-    /// transport ignores it (fresh channel per command) but bash-wraps the raw
-    /// AppleScript the caller supplies.
+    /// transport ignores it (fresh channel per command) via the shared
+    /// `EphemeralCommandChannel`.
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
-        let wrapped = ShellCommandUtilities.wrapAppleScriptForBash(command)
-        executeCommandOnNewChannel(wrapped, description: description, completion: completion)
+        // The heartbeat is the health signal — it must never queue behind a
+        // status sweep, so it bypasses the gate (worst case 5 + 1 sessions,
+        // still well under sshd's MaxSessions).
+        if channelKey == "heartbeat" {
+            runOnEphemeralChannel(command, description: description, completion: completion)
+            return
+        }
+        commandGate.run { [weak self] finished in
+            guard let self else {
+                finished()
+                completion(.failure(SSHError.channelNotConnected))
+                return
+            }
+            self.runOnEphemeralChannel(command, description: description) { result in
+                finished()
+                completion(result)
+            }
+        }
     }
 
-    private func executeCommandOnNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+    private func runOnEphemeralChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         guard let connection = connection else {
             completion(.failure(SSHError.channelNotConnected))
             return
         }
-
-        let commandDesc = description ?? "Running command with new channel"
-        sshLog("Legacy: executing with new channel: \(commandDesc)")
-
-        let childPromise = connection.eventLoop.makePromise(of: Channel.self)
-        var commandChannel: Channel?
-
-        connection.pipeline.handler(type: NIOSSHHandler.self).flatMap { sshHandler -> EventLoopFuture<Channel> in
-            sshHandler.createChannel(childPromise) { (childChannel: Channel, channelType: SSHChannelType) -> EventLoopFuture<Void> in
-                guard channelType == .session else {
-                    return childChannel.eventLoop.makeFailedFuture(SSHError.invalidChannelType)
-                }
-                let commandHandler = SSHCommandHandler()
-                commandHandler.pendingCommandPromise = childChannel.eventLoop.makePromise(of: String.self)
-                return childChannel.pipeline.addHandlers([
-                    commandHandler,
-                    LegacyErrorHandler()
-                ])
-            }
-
-            return childPromise.futureResult.map { channel in
-                commandChannel = channel
-                return channel
-            }.flatMapError { error in
-                if SSHError.isConnectionLoss(error) {
-                    self.disconnect()
-                    return connection.eventLoop.makeFailedFuture(SSHError.channelError("Connection lost"))
-                }
-                return connection.eventLoop.makeFailedFuture(error)
-            }
-        }.flatMap { channel -> EventLoopFuture<String> in
-            channel.pipeline.handler(type: SSHCommandHandler.self).flatMap { handler in
-                guard let promise = handler.pendingCommandPromise else {
-                    return channel.eventLoop.makeFailedFuture(SSHError.channelError("Command promise not set"))
-                }
-                let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
-                return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
-                    channel.eventLoop.scheduleTask(in: .seconds(5)) {
-                        if let pendingPromise = handler.pendingCommandPromise {
-                            sshLog("⏰ Legacy command timed out after 5 seconds")
-                            pendingPromise.fail(SSHError.timeout)
-                            channel.close(promise: nil)
-                        }
-                    }
-                    return promise.futureResult
-                }
-            }
-        }.whenComplete { result in
-            if let channel = commandChannel {
-                channel.close(promise: nil)
-            }
-            switch result {
-            case .success(let output):
-                completion(.success(output))
-            case .failure(let error):
-                if SSHError.isConnectionLoss(error) {
-                    self.disconnect()
-                    completion(.failure(SSHError.channelError("Connection lost")))
-                } else {
-                    completion(.failure(error))
-                }
-            }
-        }
+        EphemeralCommandChannel.run(
+            command,
+            on: connection,
+            description: description,
+            onConnectionLoss: { [weak self] in self?.disconnect() },
+            completion: completion
+        )
     }
 
     func disconnect() {
@@ -162,87 +121,5 @@ class LegacySSHClient: SSHClientProtocol {
         connection?.close(promise: nil)
         connection = nil
         sshLog("⚰︎ LegacySSHClient disconnected and cleaned up")
-    }
-}
-
-/// Reads a single command's output on a legacy per-command channel; completes the
-/// promise once output arrives or the channel closes.
-final class SSHCommandHandler: ChannelInboundHandler {
-    typealias InboundIn = SSHChannelData
-    typealias OutboundOut = SSHChannelData
-
-    var pendingCommandPromise: EventLoopPromise<String>?
-    private var buffer = ""
-    private var hasReceivedOutput = false
-
-    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let channelData = unwrapInboundIn(data)
-        switch channelData.type {
-        case .channel:
-            if case .byteBuffer(let buffer) = channelData.data,
-               let output = buffer.getString(at: 0, length: buffer.readableBytes) {
-                self.buffer += output
-                hasReceivedOutput = true
-                if !output.isEmpty { completeCommand() }
-            }
-        case .stdErr:
-            if case .byteBuffer(let buffer) = channelData.data,
-               let error = buffer.getString(at: 0, length: buffer.readableBytes) {
-                self.buffer += "[Error] " + error
-                hasReceivedOutput = true
-                completeCommand()
-            }
-        default:
-            break
-        }
-    }
-
-    private func completeCommand() {
-        if hasReceivedOutput {
-            let result = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            pendingCommandPromise?.succeed(result)
-            pendingCommandPromise = nil
-            buffer = ""
-            hasReceivedOutput = false
-        }
-    }
-
-    /// A command with no stdout (e.g. `set volume output volume 40`) never
-    /// triggers `channelRead`, so the remote's exit-status is the only signal
-    /// that it finished. Complete with whatever output accumulated — possibly
-    /// none — instead of letting `channelInactive` fail the command as
-    /// "Connection closed", which upstream classifies as connection loss and
-    /// answers every legacy volume set with a spurious reconnect.
-    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        if event is SSHChannelRequestEvent.ExitStatus, let promise = pendingCommandPromise {
-            pendingCommandPromise = nil
-            promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
-            buffer = ""
-            hasReceivedOutput = false
-        }
-        context.fireUserInboundEventTriggered(event)
-    }
-
-    func channelInactive(context: ChannelHandlerContext) {
-        if let promise = pendingCommandPromise {
-            promise.fail(SSHError.channelError("Connection closed"))
-            pendingCommandPromise = nil
-        }
-        context.fireChannelInactive()
-    }
-
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        if let promise = pendingCommandPromise {
-            promise.fail(error)
-            pendingCommandPromise = nil
-        }
-        context.close(promise: nil)
-    }
-}
-
-private final class LegacyErrorHandler: ChannelInboundHandler {
-    typealias InboundIn = Any
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        context.close(promise: nil)
     }
 }

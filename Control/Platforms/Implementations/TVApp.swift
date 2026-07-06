@@ -9,15 +9,10 @@ struct TVApp: AppPlatform {
     let minActionInterval: TimeInterval = 0.3
 
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise")
-        ]
+        [.skipBackward(10), .playPause, .skipForward(10)]
     }
-    
+
+
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
         return """
@@ -64,11 +59,6 @@ struct TVApp: AppPlatform {
         default:
             return statusScript(precededBy: executeAction(action))
         }
-    }
-    
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse TV state")
     }
     
     func executeAction(_ action: AppAction) -> String {

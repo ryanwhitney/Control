@@ -6,15 +6,10 @@ struct QuickTimeApp: AppPlatform {
     let defaultEnabled = true
 
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise")
-        ]
+        [.skipBackward(5), .playPause, .skipForward(5)]
     }
-    
+
+
     private func statusScript(precededBy actionScript: String = "") -> String {
         let sep = ScriptTokens.fieldSeparator
         return """
@@ -24,22 +19,12 @@ struct QuickTimeApp: AppPlatform {
                 return "Nothing playing \(sep)   \(sep)false"
             end if
             set docName to name of document 1
-            if playing of document 1 then
-                set playState to "playing"
-            else
-                set playState to "paused"
-            end if
             return docName & "\(sep)   \(sep)" & (playing of document 1 as text)
         end tell
         """
     }
 
     func fetchState() -> String { statusScript() }
-
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse QuickTime state")
-    }
 
     // No bare `return` in these scripts: they're injected at the top of
     // statusScript's tell block, and a `return` would exit the whole combined

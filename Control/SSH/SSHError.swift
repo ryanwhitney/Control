@@ -1,6 +1,15 @@
 import Foundation
 
-extension SSHError {
+/// Error type shared by the whole SSH layer: both transports, the connection
+/// manager, and the views that format errors for display.
+enum SSHError: Error {
+    case channelNotConnected
+    case invalidChannelType
+    case authenticationFailed
+    case connectionFailed(String)
+    case timeout
+    case channelError(String)
+
     /// Single connection-error classifier shared by both transports, so the same
     /// network failure maps to the same `SSHError` (and user-facing message)
     /// whether the streaming or the compatibility client hit it.
@@ -90,7 +99,7 @@ extension SSHError {
                 "Connection Timeout",
                 """
                 The connection to \(displayName) timed out.
-                
+
                 Please check that:
                 • Both devices are on the same network
                 • Remote Login is enabled on your Mac
@@ -98,7 +107,7 @@ extension SSHError {
                 """
             )
         case .channelError(let details):
-            if details.contains("Connection lost") || details.contains("Invalid heartbeat response") {
+            if details.contains("Connection lost") {
                 return (
                     "Lost connection to \(displayName)",
                     "Please check that both devices are still on the same network and your Mac is awake and responsive."
@@ -109,7 +118,7 @@ extension SSHError {
                     """
                     Failed to establish a secure connection with \(displayName).
                     Please try again in a few moments.
-                    
+
                     Technical details: \(details)
                     """
                 )
@@ -122,7 +131,7 @@ extension SSHError {
                 Please ensure Remote Login is enabled and try again.
                 """
             )
-        case .invalidChannelType, .noSession:
+        case .invalidChannelType:
             return (
                 "Connection Error",
                 """
@@ -132,4 +141,4 @@ extension SSHError {
             )
         }
     }
-} 
+}

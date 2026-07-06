@@ -223,3 +223,14 @@ class AcceptAllHostKeysDelegate: NIOSSHClientServerAuthenticationDelegate {
         validationCompletePromise.succeed(())
     }
 }
+
+/// Logs and closes on errors from server-initiated channels, which neither
+/// transport expects. Shared by both transports' pipelines.
+final class SSHChannelErrorHandler: ChannelInboundHandler {
+    typealias InboundIn = Any
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        sshLog("SSH Error on server-initiated channel: \(error)")
+        context.close(promise: nil)
+    }
+}

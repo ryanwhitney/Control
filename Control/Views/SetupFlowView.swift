@@ -132,7 +132,7 @@ struct PermissionsNavigationContext: Identifiable, Hashable {
     let enabledPlatforms: Set<String>
 }
 
-// MARK: - Legacy SetupFlowView (for compatibility)
+// MARK: - SetupFlowView
 struct SetupFlowView: View {
     let host: String
     let displayName: String

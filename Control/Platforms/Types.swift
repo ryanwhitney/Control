@@ -68,6 +68,22 @@ extension ActionConfig: Equatable {
     }
 }
 
+/// The standard transport configs shared by the platform implementations.
+extension ActionConfig {
+    static let playPause = ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
+        isPlaying ? "pause.fill" : "play.fill"
+    })
+    static let previousTrack = ActionConfig(action: .previousTrack, icon: "backward.end.fill")
+    static let nextTrack = ActionConfig(action: .nextTrack, icon: "forward.end.fill")
+
+    static func skipBackward(_ seconds: Int) -> ActionConfig {
+        ActionConfig(action: .skipBackward(seconds), icon: "\(seconds).arrow.trianglehead.counterclockwise")
+    }
+    static func skipForward(_ seconds: Int) -> ActionConfig {
+        ActionConfig(action: .skipForward(seconds), icon: "\(seconds).arrow.trianglehead.clockwise")
+    }
+}
+
 struct AppState: Equatable {
     var title: String
     var subtitle: String
@@ -115,6 +131,14 @@ extension AppPlatform {
     /// PermissionsView runs them bare). `combinedStatusScript()` then skips its
     /// System Events wrapper, avoiding a second process-enumeration per poll.
     var fetchStateIsSelfGuarding: Bool { false }
+
+    /// Default status parse: the shared separated shape below, or an empty
+    /// error state when the output doesn't match. Platforms that post-process
+    /// the parse (IINA, Safari) or read a different field (VLC) override this.
+    func parseState(_ output: String) -> AppState {
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", error: "Unable to parse status")
+    }
 
     /// Parses the shared "title ~|VCF|~ subtitle ~|VCF|~ … ~|VCF|~ isPlaying"
     /// status shape (see `ScriptTokens.fieldSeparator`). Returns nil when the

@@ -1,6 +1,6 @@
 //
-//  VolumeControlApp.swift
-//  VolumeControl
+//  ControlApp.swift
+//  Control
 //
 //  Created by Ryan Whitney on 12/29/24.
 //
@@ -27,30 +27,14 @@ struct VolumeControlApp: App {
     }
 }
 
-/// Triggers (and tracks) the iOS local-network permission prompt. Starting a
-/// Bonjour browser is what surfaces the system prompt; `.ready` means access was
-/// granted, `.failed` denied.
+/// Triggers the iOS local-network permission prompt. Starting a Bonjour
+/// browser is what surfaces the system prompt.
 class NetworkPermissions: ObservableObject {
-    @Published var isAuthorized = false
     private let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: .tcp)
-    
+
     func requestPermissions() {
-        browser.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                DispatchQueue.main.async {
-                    self.isAuthorized = true
-                }
-            case .failed:
-                DispatchQueue.main.async {
-                    self.isAuthorized = false
-                }
-            default:
-                break
-            }
-        }
         browser.start(queue: .main)
-        
+
         // Add timeout to stop the permissions check
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak browser] in
             browser?.cancel()

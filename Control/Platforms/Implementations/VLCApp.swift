@@ -6,17 +6,10 @@ struct VLCApp: AppPlatform {
     let defaultEnabled = false
     
     var supportedActions: [ActionConfig] {
-        [
-            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .skipBackward(10), icon: "10.arrow.trianglehead.counterclockwise"),
-            ActionConfig(action: .playPauseToggle, dynamicIcon: { isPlaying in
-                isPlaying ? "pause.fill" : "play.fill"
-            }),
-            ActionConfig(action: .skipForward(10), icon: "10.arrow.trianglehead.clockwise"),
-            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
-        ]
+        [.previousTrack, .skipBackward(10), .playPause, .skipForward(10), .nextTrack]
     }
-    
+
+
     /// `fetchState()` self-guards (and is run bare by PermissionsView), so the
     /// generic combinedStatusScript wrapper — a second System Events process
     /// enumeration per poll — is skipped.
@@ -88,7 +81,7 @@ struct VLCApp: AppPlatform {
     func parseState(_ output: String) -> AppState {
         // VLC's output carries an extra state-word field; the boolean is fourth.
         parseSeparatedState(output, isPlayingField: 3)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
+            ?? AppState(title: "", subtitle: "")
     }
     
     func executeAction(_ action: AppAction) -> String {

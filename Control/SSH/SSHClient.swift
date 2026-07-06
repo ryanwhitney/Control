@@ -3,16 +3,6 @@ import NIOSSH
 import NIOCore
 import NIOPosix
 
-enum SSHError: Error {
-    case channelNotConnected
-    case invalidChannelType
-    case authenticationFailed
-    case connectionFailed(String)
-    case timeout
-    case channelError(String)
-    case noSession
-}
-
 class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var group: EventLoopGroup
 
@@ -23,14 +13,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private let stateLock = NSLock()
     private var connection: Channel?
 
-    // MARK: - Dedicated Channel Support
-    // Using a single app channel improves stability by serialising all app commands.
-    // This is why `serializesAppCommands` is true here (the protocol default): all
-    // platform status/action commands funnel through one `app-0` executor, so a
-    // bulk refresh queues behind itself — AppController refreshes visible-first.
-    private let appChannelPoolSize = 1
-
-    /// Executors keyed by physical channel name (e.g. "system", "app-0", "app-1")
+    /// Executors keyed by physical channel name (e.g. "system", "heartbeat", "app-0")
     private var dedicatedExecutors: [String: ChannelExecutor] = [:]
 
     /// Retrieve an existing executor or create a new one based on the logical key.
@@ -62,21 +45,19 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         do {
             let exec = try executor(for: channelKey)
             let result = await exec.run(command: command, description: description)
-            if case .failure(let error) = result {
-                var shouldReset = false
-                if case SSHError.timeout = error { shouldReset = true }
-                if case SSHError.channelError = error { shouldReset = true }
-                if shouldReset {
-                    let physicalKey = self.physicalKey(for: channelKey)
-                    // Evict under the lock via a synchronous helper: NSLock's
-                    // lock()/unlock() are unavailable directly in an async context.
-                    let evicted = evictExecutor(forKey: physicalKey)
-                    if let evicted {
-                        // Close, don't just drop: an evicted executor still holds a
-                        // live PTY channel (and a remote osascript) otherwise.
-                        await evicted.close()
-                        sshLog("📡 SSHClient: Closed executor for key '\(physicalKey)' due to error – will recreate on next use")
-                    }
+            // The executor self-heals from timeouts (it rebuilds its shell and
+            // keeps its queue), so eviction only happens once it has permanently
+            // given up — otherwise we'd destroy the surviving queue with it.
+            if case .failure = result, await exec.isDefunct {
+                let physicalKey = self.physicalKey(for: channelKey)
+                // Evict under the lock via a synchronous helper: NSLock's
+                // lock()/unlock() are unavailable directly in an async context.
+                let evicted = evictExecutor(forKey: physicalKey)
+                if let evicted {
+                    // Close, don't just drop: an evicted executor could still hold
+                    // a live PTY channel (and a remote osascript) otherwise.
+                    await evicted.close()
+                    sshLog("📡 SSHClient: Evicted defunct executor for key '\(physicalKey)' – will recreate on next use")
                 }
             }
             return result
@@ -99,6 +80,29 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         Task {
             let result = await performOnDedicatedChannel(channelKey, command: command, description: description)
             completion(result)
+        }
+    }
+
+    /// Cap keeps ephemeral channels + the persistent ones (system, heartbeat,
+    /// app-0) comfortably under sshd's MaxSessions (default 10).
+    private let isolatedGate = CommandGate(maxInFlight: 4)
+
+    /// Isolated commands bypass the shared interpreter entirely: each runs on
+    /// its own throwaway exec channel, so one blocking (e.g. on a permission
+    /// dialog) can't stall the serialized app channel or other isolated commands.
+    func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        stateLock.lock()
+        let conn = connection
+        stateLock.unlock()
+        guard let conn else {
+            completion(.failure(SSHError.channelNotConnected))
+            return
+        }
+        isolatedGate.run { finished in
+            EphemeralCommandChannel.run(command, on: conn, description: description) { result in
+                finished()
+                completion(result)
+            }
         }
     }
 
@@ -130,7 +134,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             username: username,
             password: password,
             connectionId: connectionId,
-            makeChildHandlers: { [ErrorHandler()] }
+            makeChildHandlers: { [SSHChannelErrorHandler()] }
         ) { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -169,21 +173,14 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         sshLog("⚰︎ SSHClient disconnected and cleaned up")
     }
 
-    /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying executor key.
+    /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying
+    /// executor key. All app keys share the single "app-0" executor: serialising app
+    /// commands on one channel improves stability, and is why `serializesAppCommands`
+    /// is true here — a bulk refresh queues behind itself, so AppController refreshes
+    /// visible-first.
     private func physicalKey(for logicalKey: String) -> String {
         if logicalKey == "system" { return "system" }
         if logicalKey == "heartbeat" { return "heartbeat" }
-        return "app-\(abs(logicalKey.hashValue) % appChannelPoolSize)"
-    }
-}
-
-private class ErrorHandler: ChannelInboundHandler {
-    typealias InboundIn = Any
-
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        // This handler is for server-initiated channels, which we don't expect.
-        // Logging the error is sufficient.
-        sshLog("SSH Error on server-initiated channel: \(error)")
-        context.close(promise: nil)
+        return "app-0"
     }
 }

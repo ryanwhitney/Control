@@ -124,9 +124,9 @@ struct ChooseAppsView: View, SSHConnectedView {
             .background(GeometryReader {
                 LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                     .padding(.bottom, -30)
-                    .preference(key: headerSizePreferenceKey.self, value: $0.size.height)
+                    .preference(key: HeaderSizePreferenceKey.self, value: $0.size.height)
             })
-            .onPreferenceChange(headerSizePreferenceKey.self) { value in
+            .onPreferenceChange(HeaderSizePreferenceKey.self) { value in
                 self.headerHeight = value
             }
             
@@ -162,8 +162,6 @@ struct ChooseAppsView: View, SSHConnectedView {
         .onAppear {
             viewLog("ChooseAppsView: View appeared", view: "ChooseAppsView")
             updateSelectedPlatforms()
-            
-            // Set up SSH connection
             setupSSHConnection()
         }
         .onChange(of: initialSelection) { _, newValue in
@@ -188,13 +186,6 @@ struct ChooseAppsView: View, SSHConnectedView {
         } else {
             selectedPlatforms = Set(availablePlatforms.filter { $0.defaultEnabled }.map { $0.id })
         }
-    }
-}
-
-struct headerSizePreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value += nextValue()
     }
 }
 

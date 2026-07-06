@@ -10,13 +10,13 @@ struct MPVApp: AppPlatform {
 
     var supportedActions: [ActionConfig] {
         [
-            ActionConfig(action: .previousTrack, icon: "backward.end.fill"),
-            ActionConfig(action: .skipBackward(5), icon: "5.arrow.trianglehead.counterclockwise"),
+            .previousTrack,
+            .skipBackward(5),
             // Static play/pause glyph: mpv doesn't expose reliable play/pause
             // state over AppleScript, so a dynamic icon would misrepresent it.
             ActionConfig(action: .playPauseToggle, icon: "playpause.fill"),
-            ActionConfig(action: .skipForward(5), icon: "5.arrow.trianglehead.clockwise"),
-            ActionConfig(action: .nextTrack, icon: "forward.end.fill")
+            .skipForward(5),
+            .nextTrack
         ]
     }
 
@@ -75,11 +75,6 @@ struct MPVApp: AppPlatform {
 
     func actionWithStatus(_ action: AppAction) -> String {
         statusScript(precededBy: executeAction(action))
-    }
-
-    func parseState(_ output: String) -> AppState {
-        parseSeparatedState(output)
-            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
     }
 
     // Returns just the key line(s), injected inside `tell process "mpv"` by

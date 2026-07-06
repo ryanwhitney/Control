@@ -317,21 +317,21 @@ struct ControlView: View, SSHConnectedView {
                         }
                     }
                     // Platform-specific actions section
-                    if let currentPlatform = appController.platforms[safe: selectedPlatformIndex],
-                       !currentPlatform.menuActions.isEmpty {
-                        Divider()
-                        Section(currentPlatform.name) {
-                            ForEach(currentPlatform.menuActions) { appAction in
-                                Button {
-                                    Task {
-                                        await appController.executeActionWithStatus(platform: currentPlatform, action: appAction.action, isMenuAction: true)
-                                    }
-                                } label: {
-                                    Label(appAction.label, systemImage: appAction.staticIcon)
-                                }
-                            }
-                        }
-                    }
+//                    if let currentPlatform = appController.platforms[safe: selectedPlatformIndex],
+//                       !currentPlatform.menuActions.isEmpty {
+//                        Divider()
+//                        Section(currentPlatform.name) {
+//                            ForEach(currentPlatform.menuActions) { appAction in
+//                                Button {
+//                                    Task {
+//                                        await appController.executeActionWithStatus(platform: currentPlatform, action: appAction.action, isMenuAction: true)
+//                                    }
+//                                } label: {
+//                                    Label(appAction.label, systemImage: appAction.staticIcon)
+//                                }
+//                            }
+//                        }
+//                    }
                 } label: {
                     Label("More", systemImage: "ellipsis")
                 }
@@ -342,10 +342,7 @@ struct ControlView: View, SSHConnectedView {
             viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
             viewLog("Connection manager state: \(connectionManager.connectionState)", view: "ControlView")
             
-            // Update AppController with current platforms
             updateAppControllerPlatforms()
-            
-            // Set up SSH connection
             setupSSHConnection()
 
             // If Fast mode connects but its stream never responds, the manager
@@ -506,13 +503,5 @@ struct ControlView_Previews: PreviewProvider {
             )
             .environmentObject(SavedConnections())
         }
-    }
-}
-
-// safe subscript extension for Array
-extension Array {
-    subscript(safe index: Int) -> Element? {
-        guard index >= 0, index < endIndex else { return nil }
-        return self[index]
     }
 }
