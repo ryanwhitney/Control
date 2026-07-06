@@ -70,7 +70,8 @@ extension SSHConnectionManager {
                     if output.contains(idString) {
                         self.handleHeartbeatSuccess(rtt: Date().timeIntervalSince(sendTime), id: idString)
                     } else {
-                        self.handleHeartbeatFailure(reason: "mismatched reply for \(idString)")
+                        let preview = output.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)
+                        self.handleHeartbeatFailure(reason: "mismatched reply for \(idString): '\(preview)'")
                     }
                 case .failure(let error):
                     self.handleHeartbeatFailure(reason: error.localizedDescription)
@@ -103,7 +104,7 @@ extension SSHConnectionManager {
         if consecutiveHeartbeatFailures == 1 {
             connectionState = .recovering
             recoveryDeadline = Date().addingTimeInterval(2)
-            currentHeartbeatInterval = 0.5
+            currentHeartbeatInterval = minHeartbeatInterval
             connectionLog("🛠️ Entering recovering state – monitoring for 2s")
         } else {
             let shouldDrop = consecutiveHeartbeatFailures >= maxHeartbeatFailures && (recoveryDeadline.map { Date() >= $0 } ?? false)
