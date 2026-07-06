@@ -1,14 +1,76 @@
 import Foundation
 import SwiftUI
+import Network
 
 @MainActor
 class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     @Published private(set) var connectionState: ConnectionState = .disconnected
-    private nonisolated let sshClient: SSHClient
+    /// Active SSH transport, selected per `UserPreferences.connectionMethod` on
+    /// each connect. `nonisolated(unsafe)`: it is assigned on the MainActor in
+    /// `connect()` before any command is dispatched, and only read thereafter.
+    private nonisolated(unsafe) var sshClient: SSHClientProtocol
     private var currentCredentials: Credentials?
-    private var connectionLostHandler: (@MainActor () -> Void)?
+    private var connectionLostHandler: (@MainActor (Error?) -> Void)?
+    private var pathMonitor: NWPathMonitor?
+    private let monitorQueue = DispatchQueue(label: "SSHPathMonitor")
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     
+    // MARK: - Heartbeat Management
+    private var heartbeatTask: Task<Void, Never>?
+    private var consecutiveHeartbeatFailures = 0
+    private let maxHeartbeatFailures = 2
+    private let minHeartbeatInterval: TimeInterval = 0.5
+    private let maxHeartbeatInterval: TimeInterval = 12
+    private var currentHeartbeatInterval: TimeInterval = 3
+    private var lastHeartbeatSuccess: Date?
+    private var recoveryDeadline: Date?
+    private var heartbeatCounter: UInt32 = 0
+    private let heartbeatReplyTimeout: TimeInterval = 2.5
+
+    // MARK: - Streaming transport auto-fallback
+    /// Canary for the streaming transport: true once a *real* heartbeat reply has
+    /// landed on the current connection. `lastHeartbeatSuccess` is seeded on
+    /// connect, so it can't tell "connected but the stream never replied" from a
+    /// live connection — this flag can. Reset on every connect; set only in
+    /// `handleHeartbeatSuccess`.
+    private var heartbeatEverSucceeded = false
+    /// The transport the *current* connection was built with. Used to decide
+    /// whether an unresponsive connection is a streaming-layer failure worth
+    /// auto-falling-back (vs. a Compatibility connection, which we leave alone).
+    private var activeConnectionMethod: ConnectionMethod?
+    /// Transient, non-persisted transport override applied on the next connect.
+    /// Set when we auto-fall-back to Compatibility for a Mac whose Fast/streaming
+    /// layer is broken; lasts the app session unless the user makes an explicit
+    /// choice in Settings. The persisted default stays in `UserPreferences`.
+    private var sessionMethodOverride: ConnectionMethod?
+    /// One auto-fallback per app session, so a genuinely dead Mac (or a real
+    /// network drop) can't ping-pong transports or re-show the notice.
+    private var hasAutoFallenBackToCompatibility = false
+    /// Invoked on the MainActor when we auto-switch to Compatibility, so the
+    /// active view can show the notice and re-drive the connection.
+    private var transportFallbackHandler: (@MainActor () -> Void)?
+
+    // MARK: - Reconnect controller
+    /// Re-drives a full connect (the view's connect path, so heartbeat + state
+    /// refresh run) after an involuntary loss. When nil we surface the loss
+    /// immediately instead of auto-reconnecting.
+    private var reconnectHandler: (@MainActor () -> Void)?
+    /// True from the moment a reconnect is scheduled until it actually starts, so
+    /// a burst of loss signals doesn't schedule several overlapping reconnects.
+    private var reconnectPending = false
+    /// Consecutive auto-reconnect cycles without a stable heartbeat; reset on a
+    /// real heartbeat. Caps flapping (connect succeeds then immediately drops)
+    /// before we surface the error rather than looping forever.
+    private var consecutiveReconnects = 0
+    private let maxReconnectCycles = 3
+    /// Attempts per reconnect drive before the error is surfaced (see handleConnection).
+    private let maxConnectAttempts = 3
+    /// Benign racy activity timestamp read by the heartbeat loop to speed up pings
+    /// after commands — avoids a MainActor Task hop per command.
+    /// `nonisolated(unsafe)` matches this class's `sshClient` pattern; Date is a
+    /// single 8-byte value so reads/writes don't tear.
+    private nonisolated(unsafe) var lastActivityAt = Date.distantPast
+
     static let shared = SSHConnectionManager()
     
     struct Credentials: Equatable {
@@ -21,6 +83,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         case disconnected
         case connecting
         case connected
+        case recovering
         case failed(String)
         
         var description: String {
@@ -28,6 +91,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             case .disconnected: return "disconnected"
             case .connecting: return "connecting"
             case .connected: return "connected"
+            case .recovering: return "recovering"
             case .failed(let error): return "failed(\(error))"
             }
         }
@@ -36,26 +100,139 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     init() {
         connectionLog("SSHConnectionManager: Initializing")
         self.sshClient = SSHClient()
+        
+        // Start monitoring network path changes to detect sudden Wi-Fi drops
+        let monitor = NWPathMonitor()
+        self.pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            // Only a definitively unsatisfied path counts as a drop. Transient
+            // states (e.g. .requiresConnection during a Wi-Fi handoff) are left
+            // for the heartbeat to confirm, avoiding spurious disconnects.
+            if path.status == .unsatisfied {
+                connectionLog("🚨 Network path unsatisfied – assuming connection lost")
+                Task { @MainActor in
+                    self.handleConnectionLost(because: SSHError.connectionFailed("Network path unavailable"))
+                }
+            } else if path.status == .satisfied {
+                // Network came back. If we're mid-recovery, kick the reconnect now
+                // rather than waiting out the backoff. Only from `.recovering` to
+                // avoid touching a deliberate disconnect (leaving the screen).
+                Task { @MainActor in
+                    guard self.connectionState == .recovering, !self.reconnectPending,
+                          let reconnect = self.reconnectHandler else { return }
+                    connectionLog("🛜 Network path restored – reconnecting")
+                    self.consecutiveReconnects = 0
+                    reconnect()
+                }
+            }
+        }
+        monitor.start(queue: monitorQueue)
     }
     
-    func setConnectionLostHandler(_ handler: @escaping @MainActor () -> Void) {
+    func setConnectionLostHandler(_ handler: @escaping @MainActor (Error?) -> Void) {
         self.connectionLostHandler = handler
     }
-    
-    nonisolated var client: SSHClient { 
-        sshLog("SSHConnectionManager: Accessing SSH client")
-        return sshClient 
+
+    func setTransportFallbackHandler(_ handler: @escaping @MainActor () -> Void) {
+        self.transportFallbackHandler = handler
+    }
+
+    /// Registered by the active view to re-drive its full connect path when the
+    /// manager decides to auto-reconnect after an involuntary loss.
+    func setReconnectHandler(_ handler: @escaping @MainActor () -> Void) {
+        self.reconnectHandler = handler
+    }
+
+    /// Called by the registering view when it leaves the screen. The handlers
+    /// capture that view's host/credentials, so leaving them registered would
+    /// let a loss during a *later* connection (possibly to a different Mac)
+    /// silently re-drive the dismissed view's connect path.
+    func clearViewHandlers() {
+        self.reconnectHandler = nil
+        self.transportFallbackHandler = nil
+    }
+
+    /// The user made an explicit connection-method choice in Settings; that choice
+    /// supersedes any transient auto-fallback and re-arms the one-shot fallback so
+    /// a fresh Fast attempt can auto-heal again if it too proves broken.
+    func userDidChooseConnectionMethod() {
+        sessionMethodOverride = nil
+        hasAutoFallenBackToCompatibility = false
     }
     
-    func handleConnectionLost() {
-        sshLog("🚨 SSHConnectionManager: Connection Lost Detected")
+    nonisolated var client: SSHClientProtocol {
+        return sshClient
+    }
+
+    /// Forward the active transport's channel model so callers (AppController)
+    /// can pick a refresh strategy without knowing which transport is selected.
+    nonisolated var serializesAppCommands: Bool {
+        sshClient.serializesAppCommands
+    }
+
+    /// Builds the SSH transport for the selected connection method.
+    private static func makeTransport(for method: ConnectionMethod) -> SSHClientProtocol {
+        switch method {
+        case .streaming: return SSHClient()
+        case .compatibility: return LegacySSHClient()
+        }
+    }
+    
+    func handleConnectionLost(because error: Error? = nil, allowTransportFallback: Bool = false) {
         Task { @MainActor in
-            let previousState = connectionState.description
-            connectionState = .disconnected
-            sshLog("Connection state changed: \(previousState) -> \(connectionState.description)")
-            sshLog("🚨 Triggering connection lost handler to update UI")
-            disconnect()
-            connectionLostHandler?()
+            // Only a live/recovering connection can be "lost". A loss that arrives
+            // mid-(re)connect (state .connecting/.failed) is owned by the connect
+            // retry loop, and `reconnectPending` blocks a burst of loss signals
+            // from scheduling several overlapping reconnects.
+            guard connectionState == .connected || connectionState == .recovering else { return }
+            guard !reconnectPending else { return }
+
+            // Streaming-transport canary: we reached `.connected` but not one
+            // heartbeat reply ever landed → the Fast/streaming layer is broken,
+            // not the network or permissions (which would fail Compatibility too).
+            // Auto-switch to Compatibility once and let the active view re-drive +
+            // show the notice, rather than dead-ending on a "Connection Lost".
+            if allowTransportFallback,
+               activeConnectionMethod == .streaming,
+               !heartbeatEverSucceeded,
+               !hasAutoFallenBackToCompatibility,
+               currentCredentials != nil,
+               let fallback = transportFallbackHandler {
+                connectionLog("🩹 Fast transport unresponsive on this Mac – auto-switching to Compatibility")
+                hasAutoFallenBackToCompatibility = true
+                sessionMethodOverride = .compatibility
+                self.connectionState = .disconnected
+                self.sshClient.disconnect()
+                self.stopHeartbeat()
+                fallback()
+                return
+            }
+
+            connectionLog("🚨 Connection lost...")
+            self.sshClient.disconnect()
+            self.stopHeartbeat()
+
+            // Auto-reconnect a bounded number of cycles before surfacing an error.
+            // The flap cap (`consecutiveReconnects`, reset on a real heartbeat)
+            // stops a connect-succeeds-then-immediately-drops loop.
+            if let reconnect = reconnectHandler, consecutiveReconnects < maxReconnectCycles {
+                consecutiveReconnects += 1
+                connectionState = .recovering
+                reconnectPending = true
+                connectionLog("↻ Auto-reconnecting (cycle \(consecutiveReconnects)/\(maxReconnectCycles))")
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    reconnectPending = false
+                    // Skip if we recovered or were torn down in the meantime.
+                    guard connectionState == .recovering else { return }
+                    reconnect()   // → connectToSSH → handleConnection retry loop
+                }
+            } else {
+                connectionState = .disconnected
+                connectionLostHandler?(error)   // view surfaces it; OK returns to the list
+                consecutiveReconnects = 0
+            }
         }
     }
     
@@ -71,8 +248,18 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         // Always clean up first to prevent state corruption
         await cleanupExistingConnection()
-        
+
+        // Select the transport for this connect: a transient auto-fallback
+        // override (set when Fast proved broken on some Mac this session) wins
+        // over the user's persisted preference.
+        let method = sessionMethodOverride ?? UserPreferences.shared.connectionMethod
+        sshClient = Self.makeTransport(for: method)
+        activeConnectionMethod = method
+        heartbeatEverSucceeded = false
+        connectionLog("Transport: \(method.displayName)\(sessionMethodOverride != nil ? " (auto)" : "")")
+
         connectionState = .connecting
+        reconnectPending = false   // a connect attempt is now the active recovery
         currentCredentials = Credentials(host: host, username: username, password: password)
         
         return try await withCheckedThrowingContinuation { continuation in
@@ -87,19 +274,24 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                         return
                     }
                     hasResumed = true
-                    connectionLog("🔄 [\(connectionId)] Processing connection result: \(result)")
                     
                     switch result {
                     case .success:
                         connectionLog("✓ [\(connectionId)] Connection successful")
                         self.connectionState = .connected
+                        self.consecutiveHeartbeatFailures = 0
+                        self.lastHeartbeatSuccess = Date()
+                        self.recoveryDeadline = nil
                         continuation.resume()
                     case .failure(let error):
                         connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
                         self.connectionState = .failed(error.localizedDescription)
                         self.currentCredentials = nil
-                        
-                        // Ensure client is disconnected on failure to prevent stale state
+
+                        // Ensure client is disconnected on failure to prevent stale
+                        // state. The connect retry loop (handleConnection) owns the
+                        // retry/surface decision, so we don't fire handleConnectionLost
+                        // here (it would double-handle and could show the error mid-retry).
                         client.disconnect()
                         continuation.resume(throwing: error)
                     }
@@ -113,24 +305,51 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     
     private func cleanupExistingConnection() async {
-        disconnect()
-        // Give a small delay to ensure cleanup
-        try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+        // Only pay the settle delay when there was actually a live connection to
+        // tear down; a fresh connect shouldn't eat 0.2 s for nothing.
+        let wasLive = connectionState != .disconnected
+        // Tear down synchronously (we're on the MainActor): the nonisolated
+        // disconnect() defers its state reset to a queued task, which would run
+        // *after* connect() sets `.connecting`/`currentCredentials` and clobber
+        // them mid-connect — leaving a connected manager with no credentials
+        // (breaking shouldReconnect's reuse check and the transport fallback).
+        disconnectNow()
+        if wasLive {
+            try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+        }
     }
-    
+
     nonisolated func disconnect() {
         sshClient.disconnect()
         Task { @MainActor in
-            self.connectionState = .disconnected
-            self.currentCredentials = nil
-            self.cancelBackgroundDisconnect()
-            self.endBackgroundTask()
+            self.finishDisconnectCleanup()
         }
+    }
+
+    @MainActor
+    private func disconnectNow() {
+        sshClient.disconnect()
+        finishDisconnectCleanup()
+    }
+
+    @MainActor
+    private func finishDisconnectCleanup() {
+        // A connect() that started after this disconnect was issued owns the
+        // state now — don't clobber its `.connecting`/credentials from a stale
+        // queued cleanup (the transport itself was already torn down above).
+        guard connectionState != .connecting else { return }
+        connectionState = .disconnected
+        currentCredentials = nil
+        cancelBackgroundDisconnect()
+        endBackgroundTask()
+        // Stop heartbeat monitoring
+        stopHeartbeat()
     }
     
     deinit {
         sshClient.disconnect()
         backgroundDisconnectTimer?.cancel()
+        pathMonitor?.cancel()
     }
     
     func shouldReconnect(host: String, username: String, password: String) -> Bool {
@@ -190,20 +409,20 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         // Set up 30-second timer to disconnect SSH
         let disconnectTimer = DispatchWorkItem { [weak self] in
-            connectionLog("📱 App backgrounded for 30 seconds - disconnecting SSH")
+            connectionLog("⚰︎ App backgrounded for 30 seconds - disconnecting SSH")
             self?.disconnect()
             self?.endBackgroundTask()
         }
         
         backgroundDisconnectTimer = disconnectTimer
         DispatchQueue.main.asyncAfter(deadline: .now() + 30.0, execute: disconnectTimer)
-        connectionLog("📱 Started 30-second background disconnect timer")
+        connectionLog("⚰︎ Started 30-second background disconnect timer")
     }
     
     private func cancelBackgroundDisconnect() {
         backgroundDisconnectTimer?.cancel()
         backgroundDisconnectTimer = nil
-        connectionLog("📱 Cancelled background disconnect timer")
+        connectionLog("⚰︎ Cancelled background disconnect timer")
     }
     
     private func startBackgroundTask() {
@@ -212,7 +431,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "SSH Connection Cleanup") { [weak self] in
             // Background task is about to expire (system limit ~30-180 seconds)
-            connectionLog("📱 Background task expiring - disconnecting SSH")
+            connectionLog("⚰︎ Background task expiring - disconnecting SSH")
             self?.client.disconnect()
             self?.disconnect() 
             self?.endBackgroundTask()
@@ -221,13 +440,13 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         if backgroundTask == .invalid {
             connectionLog("⚠️ Failed to start background task")
         } else {
-            connectionLog("📱 Started background task: \(backgroundTask)")
+            connectionLog("⚰︎ Started background task: \(backgroundTask)")
         }
     }
     
     private func endBackgroundTask() {
         if backgroundTask != .invalid {
-            connectionLog("📱 Ending background task: \(backgroundTask)")
+            connectionLog("⚰︎ Ending background task: \(backgroundTask)")
             UIApplication.shared.endBackgroundTask(backgroundTask)
             backgroundTask = .invalid
         }
@@ -242,110 +461,72 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         onError: @escaping (Error) -> Void
     ) {
         Task {
-            do {
-                if !shouldReconnect(host: host, username: username, password: password) {
+            if !shouldReconnect(host: host, username: username, password: password) {
+                await onSuccess()
+                return
+            }
+
+            // Retry a few times with short backoff before surfacing the error, so
+            // a transient failure (e.g. Wi-Fi not fully re-associated on
+            // foreground) self-heals instead of dead-ending on the first miss.
+            var attempt = 0
+            while true {
+                attempt += 1
+                do {
+                    try await connect(host: host, username: username, password: password)
                     await onSuccess()
                     return
+                } catch {
+                    if attempt >= maxConnectAttempts {
+                        connectionLog("❌ Connect failed after \(attempt) attempts: \(error.localizedDescription)")
+                        onError(error)
+                        return
+                    }
+                    connectionLog("↻ Connect attempt \(attempt) failed – retrying")
+                    try? await Task.sleep(nanoseconds: 500_000_000 * UInt64(attempt)) // 0.5s, 1.0s…
                 }
-                
-                try await connect(host: host, username: username, password: password)
-                await onSuccess()
-            } catch {
-                onError(error)
             }
         }
     }
     
-    // Centralized connection loss detection
+    // Centralized connection loss detection (shared list lives on SSHError so
+    // both transports and the manager can't drift apart).
     nonisolated func isConnectionLossError(_ error: Error) -> Bool {
-        let errorString = error.localizedDescription.lowercased()
-        let isConnectionLoss = errorString.contains("connection lost") ||
-               errorString.contains("eof") ||
-               errorString.contains("connection reset") ||
-               errorString.contains("broken pipe") ||
-               errorString.contains("connection closed") ||
-               errorString.contains("tcp shutdown") ||
-               errorString.contains("network is unreachable") ||
-               errorString.contains("host is unreachable") ||
-               errorString.contains("connection timed out") ||
-               errorString.contains("no route to host")
-        
+        let isConnectionLoss = SSHError.isConnectionLoss(error)
         if isConnectionLoss {
-            sshLog("🚨 Connection loss detected: \(errorString)")
+            sshLog("🚨 Connection loss detected: \(error.localizedDescription.lowercased())")
         }
-        
         return isConnectionLoss
     }
-    
-    /// Execute a command with proactive timeout-based connection monitoring
-    /// 
-    /// This method includes a heartbeat mechanism that:
-    /// - Starts a timeout timer when the command is sent
-    /// - Triggers reconnection if no response (success OR failure) within 6 seconds
-    /// - Prevents silent hangs by detecting dead connections proactively
-    /// - Sends heartbeat verification after successful commands
-    nonisolated func executeCommand(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        sshLog("SSHConnectionManager: Executing command with proactive timeout monitoring")
+
+    /// Execute a command on a dedicated channel, watching failures for signs of
+    /// connection loss. Timeout policy lives in the transport layer (the
+    /// executor's per-command watchdog / the legacy per-channel timeout): a
+    /// second timer here could only fire for a command that was legitimately
+    /// queued behind slow AppleScript, declaring a live connection lost and
+    /// then dropping the real result when it arrived.
+    nonisolated func executeCommand(onChannel channelKey: String = "system", _ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
+        sshLog("SSHConnectionManager: Executing command on channel \(channelKey)")
         if let description = description {
             sshLog("Command: \(description)")
         }
-        
+
+        // Note activity so the heartbeat loop speeds up its pings (no Task hop).
+        lastActivityAt = Date()
+
         let commandId = UUID().uuidString.prefix(8)
-        var hasCompleted = false
         let startTime = Date()
-        
-        // Start proactive timeout monitoring
-        let timeoutTask = DispatchWorkItem { [weak self] in
-            guard !hasCompleted else { return }
-            hasCompleted = true
-            
-            let elapsed = Date().timeIntervalSince(startTime)
-            sshLog("⏰ [\(commandId)] Command timed out after \(String(format: "%.1f", elapsed))s with no response")
-            sshLog("💓 [\(commandId)] Proactive heartbeat timeout - connection appears dead")
-            
-            // Connection appears dead - trigger reconnection
-            Task { @MainActor [weak self] in
-                self?.handleConnectionLost()
-            }
-            completion(.failure(SSHError.timeout))
-        }
-        
-        sshLog("⏰ [\(commandId)] Starting 6-second proactive timeout monitor")
-        DispatchQueue.global().asyncAfter(deadline: .now() + 6.0, execute: timeoutTask)
-        
-        // Execute the command
-        client.executeCommandWithNewChannel(command, description: description) { [weak self] result in
-            guard !hasCompleted else { 
-                sshLog("⚠️ [\(commandId)] Command completed but timeout already triggered, ignoring result")
-                return 
-            }
-            hasCompleted = true
-            timeoutTask.cancel()
-            
+
+        client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
             let elapsed = Date().timeIntervalSince(startTime)
             sshLog("⏰ [\(commandId)] Command completed in \(String(format: "%.1f", elapsed))s")
-            
+
             switch result {
             case .success(let output):
-                sshLog("✓ [\(commandId)] Command succeeded, sending verification heartbeat")
-                // Command succeeded, send verification heartbeat
-                self?.sendPostCommandHeartbeat { heartbeatResult in
-                    switch heartbeatResult {
-                    case .success:
-                        sshLog("💓 [\(commandId)] Post-command heartbeat successful")
-                        completion(.success(output))
-                    case .failure(let heartbeatError):
-                        sshLog("💓 [\(commandId)] Post-command heartbeat failed: \(heartbeatError)")
-                        // Heartbeat failed - connection is likely dead
-                        Task { @MainActor [weak self] in
-                            self?.handleConnectionLost()
-                        }
-                        completion(.failure(heartbeatError))
-                    }
-                }
+                sshLog("✓ [\(commandId)] Command succeeded")
+                completion(.success(output))
             case .failure(let error):
                 sshLog("❌ [\(commandId)] Command failed: \(error)")
-                // Command failed, check if it's a connection issue
                 if self?.isConnectionLossError(error) == true {
                     sshLog("🚨 [\(commandId)] Connection loss detected during command execution")
                     Task { @MainActor [weak self] in
@@ -357,56 +538,26 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    /// Send a heartbeat command to verify connection health after normal commands
-    private nonisolated func sendPostCommandHeartbeat(completion: @escaping (Result<Void, Error>) -> Void) {
-        let heartbeatId = UUID().uuidString.prefix(8)
-        let heartbeatCommand = "echo \"heartbeat-\(heartbeatId)-$(date +%s)\""
-        sshLog("💓 Sending post-command heartbeat: \(heartbeatId)")
-        
-        client.executeCommandBypassingHeartbeat(heartbeatCommand, description: "Post-command heartbeat") { result in
-            switch result {
-            case .success(let output):
-                if output.contains("heartbeat-\(heartbeatId)") {
-                    sshLog("💓 Heartbeat verified: connection is alive")
-                    completion(.success(()))
-                } else {
-                    sshLog("💓 Heartbeat invalid response: \(output)")
-                    completion(.failure(SSHError.channelError("Invalid heartbeat response")))
-                }
-            case .failure(let error):
-                sshLog("💓 Heartbeat failed: \(error)")
-                completion(.failure(error))
-            }
-        }
-    }
-    
     /// Verifies that the connection is alive and responsive
     func verifyConnectionHealth() async throws {
         return try await withCheckedThrowingContinuation { continuation in
-            let healthCommand = "echo \"health-check-$(date +%s)\""
-            sshLog("💓 Executing connection health check")
-            
-            client.executeCommandWithNewChannel(healthCommand, description: "Connection health check") { result in
+            // Channels run an AppleScript interpreter, not a shell — use AppleScript.
+            let token = ScriptTokens.healthCheck()
+            let healthCommand = "return \"\(token)\""
+
+            client.executeCommandOnDedicatedChannel("system", healthCommand, description: "Connection health check") { result in
                 switch result {
                 case .success(let output):
-                    if output.contains("health-check-") {
-                        sshLog("💓 Connection health check successful")
+                    if output.contains(token) {
                         continuation.resume()
                     } else {
-                        sshLog("💓 Connection health check invalid response")
                         continuation.resume(throwing: SSHError.channelError("Invalid health check response"))
                     }
                 case .failure(let error):
-                    sshLog("💓 Connection health check failed: \(error)")
                     continuation.resume(throwing: error)
                 }
             }
         }
-    }
-    
-    /// Compatibility alias for existing code
-    nonisolated func executeCommandWithNewChannel(_ command: String, description: String? = nil, completion: @escaping (Result<String, Error>) -> Void) {
-        executeCommand(command, description: description, completion: completion)
     }
     
     // MARK: - SSHClientProtocol Conformance
@@ -423,7 +574,125 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-
+    /// Protocol conformance – executes on a dedicated channel (default heartbeat behaviour)
+    nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        // Note activity so the heartbeat loop speeds up its pings (no Task hop).
+        lastActivityAt = Date()
+        client.executeCommandOnDedicatedChannel(channelKey, command, description: description, completion: completion)
+    }
     
-    // executeCommandWithNewChannel is already implemented above with heartbeat protection
-} 
+    // MARK: - Heartbeat Helpers
+    func startHeartbeat() {
+        stopHeartbeat()
+        consecutiveHeartbeatFailures = 0
+        currentHeartbeatInterval = minHeartbeatInterval
+        heartbeatTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performHeartbeat() // immediate first ping
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(self.currentHeartbeatInterval * 1_000_000_000))
+                if Task.isCancelled { break }
+                await self.performHeartbeat()
+                // Fast pings right after activity; otherwise gradually back off.
+                let recentlyActive = Date().timeIntervalSince(self.lastActivityAt) < 3
+                self.currentHeartbeatInterval = recentlyActive
+                    ? self.minHeartbeatInterval
+                    : min(self.currentHeartbeatInterval + 1, self.maxHeartbeatInterval)
+            }
+        }
+        connectionLog("♡ Heartbeat started (interval \(minHeartbeatInterval)s -> \(maxHeartbeatInterval)s)")
+        
+        lastHeartbeatSuccess = Date()
+        recoveryDeadline = nil
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        connectionLog("⛔︎ Heartbeat stopped")
+        recoveryDeadline = nil
+    }
+
+    @MainActor
+    private func performHeartbeat() async {
+        let hbId = heartbeatCounter
+        heartbeatCounter &+= 1
+        let idString = ScriptTokens.heartbeat(hbId)
+        let script = "return \"\(idString)\""
+        let sendTime = Date()
+        var completed = false
+
+        // Timeout watchdog
+        let timeoutTask = DispatchWorkItem { [weak self] in
+            guard let self, !completed else { return }
+            completed = true
+            self.handleHeartbeatFailure(reason: "timeout waiting > \(heartbeatReplyTimeout)s for \(idString)")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + heartbeatReplyTimeout, execute: timeoutTask)
+
+        self.client.executeCommandOnDedicatedChannel("heartbeat", script, description: "heartbeat-\(idString)") { [weak self] result in
+            // Hop to the MainActor before touching anything: this callback
+            // arrives on a transport thread, while `completed` and the
+            // handle… methods (which publish connectionState to SwiftUI) are
+            // main-thread state. The watchdog above runs on the main queue, so
+            // both writers of `completed` are now serialized.
+            Task { @MainActor [weak self] in
+                guard let self, !completed else { return }
+                completed = true
+                timeoutTask.cancel()
+
+                switch result {
+                case .success(let output):
+                    if output.contains(idString) {
+                        self.handleHeartbeatSuccess(rtt: Date().timeIntervalSince(sendTime), id: idString)
+                    } else {
+                        self.handleHeartbeatFailure(reason: "mismatched reply for \(idString)")
+                    }
+                case .failure(let error):
+                    self.handleHeartbeatFailure(reason: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func handleHeartbeatSuccess(rtt: TimeInterval, id: String) {
+        consecutiveHeartbeatFailures = 0
+        lastHeartbeatSuccess = Date()
+        // A real reply landed → this connection's transport works; a later drop is
+        // a genuine disconnect, not a streaming-layer failure to auto-fall-back.
+        heartbeatEverSucceeded = true
+        // A stable heartbeat means any reconnect that got us here has settled;
+        // clear the flap budget so future drops get a fresh set of retries.
+        consecutiveReconnects = 0
+        if connectionState == .recovering {
+            connectionState = .connected
+            connectionLog("✅ Recovery complete – connection restored (\(String(format: "%.0f", rtt*1000)) ms)")
+        } else {
+            connectionLog("♡ Heartbeat OK (\(id), \(String(format: "%.0f", rtt*1000)) ms)")
+        }
+        recoveryDeadline = nil
+    }
+
+    @MainActor
+    private func handleHeartbeatFailure(reason: String) {
+        consecutiveHeartbeatFailures += 1
+        connectionLog("⚠️ Heartbeat failure (#\(consecutiveHeartbeatFailures)): \(reason)")
+        if consecutiveHeartbeatFailures == 1 {
+            connectionState = .recovering
+            recoveryDeadline = Date().addingTimeInterval(2)
+            currentHeartbeatInterval = 0.5
+            connectionLog("🛠️ Entering recovering state – monitoring for 2s")
+        } else {
+            let shouldDrop = consecutiveHeartbeatFailures >= maxHeartbeatFailures && (recoveryDeadline.map { Date() >= $0 } ?? false)
+            if shouldDrop {
+                connectionLog("🚨 Recovery failed – treating as connection loss")
+                // Allow the streaming→Compatibility auto-fallback here: this is the
+                // precise "connected but never heard back" signal it keys off.
+                handleConnectionLost(allowTransportFallback: true)
+                stopHeartbeat()
+            }
+        }
+    }
+
+}

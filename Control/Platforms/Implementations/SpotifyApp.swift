@@ -15,73 +15,65 @@ struct SpotifyApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Spotify")
-        return isAppOpen as text
+    // Template status script that can optionally run action AppleScript first.
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return """
+        tell application "Spotify"
+            \(actionScript)
+            if not running then
+                return "Not running \(sep)  \(sep)false"
+            end if
+            try
+                set trackName to name of current track
+                set artistName to artist of current track
+                set playerState to player state as text
+                set isPlaying to player state is playing
+                return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
+            end try
+            return "Nothing playing  \(sep)  \(sep)" & false
+        end tell
         """
     }
-    
-    private let statusScript = """
-    tell application "Spotify"
-        if not running then
-            return "Not running |||  |||stopped|||false"
-        end if
-        try
-            set trackName to name of current track
-            set artistName to artist of current track
-            set playerState to player state as text
-            set isPlaying to player state is playing
-            return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
-        end try
-        return "Nothing playing  |||  |||" & false & "|||" & false
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
-    }
-    
+
+    func fetchState() -> String { statusScript() }
+
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: nil
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
     }
     
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "Spotify"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .previousTrack:
-            return """
-            tell application "Spotify"
-                previous track
-            end tell
-            """
+            return "previous track"
         case .nextTrack:
-            return """
-            tell application "Spotify"
-                next track
-            end tell
-            """
+            return "next track"
         default:
             return ""
+        }
+    }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(precededBy: actionScript(for: action))
+    }
+
+    /// AppleScript run *before* the status read. Both track changes and
+    /// play/pause update Spotify's state a beat after the command returns, so
+    /// each waits for the change (bounded poll) before the status is read:
+    /// track changes via `waitForTrackChangeScript`, play/pause via
+    /// `waitForPlayStateChangeScript`. Reading immediately would report the
+    /// pre-action state.
+    private func actionScript(for action: AppAction) -> String {
+        switch action {
+        case .nextTrack, .previousTrack:
+            return waitForTrackChangeScript(around: executeAction(action))
+        case .playPauseToggle:
+            return waitForPlayStateChangeScript(around: executeAction(action))
+        default:
+            return executeAction(action)
         }
     }
 }

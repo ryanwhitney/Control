@@ -17,104 +17,94 @@ struct VLCApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "VLC")
-        return isAppOpen as text
-        """
-    }
-    
-    private let statusScript = """
-    tell application "VLC"
-        try
-            -- Check if VLC is currently running
-            if not running then
-                return "Not running |||  |||  stopped  |||false"
-            end if
-            
-            -- Check playback status
-            if playing then
-                -- Attempt to get the name of the current media item
+    /// `fetchState()` self-guards (and is run bare by PermissionsView), so the
+    /// generic combinedStatusScript wrapper — a second System Events process
+    /// enumeration per poll — is skipped.
+    var fetchStateIsSelfGuarding: Bool { true }
+
+    /// The single VLC script for both status polls and actions.
+    ///
+    /// The "tell VLC" body lives in a string variable executed via `run script`
+    /// to avoid opening VLC from a running/status check: the interactive
+    /// osascript shell executes line by line, so a "tell VLC" block behind a
+    /// >0 process count check can run even if the check fails. Putting the
+    /// script in a variable that is only run if the check succeeds fixes this.
+    ///
+    /// Self-contained (brings its own System Events tell): status polls return
+    /// the not-running sentinel without launching VLC, while an action on a
+    /// closed VLC launches it — tapping play on the VLC tab opens the app.
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        let notRunningBranch = actionScript.isEmpty
+            ? "return \"\(ScriptTokens.notRunning)\""
+            : """
+            activate application "VLC"
+                    return "Nothing playing \(sep)   \(sep) paused \(sep) false"
+            """
+        return """
+        tell application "System Events"
+            set vlcScript to "tell application \\"VLC\\"
+                \(actionScript)
                 try
                     set mediaName to name of current item
+                    if playing then
+                        return mediaName & \\"\(sep)   \(sep) playing \(sep) true\\"
+                    else
+                        return mediaName & \\"\(sep)   \(sep) paused \(sep) false\\"
+                    end if
                 on error
-                    set mediaName to "Unknown media"
+                    if playing then
+                        return \\"Unknown media \(sep)   \(sep) playing \(sep) true\\"
+                    else
+                        return \\"Nothing playing \(sep)   \(sep) paused \(sep) false\\"
+                    end if
                 end try
-                return  mediaName & "|||   ||| true ||| true"
+            end tell"
+            if (count of (processes where name is "VLC")) > 0 then
+                return run script vlcScript
             else
-                try
-                    set mediaName to name of current item
-                    return mediaName & "|||   ||| false ||| false "
-                on error
-                    return "Nothing playing |||   ||| false ||| false"
-                end try
+                \(notRunningBranch)
             end if
-            
-        on error errMsg
-            -- Handle errors gracefully
-            if errMsg contains "Not authorized to send Apple events" then
-                error errMsg
-            else
-                return "Error: " & errMsg & "||| false |||false"
-            end if
-        end try
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
+        end tell
+        """
     }
-    
-    func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
+
+    func fetchState() -> String { statusScript() }
+
+    func actionWithStatus(_ action: AppAction) -> String {
+        let delayScript: String
+        switch action {
+        case .previousTrack, .nextTrack:
+            // Track changes need more time to load new media
+            delayScript = "delay 0.5"
+        default:
+            // Other actions need less time
+            delayScript = ""
         }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: nil
-        )
+
+        return statusScript(precededBy: executeAction(action) + "\n" + delayScript)
+    }
+
+    func parseState(_ output: String) -> AppState {
+        // VLC's output carries an extra state-word field; the boolean is fourth.
+        parseSeparatedState(output, isPlayingField: 3)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
     }
     
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "VLC"
-                play
-            end tell
-            """
+            return "play"
         case .skipBackward:
-            return """
-            tell application "VLC"
-                step backward
-            end tell
-            """
+            return "step backward"
         case .skipForward:
-            return """
-            tell application "VLC"
-                step forward
-            end tell
-            """
+            return "step forward"
         case .previousTrack:
-            return """
-            tell application "VLC"
-                previous
-            end tell
-            """
+            return "previous"
         case .nextTrack:
-            return """
-            tell application "VLC"
-                next
-            end tell
-            """
+            return "next"
+        default:
+            return ""
         }
     }
 } 

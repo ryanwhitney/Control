@@ -7,7 +7,8 @@ enum AppAction: Identifiable, Equatable {
     case previousTrack
     case nextTrack
     case playPauseToggle
-    
+    case closeApp(String)
+
     var id: String {
         switch self {
         case .skipForward(let seconds): return "forward\(seconds)"
@@ -15,6 +16,7 @@ enum AppAction: Identifiable, Equatable {
         case .previousTrack: return "previousTrack"
         case .nextTrack: return "nextTrack"
         case .playPauseToggle: return "playPauseToggle"
+        case .closeApp: return "closeApp"
         }
     }
     
@@ -30,6 +32,8 @@ enum AppAction: Identifiable, Equatable {
             return "Next track"
         case .playPauseToggle:
             return "Play/Pause"
+        case .closeApp(let appName):
+            return "Close \(appName)"
         }
     }
 }
@@ -75,38 +79,173 @@ protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
     var defaultEnabled: Bool { get }
+    var checksStatusOnlyWhenVisible: Bool { get }
+    var minActionInterval: TimeInterval { get }
+    var fetchStateIsSelfGuarding: Bool { get }
     var experimental: Bool { get }
     var reasonForExperimental: String { get }
     var supportedActions: [ActionConfig] { get }
+    var menuActions: [ActionConfig] { get }
     
     func fetchState() -> String
     func executeAction(_ action: AppAction) -> String
+    func executeMenuActionWithStatus(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
-    func isRunningScript() -> String
-    func isInstalledScript() -> String
-    func activateScript() -> String
+    func actionWithStatus(_ action: AppAction) -> String
 }
 
 extension AppPlatform {
     var experimental: Bool { false }
     var reasonForExperimental: String { "" }
-    
-    func isInstalledScript() -> String {
-        let appPath = "/Applications/\(name).app"
+
+    /// Most platforms expose status over AppleScript and can be polled quietly in
+    /// the background as part of the global multi-app refresh. Apps without it
+    /// (IINA, mpv) must foreground the Mac app or UI-script it via System Events
+    /// to read status, so they override this to `true`: the bulk sweep skips them
+    /// and they're refreshed only when their own tab is the one on screen.
+    var checksStatusOnlyWhenVisible: Bool { false }
+
+    /// Minimum spacing between successive user actions for this platform;
+    /// 0 disables rate limiting. Platforms whose actions can flood a channel
+    /// (e.g. TV's key-code driven skips) override this.
+    var minActionInterval: TimeInterval { 0 }
+
+    /// True when `fetchState()` already guards the app-not-running case itself
+    /// (IINA/mpv/VLC, whose scripts must stay valid stand-alone because
+    /// PermissionsView runs them bare). `combinedStatusScript()` then skips its
+    /// System Events wrapper, avoiding a second process-enumeration per poll.
+    var fetchStateIsSelfGuarding: Bool { false }
+
+    /// Parses the shared "title ~|VCF|~ subtitle ~|VCF|~ … ~|VCF|~ isPlaying"
+    /// status shape (see `ScriptTokens.fieldSeparator`). Returns nil when the
+    /// output doesn't carry enough fields so platforms supply their own
+    /// fallback. `isPlayingField` names the index carrying the boolean for
+    /// scripts with extra fields (VLC).
+    func parseSeparatedState(_ output: String, isPlayingField: Int = 2) -> AppState? {
+        let components = output.components(separatedBy: ScriptTokens.fieldSeparator)
+        guard components.count > isPlayingField else { return nil }
+        return AppState(
+            title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
+            subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
+            isPlaying: components[isPlayingField].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
+            error: nil
+        )
+    }
+
+    /// Wraps a track-change action so the status read that follows doesn't race
+    /// the player's own transition (Music and Spotify's `next track` /
+    /// `previous track` return before `current track` updates): capture the
+    /// current track id, run the action, then poll (bounded, ~1 s max) until
+    /// the id changes — or playback stops — before falling through to the
+    /// status read. Exits the instant the player advances (usually well under
+    /// 200 ms). The only case that waits out the full ~1 s is a
+    /// single-track/repeat-one context where the track can never change — and
+    /// there the title is identical anyway, so it's invisible.
+    func waitForTrackChangeScript(around actionScript: String) -> String {
+        """
+        set previousTrackId to missing value
+        try
+            set previousTrackId to id of current track
+        end try
+        \(actionScript)
+        repeat 20 times
+            try
+                if player state is stopped then exit repeat
+                if id of current track is not previousTrackId then exit repeat
+            end try
+            delay 0.05
+        end repeat
+        """
+    }
+
+    /// Wraps a play/pause action so the status read reflects the new state.
+    /// Some players (notably Spotify) update `player state` a beat after
+    /// `playpause` returns, so reading immediately yields the pre-toggle value.
+    /// Capture the state, toggle, then poll (bounded, ~1 s) until it flips
+    /// before falling through to the status read. Exits at once on players that
+    /// update synchronously, and rides out the extra lag when the app's
+    /// scripting interface is still cold right after connecting.
+    func waitForPlayStateChangeScript(around actionScript: String) -> String {
+        """
+        set previousPlayerState to missing value
+        try
+            set previousPlayerState to player state
+        end try
+        \(actionScript)
+        repeat 20 times
+            try
+                if player state is not previousPlayerState then exit repeat
+            end try
+            delay 0.05
+        end repeat
+        """
+    }
+
+    /// System Events fragments shared by the UI-scripted players (IINA/mpv):
+    /// capture-and-foreground, and the matching restore. The *conditions* stay
+    /// per-platform — IINA must foreground even for status reads (menu-bar
+    /// access) while mpv only foregrounds to deliver keystrokes — but the
+    /// mechanics (save name, set frontmost, settle delay, restore) live here so
+    /// a focus-handling fix reaches both.
+    func captureAndForegroundProcessFragment(_ processName: String) -> String {
+        """
+        set previousFrontmostApp to name of first application process whose frontmost is true
+        set frontmost of process "\(processName)" to true
+        delay 0.1
+        """
+    }
+
+    func restorePreviousFrontmostFragment() -> String {
+        """
+        if shouldRestoreOrder and previousFrontmostApp is not null then
+            set frontmost of process previousFrontmostApp to true
+        end if
+        """
+    }
+
+    var menuActions: [ActionConfig] {
+        [
+            ActionConfig(action: .closeApp(name), icon: "xmark.circle.fill"),
+        ]
+    }
+
+    /// Combined status script: checks if the application process exists and, if so,
+    /// executes the platformʼs `fetchState()` AppleScript.  If not running we
+    /// return the `ScriptTokens.notRunning` sentinel that `AppController`
+    /// matches exactly.  Wrapping everything in a single
+    /// `tell application \"System Events\"` block keeps the entire script
+    /// within one top-level tell as required by the remote interactive shell.
+    /// Platforms whose `fetchState()` already self-guards skip the wrapper —
+    /// System Events process enumeration is slow, and running it twice per
+    /// poll delays everything queued behind it on the serialized channel.
+    func combinedStatusScript() -> String {
+        guard !fetchStateIsSelfGuarding else { return fetchState() }
         return """
-        tell application "System Events"
-            if exists disk item "\(appPath)" then
-                return "true"
+        tell application \"System Events\"
+            if (count of (processes where name is \"\(name)\")) > 0 then
+                \(fetchState())
             else
-                return "false"
+                return \"\(ScriptTokens.notRunning)\"
             end if
         end tell
         """
     }
-    
-    func activateScript() -> String {
-        return """
-        tell application "\(name)" to activate
-        """
+
+    /// Default implementation for handling menu actions that need status updates after execution
+    func executeMenuActionWithStatus(_ action: AppAction) -> String {
+        switch action {
+        case .closeApp:
+            return """
+            tell application "System Events"
+                tell application "\(name)" to quit
+                delay 1.5
+                if (count of (processes where name is "\(name)")) = 0 then
+                    return "\(ScriptTokens.notRunning)"
+                end if
+            end tell
+            """
+        default:
+            return executeAction(action)
+        }
     }
 } 

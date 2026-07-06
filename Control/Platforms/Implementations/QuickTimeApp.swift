@@ -15,91 +15,76 @@ struct QuickTimeApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "QuickTime Player")
-        return isAppOpen as text
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return """
+        tell application "QuickTime Player"
+            \(actionScript)
+            if not (exists document 1) then
+                return "Nothing playing \(sep)   \(sep)false"
+            end if
+            set docName to name of document 1
+            if playing of document 1 then
+                set playState to "playing"
+            else
+                set playState to "paused"
+            end if
+            return docName & "\(sep)   \(sep)" & (playing of document 1 as text)
+        end tell
         """
     }
-    
-    private let statusScript = """
-    tell application "QuickTime Player"
-        if not (exists document 1) then
-            return "Nothing playing |||   |||false"
-        end if
-        set docName to name of document 1
-        if playing of document 1 then
-            set playState to "playing"
-        else
-            set playState to "paused"
-        end if
-        return docName & "|||   |||" & (playing of document 1 as text)
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
-    }
-    
+
+    func fetchState() -> String { statusScript() }
+
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Failed to parse QuickTime state"
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse QuickTime state")
     }
-    
+
+    // No bare `return` in these scripts: they're injected at the top of
+    // statusScript's tell block, and a `return` would exit the whole combined
+    // script before the status section runs (leaving the UI stale).
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .skipBackward:
             return """
-            tell application "QuickTime Player"
-                if not (exists document 1) then return
+            if exists document 1 then
                 set theDocument to document 1
                 set currentTime to current time of theDocument
                 set newTime to currentTime - 5
                 if newTime < 0 then set newTime to 0
                 set current time of theDocument to newTime
-            end tell
+            end if
             """
         case .skipForward:
             return """
-            tell application "QuickTime Player"
-                if not (exists document 1) then return
+            if exists document 1 then
                 set theDocument to document 1
                 set currentTime to current time of theDocument
                 set videoDuration to duration of theDocument
                 set newTime to currentTime + 5
                 if newTime > videoDuration then set newTime to videoDuration - 0.01
                 set current time of theDocument to newTime
-            end tell
+            end if
             """
         case .playPauseToggle:
             return """
-            tell application "QuickTime Player"
-                if exists document 1 then
-                    tell document 1
-                        if playing then
-                            pause
-                        else
-                            play
-                        end if
-                    end tell
-                end if
-            end tell
+            if exists document 1 then
+                tell document 1
+                    if playing then
+                        pause
+                    else
+                        play
+                    end if
+                end tell
+            end if
             """
         default:
             return ""
         }
+    }
+    
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(precededBy: executeAction(action))
     }
 } 

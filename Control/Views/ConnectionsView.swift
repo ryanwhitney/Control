@@ -123,7 +123,11 @@ struct ConnectionsView: View {
             .tint(UserPreferences.shared.tintColorValue)
         }
         .environmentObject(viewModel)
-        .onAppear(perform: viewModel.onAppear)
+        .onAppear {
+            // Root views don't disappear, so these only run on app open or foreground
+            SSHConnectionManager.shared.disconnect()
+            viewModel.onAppear()
+        }
         .onDisappear(perform: viewModel.onDisappear)
         .onChange(of: scenePhase) { oldPhase, newPhase in
             viewModel.handleScenePhaseChange(from: oldPhase, to: newPhase)
@@ -134,14 +138,29 @@ struct ConnectionsView: View {
                 viewModel.checkForRescanOnForeground()
             }
         }
-        .onChange(of: viewModel.navigateToControl) { _, newValue in
-            if !newValue {
+        .onChange(of: viewModel.navigateToControl) { oldVal, newVal in
+            // When we return from ControlView to the connections list, tear down any live SSH session
+            if oldVal == true && newVal == false {
+                SSHConnectionManager.shared.disconnect()
+                viewLog("ConnectionsView: navigateToControl -> false, disconnected active SSH session", view: "ConnectionsView")
+            }
+
+            if !newVal {
                 viewModel.connectingComputer = nil
                 viewModel.selectedConnection = nil
             }
         }
         .onChange(of: viewModel.showingSetupFlow) { _, newValue in
             if !newValue {
+                // Backing out of first-time setup leaves the SSH session from
+                // PermissionsView/ChooseAppsView live — tear it down like the
+                // ControlView return path above. Setup *completion* instead
+                // hands the connection to ControlView (navigateToControl is
+                // already true by the time this fires), so leave it alone then.
+                if !viewModel.navigateToControl {
+                    SSHConnectionManager.shared.disconnect()
+                    viewLog("ConnectionsView: setup flow dismissed, disconnected active SSH session", view: "ConnectionsView")
+                }
                 viewModel.connectingComputer = nil
             }
         }
@@ -259,7 +278,7 @@ private struct SetupFlowDestination: View {
                 password: viewModel.password,
                 isReconfiguration: false,
                 onComplete: {
-                    viewLog("ConnectionsView: First-time setup completed, navigating to ControlView", view: "ConnectionsView")
+                    viewLog("⛵︎ First-time setup completed, navigating to ControlView", view: "ConnectionsView")
                     viewModel.showingSetupFlow = false
                     viewModel.navigateToControl = true
                 }
@@ -292,42 +311,17 @@ private struct ControlDestination: View {
 }
 
 @MainActor
+/// No-op subclass for SwiftUI previews: every action that would touch the
+/// network, keychain, or SSH is overridden to do nothing.
 private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
-    override init() {
-        super.init()
-    }
-    
-    override func startNetworkScan() {
-        // Override to prevent actual scanning
-    }
-    
-    override func selectComputer(_ computer: Connection) {
-        // Override to prevent actual connections
-    }
-    
-    override func deleteConnection(hostname: String) {
-        // Override to prevent actual deletion
-    }
-    
-    override func editConnection(_ computer: Connection) {
-        // Override to prevent actual editing
-    }
-    
-    override func connectWithCredentials(computer: Connection) {
-        // Override to prevent actual connections
-    }
-    
-    override func connectWithNewCredentials(computer: Connection) {
-        // Override to prevent actual connections
-    }
-    
-    override func onAppear() {
-        // Override to prevent initialization
-    }
-    
-    override func onDisappear() {
-        // Override to prevent cleanup
-    }
+    override func startNetworkScan() {}
+    override func selectComputer(_ computer: Connection) {}
+    override func deleteConnection(hostname: String) {}
+    override func editConnection(_ computer: Connection) {}
+    override func connectWithCredentials(computer: Connection) {}
+    override func connectWithNewCredentials(computer: Connection) {}
+    override func onAppear() {}
+    override func onDisappear() {}
 }
 
 #Preview("With Mock Data") {

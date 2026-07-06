@@ -44,7 +44,6 @@ class SavedConnections: ObservableObject {
             items[index].saveCredentialsPreference = saveCredentials
             save()
         } else {
-            // Create ne connection
             var connection = SavedConnection(hostname: hostname, name: name, username: username)
             connection.saveCredentialsPreference = saveCredentials
             items.append(connection)
@@ -197,7 +196,7 @@ class SavedConnections: ObservableObject {
         // Remove from saved items
         items.removeAll { $0.hostname == hostname }
         save()
-        
+
         // Remove password from keychain
         removePassword(for: hostname)
     }

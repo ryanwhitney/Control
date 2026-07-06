@@ -86,15 +86,6 @@ class DebugLogger: ObservableObject {
             )
         }
         
-        // Sanitize long strings that might be passwords (8+ chars with no spaces)
-        let longStringPattern = #"\b[^\s]{8,}\b"#
-        if message.lowercased().contains("password") {
-            sanitized = sanitized.replacingOccurrences(
-                of: longStringPattern,
-                with: "[REDACTED]",
-                options: .regularExpression
-            )
-        }
         
         // Sanitize network-related sensitive information
         sanitized = sanitizeNetworkInfo(sanitized)
@@ -178,8 +169,8 @@ class DebugLogger: ObservableObject {
         let prefix = String(message[..<outputRange.upperBound])
         let output = String(message[outputRange.upperBound...])
         
-        // Look for AppleScript output format: "title|||subtitle|||state|||playing"
-        let components = output.components(separatedBy: "|||")
+        // Look for AppleScript output format: "title~|VCF|~subtitle~|VCF|~state~|VCF|~playing"
+        let components = output.components(separatedBy: ScriptTokens.fieldSeparator)
         
         if components.count >= 2 {
             var sanitizedComponents = components
@@ -210,7 +201,7 @@ class DebugLogger: ObservableObject {
                 }
             }
             
-            return prefix + sanitizedComponents.joined(separator: "|||")
+            return prefix + sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
         }
         
         return message
@@ -235,9 +226,9 @@ class DebugLogger: ObservableObject {
         }
         
         // Look for standalone media info patterns (not in Full output format)
-        // Pattern: anything|||anything format that might be media content
-        if message.contains("|||") && !message.contains("Full output:") {
-            let components = message.components(separatedBy: "|||")
+        // Pattern: anything~|VCF|~anything format that might be media content
+        if message.contains(ScriptTokens.fieldSeparator) && !message.contains("Full output:") {
+            let components = message.components(separatedBy: ScriptTokens.fieldSeparator)
             
             if components.count >= 2 {
                 var sanitizedComponents = components
@@ -262,7 +253,7 @@ class DebugLogger: ObservableObject {
                     }
                 }
                 
-                sanitized = sanitizedComponents.joined(separator: "|||")
+                sanitized = sanitizedComponents.joined(separator: ScriptTokens.fieldSeparator)
             }
         }
         

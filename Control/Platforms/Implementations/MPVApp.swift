@@ -4,6 +4,9 @@ struct MPVApp: AppPlatform {
     let id = "mpv"
     let name = "mpv"
     let defaultEnabled = false
+    // Status uses System Events (title read; actions foreground the app), so it's
+    // kept out of the global sweep and refreshed only when its tab is on screen.
+    let checksStatusOnlyWhenVisible = true
 
     var supportedActions: [ActionConfig] {
         [
@@ -17,145 +20,84 @@ struct MPVApp: AppPlatform {
         ]
     }
 
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "mpv")
-        return isAppOpen as text
-        """
-    }
+    /// `fetchState()` self-guards (first lines below) and must stay valid
+    /// stand-alone for PermissionsView, so combinedStatusScript's second
+    /// System Events process check is skipped.
+    var fetchStateIsSelfGuarding: Bool { true }
 
-    func isInstalledScript() -> String {
-        // mpv can be installed via Homebrew or as an app bundle
-        """
+    // mpv has no AppleScript dictionary, so everything goes through System Events.
+    // Status reads the window title (no focus needed), so we only bring mpv
+    // frontmost when there's an action to deliver — keystrokes go to the frontmost
+    // app regardless of the enclosing `tell process`. Poll-only status never
+    // steals focus, and focus is restored after an action.
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return """
         tell application "System Events"
-            -- Check for app bundle
-            if exists disk item "/Applications/mpv.app" then
-                return "true"
+            if (count of (processes where name is "mpv")) = 0 then
+                return "Not running\(sep)   \(sep)false"
             end if
-            -- Check for Homebrew installation
-            try
-                do shell script "which mpv"
-                return "true"
-            on error
-                return "false"
-            end try
-        end tell
-        """
-    }
-
-    private let statusScript = """
-        tell application "System Events"
-            set isRunning to exists (processes where name is "mpv")
-            if not isRunning then
-                return "Not running |||  ||| stopped ||| false"
+            set previousFrontmostApp to null
+            set shouldRestoreOrder to false
+            if "\(actionScript)" is not "" then
+                if not (frontmost of process "mpv") then
+                    \(captureAndForegroundProcessFragment("mpv"))
+                    set shouldRestoreOrder to true
+                end if
             end if
-
-            -- Try to get window title via System Events
-            set windowTitle to ""
-            try
-                tell process "mpv"
-                    if (count of windows) > 0 then
-                        set windowTitle to name of front window
+            set resultString to "Nothing playing\(sep)   \(sep)false"
+            tell process "mpv"
+                if "\(actionScript)" is not "" then
+                    \(actionScript)
+                end if
+                if (count of windows) > 0 then
+                    set windowTitle to name of front window
+                    -- mpv appends " - paused" to the title when paused, " - mpv" otherwise.
+                    set isPlaying to true
+                    set cleanTitle to windowTitle
+                    if cleanTitle ends with " - paused" then
+                        set isPlaying to false
+                        set cleanTitle to text 1 thru -10 of cleanTitle
                     end if
-                end tell
-            end try
-
-            if windowTitle is "" then
-                return "Nothing playing |||  ||| false ||| false"
-            end if
-
-            -- mpv window titles are typically just the filename
-            -- Clean up common extensions and path info
-            set cleanTitle to windowTitle
-
-            -- Check if paused (mpv adds " - paused" to window title when paused)
-            set isPlaying to true
-            if cleanTitle ends with " - paused" then
-                set isPlaying to false
-                set cleanTitle to text 1 thru -10 of cleanTitle
-            end if
-
-            -- Also check for " - mpv" suffix and remove it
-            if cleanTitle ends with " - mpv" then
-                set cleanTitle to text 1 thru -7 of cleanTitle
-            end if
-
-            return cleanTitle & "|||  ||| " & isPlaying & " ||| " & isPlaying
+                    if cleanTitle ends with " - mpv" then
+                        set cleanTitle to text 1 thru -7 of cleanTitle
+                    end if
+                    set resultString to cleanTitle & "\(sep)   \(sep)" & isPlaying
+                end if
+            end tell
+            \(restorePreviousFrontmostFragment())
+            return resultString
         end tell
         """
+    }
 
-    func fetchState() -> String {
-        return statusScript
+    func fetchState() -> String { statusScript() }
+
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(precededBy: executeAction(action))
     }
 
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 3 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[2].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: nil
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: nil)
     }
 
+    // Returns just the key line(s), injected inside `tell process "mpv"` by
+    // statusScript (which brings mpv frontmost first).
     func executeAction(_ action: AppAction) -> String {
-        // System Events `key code` is delivered to the frontmost app regardless of
-        // the enclosing `tell process`, so mpv must be brought frontmost first or
-        // the keystroke lands on whatever app the user currently has in front.
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "System Events"
-                set frontmost of process "mpv" to true
-                tell process "mpv"
-                    key code 49 -- spacebar
-                end tell
-            end tell
-            """
+            return "key code 49 -- spacebar"
         case .skipBackward:
-            return """
-            tell application "System Events"
-                set frontmost of process "mpv" to true
-                tell process "mpv"
-                    key code 123 -- left arrow
-                end tell
-            end tell
-            """
+            return "key code 123 -- left arrow"
         case .skipForward:
-            return """
-            tell application "System Events"
-                set frontmost of process "mpv" to true
-                tell process "mpv"
-                    key code 124 -- right arrow
-                end tell
-            end tell
-            """
+            return "key code 124 -- right arrow"
         case .previousTrack:
-            return """
-            tell application "System Events"
-                set frontmost of process "mpv" to true
-                tell process "mpv"
-                    key code 43 using {shift down} -- < (shift+comma) for previous
-                end tell
-            end tell
-            """
+            return "key code 43 using {shift down} -- < (shift+comma) for previous"
         case .nextTrack:
-            return """
-            tell application "System Events"
-                set frontmost of process "mpv" to true
-                tell process "mpv"
-                    key code 47 using {shift down} -- > (shift+period) for next
-                end tell
-            end tell
-            """
+            return "key code 47 using {shift down} -- > (shift+period) for next"
+        default:
+            return ""
         }
     }
 }

@@ -3,7 +3,7 @@ import UIKit
 
 struct IconButtonStyle: ButtonStyle {
     @State private var bounceCount = 0
-    
+    @State private var isAnimating = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
@@ -12,13 +12,24 @@ struct IconButtonStyle: ButtonStyle {
             .frame(width: 60, height: 60)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
             .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
-            .onChange(of: configuration.isPressed) { oldValue, newValue in
-                // Trigger bounce when button is pressed
-                if newValue {
+            .animation(.easeInOut(duration: 0.05), value: isAnimating)
+            // Drive the bounce/fade from the press state, NOT a simultaneousGesture:
+            // attaching a TapGesture to the label swallows the Button's own action
+            // inside a paged TabView, so taps never fire.
+            .onChange(of: configuration.isPressed) { _, isPressed in
+                if isPressed {
                     bounceCount += 1
+                    isAnimating = true
+                    Task {
+                        // End opacity fade before bounce completes
+                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                        await MainActor.run {
+                            isAnimating = false
+                        }
+                    }
                 }
             }
     }

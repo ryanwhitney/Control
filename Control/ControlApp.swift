@@ -27,7 +27,9 @@ struct VolumeControlApp: App {
     }
 }
 
-// Class to handle network permissions
+/// Triggers (and tracks) the iOS local-network permission prompt. Starting a
+/// Bonjour browser is what surfaces the system prompt; `.ready` means access was
+/// granted, `.failed` denied.
 class NetworkPermissions: ObservableObject {
     @Published var isAuthorized = false
     private let browser = NWBrowser(for: .bonjour(type: "_ssh._tcp.", domain: "local"), using: .tcp)

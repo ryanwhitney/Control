@@ -15,68 +15,61 @@ struct MusicApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Music")
-        return isAppOpen as text
+    // Template status script that can optionally run action AppleScript first.
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return """
+        tell application "Music"
+            \(actionScript)
+            if player state is stopped then
+                return "Nothing playing \(sep)    \(sep) false"
+            end if
+            set trackName to name of current track
+            set artistName to artist of current track
+            set playerState to player state as text
+            set isPlaying to player state is playing
+            return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
+        end tell
         """
     }
-    
-    private let statusScript = """
-    tell application "Music"
-        if player state is stopped then
-            return "Nothing playing |||    ||| stopped ||| false"
-        end if
-        set trackName to name of current track
-        set artistName to artist of current track
-        set playerState to player state as text
-        set isPlaying to player state is playing
-        return trackName & "|||" & artistName & "|||" & playerState & "|||" & isPlaying
-    end tell
-    """
-    
-    func fetchState() -> String {
-        return statusScript
+
+    func fetchState() -> String { statusScript() }
+
+    // Override the default helper to make use of the shared template so the
+    // action and status execute inside the same `tell application` block.
+    func actionWithStatus(_ action: AppAction) -> String {
+        statusScript(precededBy: actionScript(for: action))
     }
-    
-    func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
+
+    /// AppleScript run *before* the status read, waiting for the app's state to
+    /// settle so the read doesn't capture the pre-action value: track changes
+    /// via `waitForTrackChangeScript`, play/pause via
+    /// `waitForPlayStateChangeScript`. Both polls exit the instant the state
+    /// updates, so a synchronous player pays no penalty.
+    private func actionScript(for action: AppAction) -> String {
+        switch action {
+        case .nextTrack, .previousTrack:
+            return waitForTrackChangeScript(around: executeAction(action))
+        case .playPauseToggle:
+            return waitForPlayStateChangeScript(around: executeAction(action))
+        default:
+            return executeAction(action)
         }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Error"
-        )
+    }
+
+    func parseState(_ output: String) -> AppState {
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Error")
     }
     
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "Music"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .previousTrack:
-            return """
-            tell application "Music"
-                previous track
-            end tell
-            """
+            return "previous track"
         case .nextTrack:
-            return """
-            tell application "Music"
-                next track
-            end tell
-            """
+            return "next track"
         default:
             return ""
         }

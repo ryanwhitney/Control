@@ -17,140 +17,76 @@ struct SafariApp: AppPlatform {
         ]
     }
 
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "Safari")
-        return isAppOpen as text
-        """
+    private func jsForStatus() -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return "(function() { const v = document.querySelector('video'); if (!v) return 'No video found\(sep) \(sep)false'; const title = document.title.replace(' - YouTube', '') || 'Unknown Video'; const site = window.location.hostname.replace('www.', ''); const playing = !v.paused && !v.ended; return title + '\(sep)' + site + '\(sep)' + playing; })();"
     }
 
-    private let statusScript = """
-    tell application "Safari"
-        set windowCount to count of windows
-        if windowCount is 0 then
-            return "Nothing playing |||   ||| false ||| false"
-        end if
-        
-        -- Check the current tab in the frontmost window only
-        try
-            set currentTab to current tab of window 1
-            set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
-            if hasVideo then
-                set videoScript to "
-                    var video = document.querySelector('video');
-                    var title = document.title || 'Unknown Video';
-                    var siteName = window.location.hostname.replace('www.', '');
-                    var isPlaying = !video.paused && !video.ended;
-                    title + ' ||| ' + siteName + ' ||| ' + (isPlaying ? 'true' : 'false') + ' ||| ' + (isPlaying ? 'true' : 'false');
-                "
-                set videoInfo to do JavaScript videoScript in currentTab
-                return videoInfo
-            end if
-        end try
-        
-        return "Nothing playing |||   ||| false ||| false"
-    end tell
-    """
-
-    func fetchState() -> String {
-        return statusScript
-    }
-
-    func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        
-        if components.count >= 3 {
-            let title = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let subtitle = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            let isPlayingStr = components[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            let isPlaying = isPlayingStr == "true"
-            
-            return AppState(
-                title: title,
-                subtitle: subtitle,
-                isPlaying: isPlaying,
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Failed to parse Safari state"
-        )
-    }
-
-    func executeAction(_ action: AppAction) -> String {
+    private func jsForAction(_ action: AppAction) -> String {
+        let innerJs: String
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                
-                -- Check the current tab in the frontmost window only
-                try
-                    set currentTab to current tab of window 1
-                    set hasVideo to do JavaScript "document.querySelector('video') !== null" in currentTab
-                    if hasVideo then
-                        do JavaScript "
-                            var video = document.querySelector('video');
-                            if (video) {
-                                if (video.paused || video.ended) {
-                                    video.play();
-                                } else {
-                                    video.pause();
-                                }
-                            }
-                        " in currentTab
-                    end if
-                end try
-            end tell
-            """
+            innerJs = "const v = document.querySelector('video'); if (v) { v.paused ? v.play() : v.pause(); }"
         case .skipForward(let seconds):
-            return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                
-                -- Check the current tab in the frontmost window only
-                try
-                    set currentTab to current tab of window 1
-                    set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
-                    if hasVideo then
-                        do JavaScript "
-                            (function() {
-                                const media = document.querySelector('video, audio');
-                                if (media) media.currentTime += \(seconds);
-                            })();
-                        " in currentTab
-                    end if
-                end try
-            end tell
-            """
+            innerJs = "const v = document.querySelector('video'); if (v) v.currentTime += \(seconds);"
         case .skipBackward(let seconds):
-            return """
-            tell application "Safari"
-                set windowCount to count of windows
-                if windowCount is 0 then return
-                
-                -- Check the current tab in the frontmost window only
-                try
-                    set currentTab to current tab of window 1
-                    set hasVideo to do JavaScript "document.querySelector('video, audio') !== null" in currentTab
-                    if hasVideo then
-                        do JavaScript "
-                            (function() {
-                                const media = document.querySelector('video, audio');
-                                if (media) media.currentTime -= \(seconds);
-                            })();
-                        " in currentTab
-                    end if
-                end try
-            end tell
-            """
+            innerJs = "const v = document.querySelector('video'); if (v) v.currentTime -= \(seconds);"
         default:
             return ""
         }
+        // Wrap in an IIFE so the injected statement runs in its own scope.
+        return "(function() { \(innerJs) })();"
+    }
+
+    func fetchState() -> String {
+        let js = jsForStatus()
+        return """
+        tell application "Safari"
+            if (count of windows) is 0 then
+                return "No windows open\(ScriptTokens.fieldSeparator) \(ScriptTokens.fieldSeparator)false"
+            end if
+            return do JavaScript "\(js)" in current tab of front window
+        end tell
+        """
+    }
+
+    func actionWithStatus(_ action: AppAction) -> String {
+        let actionJs = jsForAction(action)
+        let statusJs = jsForStatus()
+
+        // Build a single, direct script with the window check.
+        return """
+        tell application "Safari"
+            if (count of windows) is 0 then
+                return "No windows open\(ScriptTokens.fieldSeparator) \(ScriptTokens.fieldSeparator)false"
+            end if
+            do JavaScript "\(actionJs)" in current tab of front window
+            delay 0.15
+            return do JavaScript "\(statusJs)" in current tab of front window
+        end tell
+        """
+    }
+
+    func parseState(_ output: String) -> AppState {
+        if let state = parseSeparatedState(output) {
+            return state
+        }
+
+        // Handle cases where the script might return fewer components
+        if !output.isEmpty && !output.contains(ScriptTokens.fieldSeparator) {
+            return AppState(title: output, subtitle: "", isPlaying: nil)
+        }
+
+        return AppState(
+            title: "Error",
+            subtitle: "Could not parse Safari state",
+            isPlaying: nil,
+            error: output
+        )
+    }
+
+    // This function is not used when actionWithStatus is implemented, but is required by the protocol.
+    func executeAction(_ action: AppAction) -> String {
+        return ""
     }
 }

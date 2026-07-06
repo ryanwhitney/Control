@@ -29,26 +29,28 @@ extension SSHConnectedView {
     }
     
     /// Handle scene phase changes with health check logic
+    @MainActor
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
-        Task { @MainActor in
-            viewLog("\(Self.self): Scene phase changed from \(oldPhase) to \(newPhase)", view: String(describing: Self.self))
-            
-            if newPhase == .active {
+        let viewName = String(describing: Self.self)
+        viewLog("\(viewName): Scene phase changed from \(oldPhase) to \(newPhase)", view: viewName)
+        
+        if newPhase == .active {
+            let currentViewName = viewName
+            Task { @MainActor in
                 if connectionManager.connectionState == .connected {
                     do {
                         try await connectionManager.verifyConnectionHealth()
-                        viewLog("✓ \(Self.self): Connection health verified", view: String(describing: Self.self))
+                        viewLog("✓ \(currentViewName): Connection health verified", view: currentViewName)
                     } catch {
-                        viewLog("❌ \(Self.self): Connection health check failed: \(error)", view: String(describing: Self.self))
+                        viewLog("❌ \(currentViewName): Connection health check failed: \(error)", view: currentViewName)
                         connectToSSH()
                     }
                 } else {
                     connectToSSH()
                 }
             }
-            
-            connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
         }
+        connectionManager.handleScenePhaseChange(from: oldPhase, to: newPhase)
     }
     
     /// Standard SSH connection lost alert
@@ -77,34 +79,48 @@ extension SSHConnectedView {
         let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
         let hostRedacted = String(host.prefix(3)) + "***"
         
-        viewLog("Target: \(hostRedacted)", view: String(describing: Self.self))
-        viewLog("Protocol: \(connectionType)", view: String(describing: Self.self))
-        viewLog("Display name: \(String(displayName.prefix(3)))***", view: String(describing: Self.self))
+        let viewNameMeta = String(describing: Self.self)
+        viewLog("Target: \(hostRedacted)", view: viewNameMeta)
+        viewLog("Protocol: \(connectionType)", view: viewNameMeta)
+        viewLog("Display name: \(String(displayName.prefix(3)))***", view: viewNameMeta)
     }
     
     @MainActor
     private func setConnectionLostHandler() {
-        connectionManager.setConnectionLostHandler { @MainActor in
-            viewLog("⚠️ \(Self.self): Connection lost handler triggered", view: String(describing: Self.self))
+        let viewNameMeta = String(describing: Self.self)
+        connectionManager.setConnectionLostHandler { @MainActor error in
+            viewLog("⚠️ \(viewNameMeta): Connection lost handler triggered by error: \(String(describing: error))", view: viewNameMeta)
+            
+            // Use the generic error alert mechanism to show the issue
+            if let sshError = error as? SSHError {
+                connectionError.wrappedValue = sshError.formatError(displayName: displayName)
+            } else if let error = error {
+                connectionError.wrappedValue = ("Connection Lost", error.localizedDescription)
+            } else {
+                connectionError.wrappedValue = ("Connection Lost", "The connection was unexpectedly dropped.")
+            }
+            
+            // Show a generic alert, which on dismiss will pop the view
             showingConnectionLostAlert.wrappedValue = true
         }
     }
     
     @MainActor
-    private func connectToSSH() {
-        viewLog("\(Self.self): Starting SSH connection", view: String(describing: Self.self))
-        viewLog("Connection manager state: \(connectionManager.connectionState)", view: String(describing: Self.self))
+    func connectToSSH() {
+        let viewName = String(describing: Self.self)
+        viewLog("\(viewName): Starting SSH connection", view: viewName)
+        viewLog("Connection manager state: \(connectionManager.connectionState)", view: viewName)
         
         connectionManager.handleConnection(
             host: host,
             username: username,
             password: password,
             onSuccess: { 
-                viewLog("✓ \(Self.self): SSH connection successful", view: String(describing: Self.self))
+                viewLog("✓ \(viewName): SSH connection successful", view: viewName)
                 onSSHConnected()
             },
             onError: { error in
-                viewLog("❌ \(Self.self): SSH connection failed: \(error)", view: String(describing: Self.self))
+                viewLog("❌ \(viewName): SSH connection failed: \(error)", view: viewName)
                 
                 if let sshError = error as? SSHError {
                     connectionError.wrappedValue = sshError.formatError(displayName: displayName)

@@ -4,6 +4,9 @@ struct TVApp: AppPlatform {
     let id = "tv"
     let name = "TV"
     let defaultEnabled = true
+    // TV's skip actions are key-code driven and can overload the channel when
+    // tapped rapidly; AppController spaces actions by this much.
+    let minActionInterval: TimeInterval = 0.3
 
     var supportedActions: [ActionConfig] {
         [
@@ -15,130 +18,81 @@ struct TVApp: AppPlatform {
         ]
     }
     
-    func isRunningScript() -> String {
-        """
-        tell application "System Events" to set isAppOpen to exists (processes where name is "TV")
-        return isAppOpen as text
+    private func statusScript(precededBy actionScript: String = "") -> String {
+        let sep = ScriptTokens.fieldSeparator
+        return """
+        tell application "TV"
+            \(actionScript)
+            set rawState to player state as text
+            if rawState is "stopped" then
+                return "Nothing playing\(sep)   \(sep)false"
+            end if
+
+            set trackName to ""
+            try
+                set trackName to name of current track
+            end try
+
+            -- If no track name, try window for streaming content
+            if trackName is "" then
+                try
+                    set windowName to name of front window
+                    if windowName is not "TV" then
+                        set trackName to windowName
+                    end if
+                end try
+            end if
+
+            if trackName is "" then
+                return "Nothing playing\(sep)   \(sep)false"
+            end if
+
+            set isPlaying to (rawState is "playing")
+            return trackName & "\(sep)   \(sep)" & isPlaying
+        end tell
         """
     }
     
-    private let statusScript = """
-    tell application "TV"
-        -- Grab the raw player state: can be "playing", "paused", or "stopped".
-        set rawState to player state as text
-        
-        -- Try to get the current track, which might fail if truly no track is loaded.
-        set currentTrack to missing value
-        try
-            set currentTrack to name of current track
-            set currentProperties to properties of current track
-        end try
-        try
-            set frontWindow to name of front window
-        end try
-        
-        if currentTrack is not missing value then
-            set trackName to currentTrack
-            
-            if media kind of currentProperties is TV show then
-                set showName to show of current track
-            else
-                set showName to ""
-            end if
-            
-            if rawState is "playing" then
-                -- Standard playing scenario
-                return trackName & "|||" & showName & "|||" & "playing" & "|||" & "true"
-            else if rawState is "paused" or rawState is "stopped" then
-                -- If there's a valid track but the state is "stopped" or "paused," treat it as paused
-                return trackName & "|||" & showName & "|||" & "paused" & "|||" & "false"
-            end if
-        else if frontWindow is not "TV" then
-            if rawState is "playing" then
-                return frontWindow & "|||  |||" & "playing" & "|||" & "true"
-            else
-                return frontWindow & "|||  |||" & "paused" & "|||" & "false"
-            end if
-        else
-            -- If we can't retrieve a track, there's truly no video playing.
-            return "Nothing playing |||   ||| stopped ||| false"
-        end if
-    end tell
-    """
+    func fetchState() -> String { statusScript() }
     
-    func fetchState() -> String {
-        return statusScript
+    func actionWithStatus(_ action: AppAction) -> String {
+        switch action {
+        case .skipBackward, .skipForward:
+            // These actions are self-contained System Events scripts, so run them
+            // before the status read rather than injecting inside its tell block.
+            return executeAction(action) + "\n" + fetchState()
+        default:
+            return statusScript(precededBy: executeAction(action))
+        }
     }
     
     func parseState(_ output: String) -> AppState {
-        let components = output.components(separatedBy: "|||")
-        if components.count >= 4 {
-            return AppState(
-                title: components[0].trimmingCharacters(in: .whitespacesAndNewlines),
-                subtitle: components[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                isPlaying: components[3].trimmingCharacters(in: .whitespacesAndNewlines) == "true",
-                error: nil
-            )
-        }
-        return AppState(
-            title: "",
-            subtitle: "",
-            isPlaying: nil,
-            error: "Failed to parse TV state"
-        )
+        parseSeparatedState(output)
+            ?? AppState(title: "", subtitle: "", isPlaying: nil, error: "Failed to parse TV state")
     }
     
     func executeAction(_ action: AppAction) -> String {
         switch action {
         case .playPauseToggle:
-            return """
-            tell application "TV"
-                playpause
-            end tell
-            """
+            return "playpause"
         case .skipBackward:
             return """
-            tell application "TV"
-            activate
-            try
-            set currentPosition to player position
-            if currentPosition is not missing value then
-            set player position to currentPosition - 10
-            else
-            -- Fallback for streaming content
             tell application "System Events"
-                -- Target the TV app directly
-                tell process "TV"
-                    key code 123 -- Right Arrow
-                end tell
+                if frontmost of application "TV" is false then
+                    tell application "TV" to activate
+                    delay 0.1
+                end if
+                tell process "TV" to key code 123
             end tell
-            end if
-            on error errMsg
-            return "Error: " & errMsg
-            end try
-            end tell
-
             """
         case .skipForward:
             return """
-            tell application "TV"
-            activate
-            try
-            set currentPosition to player position
-            if currentPosition is not missing value then
-            set player position to currentPosition + 10
-            else
-            -- Fallback for streaming content
             tell application "System Events"
-                -- Target the TV app directly
-                tell process "TV"
-                    key code 124 -- Right Arrow
-                end tell
-            end tell
-            end if
-            on error errMsg
-            return "Error: " & errMsg
-            end try
+                if frontmost of application "TV" is false then
+                    tell application "TV" to activate
+                    delay 0.1
+                end if
+                tell process "TV" to key code 124
             end tell
             """
         default:
