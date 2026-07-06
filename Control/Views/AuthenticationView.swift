@@ -157,12 +157,15 @@ struct AuthenticationView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
 
+                    // No textContentType: marking this .password opts into iOS
+                    // Password AutoFill, whose save/prefill model is one login
+                    // per app — credentials here are per-Mac and managed in the
+                    // app's own keychain entries.
                     SecureField("Password" + (mode == .add ? " (Optional)" : ""), text: $password)
                         .focused($focusedField, equals: .password)
                         .onSubmit {
                             handleSubmit()
                         }
-                        .textContentType(.password)
                         .submitLabel(.done)
 
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
