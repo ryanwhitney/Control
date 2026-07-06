@@ -10,18 +10,19 @@ struct ConnectionsView: View {
         NavigationStack {
             ZStack {
                 if viewModel.hasConnections {
+                    // The help button lives inside the list so it can float when
+                    // the list is short and scroll under the rows when it's tall.
                     ConnectionsListView()
                 } else {
                     EmptyStateView(
                         isSearching: viewModel.isSearching,
                         onRefresh: viewModel.startNetworkScan
                     )
+                    HelpButtonView(
+                        hasConnections: false,
+                        onHelp: { viewModel.activePopover = .help }
+                    )
                 }
-
-                HelpButtonView(
-                    hasConnections: viewModel.hasConnections,
-                    onHelp: { viewModel.activePopover = .help }
-                )
             }
             .refreshable {
                 await withCheckedContinuation { continuation in

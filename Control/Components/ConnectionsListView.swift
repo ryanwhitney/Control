@@ -3,6 +3,10 @@ import SwiftUI
 struct ConnectionsListView: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
 
+    /// True once the rows are tall enough to fill the viewport, meaning the help
+    /// button should ride at the bottom of the scrollable content rather than float.
+    @State private var contentFillsViewport = false
+
     private var statusText: String {
         if viewModel.isSearching {
             return "Searching…"
@@ -12,6 +16,19 @@ struct ConnectionsListView: View {
     }
 
     var body: some View {
+        ZStack {
+            list
+
+            // Short list: keep the plain help button floating, pinned to the bottom.
+            if !contentFillsViewport {
+                HelpButtonView(hasConnections: true) {
+                    viewModel.activePopover = .help
+                }
+            }
+        }
+    }
+
+    private var list: some View {
         List {
             Section(header: Text("On Your Network".capitalized)) {
                 ForEach(viewModel.networkComputers) { computer in
@@ -85,12 +102,41 @@ struct ConnectionsListView: View {
             }
             .opacity(viewModel.savedComputers.isEmpty ? 0 : 1)
             .accessibilityLabel("Recent connections")
+
+            // Tall list: the help button becomes an inline footer, revealed when
+            // the user scrolls to the bottom instead of floating over the rows.
+            if contentFillsViewport {
+                Section {
+                    HelpPromptButton { viewModel.activePopover = .help }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
+            }
         }
+        .modifier(ContentOverflowReporter(fillsViewport: $contentFillsViewport))
         .animation(.spring(duration: 0.3), value: viewModel.networkComputers.map(\.id))
         .animation(.spring(duration: 0.3), value: viewModel.savedComputers.map(\.id))
         .animation(.spring(duration: 0.3), value: viewModel.isSearching)
         .animation(.spring(duration: 0.2), value: viewModel.showProgressIndicator)
         .animation(.spring(duration: 0.2), value: viewModel.showStatusRow)
+    }
+}
+
+/// Reports whether a scrollable view's content overflows its viewport, so callers
+/// can switch a floating footer into an inline one. No-op before iOS 18.
+private struct ContentOverflowReporter: ViewModifier {
+    @Binding var fillsViewport: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentSize.height > geometry.containerSize.height + 1
+            } action: { _, overflows in
+                fillsViewport = overflows
+            }
+        } else {
+            content
+        }
     }
 }
 
