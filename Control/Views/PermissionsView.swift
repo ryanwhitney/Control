@@ -75,7 +75,6 @@ struct PermissionsView: View, SSHConnectedView {
                 }
             }
 
-            // Set up SSH connection
             setupSSHConnection()
 
             // If permissions are already granted, show success right away
@@ -188,9 +187,9 @@ struct PermissionsView: View, SSHConnectedView {
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                         .padding(.bottom, -30)
-                        .preference(key: headerSizePreferenceKey.self, value: $0.size.height)
+                        .preference(key: HeaderSizePreferenceKey.self, value: $0.size.height)
                 })
-                .onPreferenceChange(headerSizePreferenceKey.self) { value in
+                .onPreferenceChange(HeaderSizePreferenceKey.self) { value in
                     self.headerHeight = value
                 }
                 VStack{
@@ -204,13 +203,6 @@ struct PermissionsView: View, SSHConnectedView {
         }
         .toolbarBackground(.black, for: .navigationBar)
         .navigationTitle("")
-    }
-
-    struct headerSizePreferenceKey: PreferenceKey {
-        static let defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value += nextValue()
-        }
     }
 
     private func permissionStatusIcon(for platformId: String) -> some View {
