@@ -3,8 +3,6 @@ import SwiftUI
 struct ThemePreferenceSheet: View {
     @StateObject private var preferences = UserPreferences.shared
 
-    @State private var selectedIndex: Int = 0
-
     private static let colors = [
         ("Blue", "blue", Color.blue),
         ("Indigo", "indigo", Color.indigo),

@@ -49,9 +49,8 @@ actor ChannelExecutor {
     private var isWarmedUp = false
     
     // MARK: - Reliability tuning
-    /// Maximum number of commands that can be queued when the executor is busy.
-    /// This still keeps latency low (worst-case 2 in-flight before the one just issued)
-    /// but avoids the "Executor busy" error when the user taps e.g. ▶︎ six times quickly.
+    /// Maximum number of commands that can be queued when the executor is busy,
+    /// so rapid taps (e.g. ▶︎ six times quickly) queue instead of erroring.
     private let maxQueuedCommands = 20
 
     /// Number of consecutive timeouts observed.  We only tear the channel down after
@@ -69,7 +68,6 @@ actor ChannelExecutor {
             return value
         }
         
-        // Initialization logging handled by SSHClient
         self.connection = connection
         self.channelKey = channelKey
         
@@ -105,13 +103,7 @@ actor ChannelExecutor {
                 }
             }
     }
-    func stripSpacesAndEmptyLines(_ input: String) -> String {
-        return input
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-    }
+
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
     func run(command: String, description: String?) async -> Result<String, Error> {
         // Perform a one-time warm-up if this is the first command on the channel.
@@ -148,6 +140,14 @@ actor ChannelExecutor {
             }
             Task { await self.enqueueWorkItem(payload: payload, sentinel: sentinel, description: description, continuation: continuation) }
         }
+    }
+
+    private func stripSpacesAndEmptyLines(_ input: String) -> String {
+        return input
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
     private func enqueueWorkItem(payload: String, sentinel: String, description: String?, continuation: CheckedContinuation<Result<String, Error>, Never>) async {
