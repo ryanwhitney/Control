@@ -19,10 +19,13 @@ struct MusicApp: AppPlatform {
             if player state is stopped then
                 return "Nothing playing \(sep)    \(sep) false"
             end if
-            set trackName to name of current track
-            set artistName to artist of current track
-            set isPlaying to player state is playing
-            return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
+            try
+                set trackName to name of current track
+                set artistName to artist of current track
+                set isPlaying to player state is playing
+                return trackName & "\(sep)" & artistName & "\(sep)" & isPlaying
+            end try
+            return "Nothing playing \(sep)    \(sep) false"
         end tell
         """
     }
