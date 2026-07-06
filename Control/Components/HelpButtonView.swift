@@ -3,21 +3,12 @@ import SwiftUI
 struct HelpButtonView: View {
     let hasConnections: Bool
     let onHelp: () -> Void
-    
+
     var body: some View {
         VStack {
             Spacer()
             if hasConnections {
-                Button {
-                    onHelp()
-                } label: {
-                    Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .font(.subheadline)
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
+                HelpPromptButton(onHelp: onHelp)
             } else {
                 Button {
                     onHelp()
@@ -25,17 +16,33 @@ struct HelpButtonView: View {
                     Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
                         .padding()
                         .frame(maxWidth: .infinity)
-                        .background(.thickMaterial)
-                        .cornerRadius(12)
                         .tint(.accentColor)
                         .foregroundStyle(.tint)
+                        .legacyButtonBackground(.thickMaterial, cornerRadius: 12)
                 }
-                .buttonStyle(.bordered)
+                .glassButtonStyleIfAvailable(fallback: .bordered)
                 .tint(.gray)
             }
         }
         .padding(.horizontal)
         .padding(.bottom, hasConnections ? 20 : 8)
+    }
+}
+
+/// The plain "why isn't my device showing?" button. Shared between the floating
+/// overlay (short lists) and the inline list footer (lists tall enough to scroll).
+struct HelpPromptButton: View {
+    let onHelp: () -> Void
+
+    var body: some View {
+        Button {
+            onHelp()
+        } label: {
+            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
+                .font(.subheadline)
+                .foregroundStyle(.tertiary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -59,4 +66,4 @@ struct HelpButtonView: View {
         )
     }
     .frame(height: 300)
-} 
+}
