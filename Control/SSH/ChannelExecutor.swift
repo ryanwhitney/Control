@@ -86,16 +86,16 @@ actor ChannelExecutor {
 
         self.connection = connection
         self.channelKey = channelKey
-        self.shellHandler = StreamingShellHandler()
-        setupShellChannel()
+        let handler = StreamingShellHandler()
+        self.shellHandler = handler
+        setupShellChannel(connection: connection, handler: handler, generation: 0)
     }
 
-    /// Opens the interactive shell session on `connection` for the current
-    /// `shellHandler`/`shellGeneration`. Called from init and from every rebuild.
-    private func setupShellChannel() {
+    /// Opens the interactive shell session for the given handler/generation.
+    /// Called from init and from every rebuild. `nonisolated` (dependencies are
+    /// passed in) so the actor init can call it synchronously.
+    private nonisolated func setupShellChannel(connection: Channel, handler: StreamingShellHandler, generation: Int) {
         let promise = connection.eventLoop.makePromise(of: Channel.self)
-        let handler = shellHandler
-        let generation = shellGeneration
         connection.pipeline.handler(type: NIOSSHHandler.self)
             .flatMap { sshHandler -> EventLoopFuture<Channel> in
                 sshHandler.createChannel(promise) { child, type in
@@ -137,7 +137,7 @@ actor ChannelExecutor {
         shellChannel = nil
         shellFailed = false
         shellHandler = StreamingShellHandler()
-        setupShellChannel()
+        setupShellChannel(connection: connection, handler: shellHandler, generation: shellGeneration)
     }
 
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
