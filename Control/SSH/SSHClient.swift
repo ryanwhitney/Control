@@ -3,16 +3,6 @@ import NIOSSH
 import NIOCore
 import NIOPosix
 
-enum SSHError: Error {
-    case channelNotConnected
-    case invalidChannelType
-    case authenticationFailed
-    case connectionFailed(String)
-    case timeout
-    case channelError(String)
-    case noSession
-}
-
 class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private var group: EventLoopGroup
 
@@ -23,14 +13,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
     private let stateLock = NSLock()
     private var connection: Channel?
 
-    // MARK: - Dedicated Channel Support
-    // Using a single app channel improves stability by serialising all app commands.
-    // This is why `serializesAppCommands` is true here (the protocol default): all
-    // platform status/action commands funnel through one `app-0` executor, so a
-    // bulk refresh queues behind itself — AppController refreshes visible-first.
-    private let appChannelPoolSize = 1
-
-    /// Executors keyed by physical channel name (e.g. "system", "app-0", "app-1")
+    /// Executors keyed by physical channel name (e.g. "system", "heartbeat", "app-0")
     private var dedicatedExecutors: [String: ChannelExecutor] = [:]
 
     /// Retrieve an existing executor or create a new one based on the logical key.
@@ -130,7 +113,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             username: username,
             password: password,
             connectionId: connectionId,
-            makeChildHandlers: { [ErrorHandler()] }
+            makeChildHandlers: { [SSHChannelErrorHandler()] }
         ) { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -169,21 +152,14 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         sshLog("⚰︎ SSHClient disconnected and cleaned up")
     }
 
-    /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying executor key.
+    /// Maps a logical channel key ("system", "heartbeat", app id) to its underlying
+    /// executor key. All app keys share the single "app-0" executor: serialising app
+    /// commands on one channel improves stability, and is why `serializesAppCommands`
+    /// is true here — a bulk refresh queues behind itself, so AppController refreshes
+    /// visible-first.
     private func physicalKey(for logicalKey: String) -> String {
         if logicalKey == "system" { return "system" }
         if logicalKey == "heartbeat" { return "heartbeat" }
-        return "app-\(abs(logicalKey.hashValue) % appChannelPoolSize)"
-    }
-}
-
-private class ErrorHandler: ChannelInboundHandler {
-    typealias InboundIn = Any
-
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        // This handler is for server-initiated channels, which we don't expect.
-        // Logging the error is sufficient.
-        sshLog("SSH Error on server-initiated channel: \(error)")
-        context.close(promise: nil)
+        return "app-0"
     }
 }
