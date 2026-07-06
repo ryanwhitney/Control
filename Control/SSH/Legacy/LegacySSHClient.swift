@@ -207,6 +207,22 @@ final class SSHCommandHandler: ChannelInboundHandler {
         }
     }
 
+    /// A command with no stdout (e.g. `set volume output volume 40`) never
+    /// triggers `channelRead`, so the remote's exit-status is the only signal
+    /// that it finished. Complete with whatever output accumulated — possibly
+    /// none — instead of letting `channelInactive` fail the command as
+    /// "Connection closed", which upstream classifies as connection loss and
+    /// answers every legacy volume set with a spurious reconnect.
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if event is SSHChannelRequestEvent.ExitStatus, let promise = pendingCommandPromise {
+            pendingCommandPromise = nil
+            promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
+            buffer = ""
+            hasReceivedOutput = false
+        }
+        context.fireUserInboundEventTriggered(event)
+    }
+
     func channelInactive(context: ChannelHandlerContext) {
         if let promise = pendingCommandPromise {
             promise.fail(SSHError.channelError("Connection closed"))
