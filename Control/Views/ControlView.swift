@@ -317,21 +317,21 @@ struct ControlView: View, SSHConnectedView {
                         }
                     }
                     // Platform-specific actions section
-                    if let currentPlatform = appController.platforms[safe: selectedPlatformIndex],
-                       !currentPlatform.menuActions.isEmpty {
-                        Divider()
-                        Section(currentPlatform.name) {
-                            ForEach(currentPlatform.menuActions) { appAction in
-                                Button {
-                                    Task {
-                                        await appController.executeActionWithStatus(platform: currentPlatform, action: appAction.action, isMenuAction: true)
-                                    }
-                                } label: {
-                                    Label(appAction.label, systemImage: appAction.staticIcon)
-                                }
-                            }
-                        }
-                    }
+//                    if let currentPlatform = appController.platforms[safe: selectedPlatformIndex],
+//                       !currentPlatform.menuActions.isEmpty {
+//                        Divider()
+//                        Section(currentPlatform.name) {
+//                            ForEach(currentPlatform.menuActions) { appAction in
+//                                Button {
+//                                    Task {
+//                                        await appController.executeActionWithStatus(platform: currentPlatform, action: appAction.action, isMenuAction: true)
+//                                    }
+//                                } label: {
+//                                    Label(appAction.label, systemImage: appAction.staticIcon)
+//                                }
+//                            }
+//                        }
+//                    }
                 } label: {
                     Label("More", systemImage: "ellipsis")
                 }
