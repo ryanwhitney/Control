@@ -13,9 +13,7 @@ struct URLWebView: UIViewRepresentable {
         return webView
     }
     
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        // No updates needed
-    }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
 struct URLWebView_Previews: PreviewProvider {

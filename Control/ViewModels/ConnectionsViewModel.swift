@@ -251,7 +251,7 @@ class ConnectionsViewModel: ObservableObject {
     private func performConnection(computer: Connection) async throws {
         // `connect()` tears down any existing connection itself, so there's no
         // pre-disconnect step here.
-        try await connectionManager.verifyConnection(
+        try await connectionManager.connect(
             host: computer.host,
             username: username,
             password: password

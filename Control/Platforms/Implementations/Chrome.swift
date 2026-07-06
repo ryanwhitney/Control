@@ -17,7 +17,7 @@ struct ChromeApp: AppPlatform {
         ]
     }
 
-    // Template status script that can optionally inject action AppleScript that can optionally inject action AppleScript
+    // Template status script that can optionally inject action AppleScript
     private func statusScript(precededBy actionScript: String = "") -> String {
         """
         tell application "Google Chrome"

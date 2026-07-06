@@ -279,19 +279,9 @@ class DebugLogger: ObservableObject {
         logs.removeAll()
         lastCleanupTime = Date()
     }
-    
-    func forceCleanup() {
-        performCleanup()
-        lastCleanupTime = Date()
-    }
-    
+
     var allLogsText: String {
         logs.map { $0.formattedEntry }.joined(separator: "\n")
-    }
-    
-    var recentLogsText: String {
-        let recentLogs = logs.suffix(50) // Last 50 entries
-        return recentLogs.map { $0.formattedEntry }.joined(separator: "\n")
     }
 }
 
@@ -317,19 +307,3 @@ func appControllerLog(_ message: String) {
 func viewLog(_ message: String, view: String) {
     debugLog(message, category: view)
 }
-
-// Safe logging functions that automatically sanitize sensitive data
-func safeConnectionLog(host: String, username: String, action: String) {
-    let safeHost = String(host.prefix(10)) + (host.count > 10 ? "***" : "")
-    let safeUsername = String(username.prefix(3)) + (username.count > 3 ? "***" : "")
-    connectionLog("\(action) - Host: \(safeHost), User: \(safeUsername)")
-}
-
-func safeCommandLog(_ command: String, description: String? = nil) {
-    let safeCommand = command.count > 50 ? String(command.prefix(50)) + "..." : command
-    if let description = description {
-        appControllerLog("Command: \(description) (\(safeCommand.count) chars)")
-    } else {
-        appControllerLog("Command executed (\(safeCommand.count) chars)")
-    }
-} 

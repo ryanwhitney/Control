@@ -3,7 +3,6 @@ import SwiftUI
 struct ThemePreferenceView: View {
     @StateObject private var preferences = UserPreferences.shared
     @StateObject private var savedConnections = SavedConnections()
-    @State private var selectedIndex: Int = 0
     @State private var previewVolume: Float = 0.5
 
     private static let colors = [

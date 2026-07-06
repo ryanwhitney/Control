@@ -75,9 +75,4 @@ class UserPreferences: ObservableObject {
     func markWhatsNewAsSeen() {
         lastSeenWhatsNewVersion = whatsNewContentVersion
     }
-    
-    // Force what's new screen to show again
-    func resetWhatsNew() {
-        lastSeenWhatsNewVersion = ""
-    }
-} 
+}
