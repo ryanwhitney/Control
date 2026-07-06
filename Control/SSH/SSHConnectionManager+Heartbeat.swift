@@ -27,11 +27,14 @@ extension SSHConnectionManager {
         }
         connectionLog("♡ Heartbeat started (interval \(minHeartbeatInterval)s -> \(maxHeartbeatInterval)s)")
 
-        lastHeartbeatSuccess = Date()
         recoveryDeadline = nil
     }
 
     func stopHeartbeat() {
+        // Invalidate in-flight pings: their watchdogs/replies captured the old
+        // generation and become no-ops (startHeartbeat calls this too, so a
+        // restart also orphans the previous heartbeat's pings).
+        heartbeatGeneration &+= 1
         heartbeatTask?.cancel()
         heartbeatTask = nil
         connectionLog("⛔︎ Heartbeat stopped")
@@ -44,11 +47,12 @@ extension SSHConnectionManager {
         let idString = ScriptTokens.heartbeat(hbId)
         let script = "return \"\(idString)\""
         let sendTime = Date()
+        let generation = heartbeatGeneration
         var completed = false
 
         // Timeout watchdog
         let timeoutTask = DispatchWorkItem { [weak self] in
-            guard let self, !completed else { return }
+            guard let self, !completed, self.heartbeatGeneration == generation else { return }
             completed = true
             self.handleHeartbeatFailure(reason: "timeout waiting > \(heartbeatReplyTimeout)s for \(idString)")
         }
@@ -61,7 +65,7 @@ extension SSHConnectionManager {
             // main-thread state. The watchdog above runs on the main queue, so
             // both writers of `completed` are now serialized.
             Task { @MainActor [weak self] in
-                guard let self, !completed else { return }
+                guard let self, !completed, self.heartbeatGeneration == generation else { return }
                 completed = true
                 timeoutTask.cancel()
 
@@ -82,7 +86,6 @@ extension SSHConnectionManager {
 
     private func handleHeartbeatSuccess(rtt: TimeInterval, id: String) {
         consecutiveHeartbeatFailures = 0
-        lastHeartbeatSuccess = Date()
         // A real reply landed → this connection's transport works; a later drop is
         // a genuine disconnect, not a streaming-layer failure to auto-fall-back.
         heartbeatEverSucceeded = true
@@ -104,7 +107,10 @@ extension SSHConnectionManager {
         if consecutiveHeartbeatFailures == 1 {
             connectionState = .recovering
             recoveryDeadline = Date().addingTimeInterval(2)
-            currentHeartbeatInterval = minHeartbeatInterval
+            // Re-ping faster than the idle cadence so Compatibility (2s floor)
+            // still gets more than one self-heal attempt inside the window;
+            // 1s stays above LAN RTTs, so recovery pings don't overlap.
+            currentHeartbeatInterval = min(minHeartbeatInterval, 1)
             connectionLog("🛠️ Entering recovering state – monitoring for 2s")
         } else {
             let shouldDrop = consecutiveHeartbeatFailures >= maxHeartbeatFailures && (recoveryDeadline.map { Date() >= $0 } ?? false)

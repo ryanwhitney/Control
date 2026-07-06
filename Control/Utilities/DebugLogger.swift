@@ -124,10 +124,9 @@ class DebugLogger: ObservableObject {
             return result
         }
         
-        // Redact hostnames (keep first 3 characters)
+        // Redact hostnames
         sanitized = regexReplace(pattern: #"[a-zA-Z0-9-]+\.local"#, in: sanitized) { match in
-            let prefix = String(match.prefix(3))
-            return "\(prefix)***"
+            match.redacted()
         }
         
         // Redact IPv4 addresses (keep first octet)
@@ -157,7 +156,8 @@ class DebugLogger: ObservableObject {
     
     /// Redacts probable media titles/artists (the first two fields of the
     /// separated status shape) while leaving system messages readable.
-    private func sanitizeMediaContent(_ message: String) -> String {
+    /// Internal (not private) so the privacy tests can exercise it directly.
+    func sanitizeMediaContent(_ message: String) -> String {
         guard message.contains(ScriptTokens.fieldSeparator) else { return message }
 
         // Redact only the payload after "Full output: " when present; plain
@@ -181,17 +181,18 @@ class DebugLogger: ObservableObject {
         var components = payload.components(separatedBy: ScriptTokens.fieldSeparator)
         guard components.count >= 2 else { return message }
 
+        // Exact match only: a real media title *containing* a status word
+        // (e.g. "Playing God") must still be redacted.
         let systemValues = [
             "not running", "nothing playing", "loading...", "permissions required",
-            "no media playing", "error:", "no windows open", "no media found",
+            "no media playing", "no windows open", "no media found",
             "stopped", "false", "true", "playing", "paused"
         ]
         for index in 0...1 {
             let value = components[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            let lowered = value.lowercased()
-            let isSystemValue = systemValues.contains { lowered.contains($0) || $0.contains(lowered) }
+            let isSystemValue = systemValues.contains(value.lowercased())
             if value.count > 3 && !isSystemValue {
-                components[index] = String(value.prefix(3)) + "***"
+                components[index] = value.redacted()
             }
         }
         return prefix + components.joined(separator: ScriptTokens.fieldSeparator)

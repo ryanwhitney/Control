@@ -309,8 +309,8 @@ class ConnectionsViewModel: ObservableObject {
         let isLocal = computer.host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
         viewLog("Connection type: \(connectionType)", view: "ConnectionsViewModel")
-        viewLog("Computer name: \(String(computer.name.prefix(3)))***", view: "ConnectionsViewModel")
-        viewLog("Host: \(String(computer.host.prefix(3)))***", view: "ConnectionsViewModel")
+        viewLog("Computer name: \(computer.name.redacted())", view: "ConnectionsViewModel")
+        viewLog("Host: \(computer.host.redacted())", view: "ConnectionsViewModel")
     }
 
     private func updateNetworkComputersStably() {
