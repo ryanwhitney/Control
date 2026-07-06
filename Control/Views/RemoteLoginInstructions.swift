@@ -10,149 +10,128 @@ struct RemoteLoginInstructions: View {
         return nil
     }()
 
+    /// The numbered "Enable Remote Login" steps, with their bold emphasis baked in.
+    private let remoteLoginSteps: [Text] = [
+        Text("Open ") + Text("System Settings").bold() + Text("."),
+        Text("Select ") + Text("General").bold() + Text(" on the left panel."),
+        Text("Scroll to select ") + Text("Sharing").bold() + Text("."),
+        Text("Enable ") + Text("Remote Login").bold() + Text(" near the bottom."),
+        Text("Click the ") + Text(Image(systemName: "info.circle")).bold()
+            + Text(" icon and disable ") + Text("Allow full disk access").bold() + Text("."),
+    ]
+
     var body: some View {
-        VStack{
-            List{
-                HStack(spacing: 8){
-                    Image(systemName: "1.circle.fill")
-                        .foregroundStyle(.secondary, .tertiary)
-                        .font(.system(size: 25))
-                    Text("Enable Remote Login:")
-                        .font(.title3).bold()
+        List {
+            stepHeader(1, "Enable Remote Login:")
+
+            Section {
+                if let player {
+                    let videoAspectRatio: CGFloat = 1430 / 940
+                    VideoPlayer(player: player)
+                        .aspectRatio(videoAspectRatio, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .onAppear { startLooping(player) }
                 }
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
-                .listRowSeparator(.hidden)
-                .listSectionSpacing(0)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 4, leading: 1, bottom: 10, trailing: 1))
+            .listSectionSpacing(10)
+            .listRowBackground(Color.clear)
 
-                Section{
-                    if let player = player {
-                        let videoAspectRatio: CGFloat = 1430 / 940 // Calculate aspect ratio
-                        VideoPlayer(player: player)
-                            .aspectRatio(videoAspectRatio, contentMode: .fit) // Ensures correct aspect ratio
-                            .frame(maxWidth: .infinity) // Allows it to fit width while maintaining aspect
-                            .onAppear {
-                                do {
-                                    try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
-                                    try AVAudioSession.sharedInstance().setActive(true)
-                                } catch {
-                                    print("Failed to set audio session category: \(error)")
-                                }
-
-                                player.volume = 0
-                                player.seek(to: .zero)
-                                player.play()
-                                NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
-                                    player.seek(to: .zero)
-                                    player.play()
-                                }
-                            }
-                    }
-                }
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 1, bottom: 10, trailing: 1))
-                .listSectionSpacing(10)
-                .listRowBackground(Color.clear)
-
-                Section{
-                    ForEach(0...4, id: \.self) { index in
-                        HStack(alignment: .top) {
-                            Text("\(index + 1).")
-                                .frame(minWidth: 16, alignment: .leading)
-                                .foregroundStyle(.secondary)
-                            switch index {
-                            case 0:
-                                Text("Open ")
-                                + Text("System Settings").bold()
-                                + Text(".")
-                            case 1:
-                                Text("Select ")
-                                + Text("General").bold()
-                                + Text(" on the left panel.")
-                            case 2:
-                                Text("Scroll to select ")
-                                + Text("Sharing").bold()
-                                + Text(".")
-                            case 3:
-                                Text("Enable ")
-                                + Text("Remote Login").bold()
-                                + Text(" near the bottom.")
-                            case 4:
-                                Text("Click the ")
-                                + Text(Image(systemName: "info.circle"))
-                                    .bold()
-                                + Text(" icon and disable ")
-                                + Text("Allow full disk access").bold()
-                                + Text(".")
-                            default:
-                                EmptyView()
-                            }
-                        }
-                    }
-                }
-                .listStyle(GroupedListStyle())
-                .scrollContentBackground(.hidden)
-                .listSectionSpacing(8)
-
-                Section{
-                    NavigationLink {
-                        URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
-                    } label: {
-                        Text("Instructions for older MacOS versions ")
-                            .font(.subheadline)
-
-                    }
-                }
-
-                Section{
-                    HStack( spacing: 8 ){
-                        Image(systemName: "2.circle.fill")
-                            .foregroundStyle(.secondary, .tertiary)
-                            .font(.system(size: 25))
-                        Text("Other Steps:")
-                            .font(.title3).bold()
-                    }
-                }
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
-                .multilineTextAlignment(.center)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(Color.clear)
-
-                Section{
-
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName:"tv.badge.wifi.fill")
-                            .font(.system(size: 15))
-                            .padding(.leading, -10)
-                            .frame(minWidth: 16, alignment: .center)
+            Section {
+                ForEach(Array(remoteLoginSteps.enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .top) {
+                        Text("\(index + 1).")
+                            .frame(minWidth: 16, alignment: .leading)
                             .foregroundStyle(.secondary)
-                        Text("Make sure both devices are on the same WiFi network.")
-
+                        step
                     }
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName:"wifi.exclamationmark.circle.fill")
-                            .padding(.leading, -10)
-                            .frame(minWidth: 16, alignment: .center)
-                            .foregroundStyle(.secondary)
-                        Text("If you're using a VPN, ensure it allows local network access.")
-                    }
-
                 }
-                .listSectionSpacing(0)
-                .listStyle(GroupedListStyle())
-                .scrollContentBackground(.hidden)
+            }
+            .listStyle(GroupedListStyle())
+            .scrollContentBackground(.hidden)
+            .listSectionSpacing(8)
 
+            Section {
+                NavigationLink {
+                    URLWebView(urlString: "https://support.apple.com/guide/mac-help/allow-a-remote-computer-to-access-your-mac-mchlp1066/mac")
+                } label: {
+                    Text("Instructions for older MacOS versions ")
+                        .font(.subheadline)
+                }
             }
 
+            stepHeader(2, "Other Steps:", verticalPadding: 16)
+
+            Section {
+                infoRow("tv.badge.wifi.fill", "Make sure both devices are on the same WiFi network.")
+                infoRow("wifi.exclamationmark.circle.fill", "If you're using a VPN, ensure it allows local network access.")
+            }
+            .listSectionSpacing(0)
+            .listStyle(GroupedListStyle())
+            .scrollContentBackground(.hidden)
+
+            stepHeader(3, "Troubleshooting:", verticalPadding: 16, topInset: 32)
+
+            Section {
+                infoRow("building.2.fill", "Control won't work on large networks, such as those used by hotels, offices, or universities. Connecting the two devices via Personal Hotspot is a workaround.")
+                infoRow("lock.shield.fill", "Control won't work with devices that have Lockdown Mode enabled.")
+            }
+            .listSectionSpacing(0)
+            .listStyle(GroupedListStyle())
+            .scrollContentBackground(.hidden)
         }
         .navigationBarHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             player?.play()
+        }
+    }
+
+    /// A centered, numbered section header (e.g. "1  Enable Remote Login:").
+    private func stepHeader(_ number: Int, _ title: String, verticalPadding: CGFloat = 0, topInset: CGFloat = 0) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "\(number).circle.fill")
+                .foregroundStyle(.secondary, .tertiary)
+                .font(.system(size: 25))
+            Text(title)
+                .font(.title3).bold()
+        }
+        .padding(.vertical, verticalPadding)
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: topInset, leading: 0, bottom: 0, trailing: 0))
+        .listRowBackground(Color.clear)
+    }
+
+    /// An icon + text row used by the "Other Steps" and "Troubleshooting" lists.
+    private func infoRow(_ systemImage: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15))
+                .padding(.leading, -6)
+                .frame(minWidth: 16, alignment: .center)
+                .foregroundStyle(.secondary)
+            Text(text)
+        }
+    }
+
+    /// Mutes the player and loops it, keeping playback silent regardless of the ringer.
+    private func startLooping(_ player: AVPlayer) {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Failed to set audio session category: \(error)")
+        }
+
+        player.volume = 0
+        player.seek(to: .zero)
+        player.play()
+        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
+            player.seek(to: .zero)
+            player.play()
         }
     }
 }
