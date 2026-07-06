@@ -45,21 +45,19 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         do {
             let exec = try executor(for: channelKey)
             let result = await exec.run(command: command, description: description)
-            if case .failure(let error) = result {
-                var shouldReset = false
-                if case SSHError.timeout = error { shouldReset = true }
-                if case SSHError.channelError = error { shouldReset = true }
-                if shouldReset {
-                    let physicalKey = self.physicalKey(for: channelKey)
-                    // Evict under the lock via a synchronous helper: NSLock's
-                    // lock()/unlock() are unavailable directly in an async context.
-                    let evicted = evictExecutor(forKey: physicalKey)
-                    if let evicted {
-                        // Close, don't just drop: an evicted executor still holds a
-                        // live PTY channel (and a remote osascript) otherwise.
-                        await evicted.close()
-                        sshLog("📡 SSHClient: Closed executor for key '\(physicalKey)' due to error – will recreate on next use")
-                    }
+            // The executor self-heals from timeouts (it rebuilds its shell and
+            // keeps its queue), so eviction only happens once it has permanently
+            // given up — otherwise we'd destroy the surviving queue with it.
+            if case .failure = result, await exec.isDefunct {
+                let physicalKey = self.physicalKey(for: channelKey)
+                // Evict under the lock via a synchronous helper: NSLock's
+                // lock()/unlock() are unavailable directly in an async context.
+                let evicted = evictExecutor(forKey: physicalKey)
+                if let evicted {
+                    // Close, don't just drop: an evicted executor could still hold
+                    // a live PTY channel (and a remote osascript) otherwise.
+                    await evicted.close()
+                    sshLog("📡 SSHClient: Evicted defunct executor for key '\(physicalKey)' – will recreate on next use")
                 }
             }
             return result
@@ -82,6 +80,29 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         Task {
             let result = await performOnDedicatedChannel(channelKey, command: command, description: description)
             completion(result)
+        }
+    }
+
+    /// Cap keeps ephemeral channels + the persistent ones (system, heartbeat,
+    /// app-0) comfortably under sshd's MaxSessions (default 10).
+    private let isolatedGate = CommandGate(maxInFlight: 4)
+
+    /// Isolated commands bypass the shared interpreter entirely: each runs on
+    /// its own throwaway exec channel, so one blocking (e.g. on a permission
+    /// dialog) can't stall the serialized app channel or other isolated commands.
+    func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        stateLock.lock()
+        let conn = connection
+        stateLock.unlock()
+        guard let conn else {
+            completion(.failure(SSHError.channelNotConnected))
+            return
+        }
+        isolatedGate.run { finished in
+            EphemeralCommandChannel.run(command, on: conn, description: description) { result in
+                finished()
+                completion(result)
+            }
         }
     }
 
