@@ -82,6 +82,13 @@ class LegacySSHClient: SSHClientProtocol {
     /// AppleScript the caller supplies.
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         let wrapped = ShellCommandUtilities.wrapAppleScriptForBash(command)
+        // The heartbeat is the health signal — it must never queue behind a
+        // status sweep, so it bypasses the gate (worst case 5 + 1 sessions,
+        // still well under sshd's MaxSessions).
+        if channelKey == "heartbeat" {
+            executeCommandOnNewChannel(wrapped, description: description, completion: completion)
+            return
+        }
         runGated { [weak self] finished in
             guard let self else {
                 finished()
@@ -108,7 +115,9 @@ class LegacySSHClient: SSHClientProtocol {
             } else {
                 let next = self.queuedCommands.removeFirst()
                 self.commandGateLock.unlock()
-                next()
+                // Hop off the completing thread so a sustained backlog drains
+                // iteratively instead of re-entering (and growing) this stack.
+                DispatchQueue.global(qos: .userInitiated).async(execute: next)
             }
         }
 
@@ -259,11 +268,13 @@ final class SSHCommandHandler: ChannelInboundHandler {
     }
 
     func channelInactive(context: ChannelHandlerContext) {
-        // A close with an exit-status (or with output) is a completed command;
-        // a close with neither is a genuine drop mid-command.
+        // Only an exit-status marks a completed command. A close without one —
+        // even with partial output buffered — is a drop mid-command; succeeding
+        // with truncated output would render a wrong state and skip the
+        // connection-loss handling upstream.
         if let promise = pendingCommandPromise {
             pendingCommandPromise = nil
-            if sawExitStatus || !buffer.isEmpty {
+            if sawExitStatus {
                 promise.succeed(buffer.trimmingCharacters(in: .whitespacesAndNewlines))
                 buffer = ""
             } else {

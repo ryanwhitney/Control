@@ -56,7 +56,7 @@ class NetworkScanner: ObservableObject {
                         return nil
                     }
                     
-                    viewLog("Found SSH service: type=\(type), domain=\(domain), name=\(String(name.prefix(3)))***", view: "NetworkScanner")
+                    viewLog("Found SSH service: type=\(type), domain=\(domain), name=\(name.redacted())", view: "NetworkScanner")
                     
                     let service = NetService(domain: domain, type: type, name: name)
                     service.resolve(withTimeout: 5.0)

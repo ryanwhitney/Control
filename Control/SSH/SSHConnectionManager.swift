@@ -18,6 +18,10 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
 
     // MARK: - Heartbeat state (used by +Heartbeat, so not private)
     var heartbeatTask: Task<Void, Never>?
+    /// Bumped by `stopHeartbeat()`. In-flight pings capture the value they were
+    /// sent under, so a stale watchdog/reply from a stopped or replaced
+    /// heartbeat can't flip a fresh connection into `.recovering`.
+    var heartbeatGeneration: UInt64 = 0
     var consecutiveHeartbeatFailures = 0
     let maxHeartbeatFailures = 2
     /// Fast pings are the streaming transport's wedge canary. On Compatibility
@@ -28,7 +32,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     }
     let maxHeartbeatInterval: TimeInterval = 12
     var currentHeartbeatInterval: TimeInterval = 3
-    var lastHeartbeatSuccess: Date?
     var recoveryDeadline: Date?
     var heartbeatCounter: UInt32 = 0
     let heartbeatReplyTimeout: TimeInterval = 2.5
@@ -39,11 +42,10 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     var lastScenePhaseChange: (from: ScenePhase, to: ScenePhase, time: Date)?
 
     // MARK: - Streaming transport auto-fallback
-    /// Canary for the streaming transport: true once a *real* heartbeat reply has
-    /// landed on the current connection. `lastHeartbeatSuccess` is seeded on
-    /// connect, so it can't tell "connected but the stream never replied" from a
-    /// live connection — this flag can. Reset on every connect; set only in
-    /// `handleHeartbeatSuccess`.
+    /// Canary for the streaming transport: true once a *real* heartbeat reply
+    /// has landed on the current connection — distinguishing "connected but the
+    /// stream never replied" from a live connection. Reset on every connect;
+    /// set only in `handleHeartbeatSuccess`.
     var heartbeatEverSucceeded = false
     /// The transport the *current* connection was built with. Used to decide
     /// whether an unresponsive connection is a streaming-layer failure worth
@@ -253,7 +255,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         // Show connection metadata without exposing sensitive info
         let isLocal = host.contains(".local")
         let connectionType = isLocal ? "Bonjour (.local)" : "TCP/IP"
-        let hostRedacted = String(host.prefix(3)) + "***"
+        let hostRedacted = host.redacted()
         
         connectionLog("Connecting via \(connectionType) to \(hostRedacted)")
         
@@ -291,7 +293,6 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                         connectionLog("✓ [\(connectionId)] Connection successful")
                         self.connectionState = .connected
                         self.consecutiveHeartbeatFailures = 0
-                        self.lastHeartbeatSuccess = Date()
                         self.recoveryDeadline = nil
                         continuation.resume()
                     case .failure(let error):
