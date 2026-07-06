@@ -22,10 +22,20 @@ extension SSHConnectionManager {
         case .active:
             cancelBackgroundDisconnect()
             endBackgroundTask()
+            // The heartbeat was paused on backgrounding; resume it for a live
+            // connection. (When not connected, the view's own foreground path
+            // re-drives a full connect, which starts it.)
+            if connectionState == .connected && heartbeatTask == nil {
+                startHeartbeat()
+            }
         case .inactive:
             // No action needed, keep connection alive briefly
             break
         case .background:
+            // Pause the heartbeat: a ping suspended mid-flight would fire its
+            // stale watchdog on foreground and flash recovery — or drop a
+            // healthy connection — before the real reply gets a chance.
+            stopHeartbeat()
             startBackgroundDisconnectTimer()
         @unknown default:
             connectionLog("Unknown scene phase: \(newPhase)")

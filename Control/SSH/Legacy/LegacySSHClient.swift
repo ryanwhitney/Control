@@ -18,6 +18,15 @@ class LegacySSHClient: SSHClientProtocol {
     private var connection: Channel?
     private var session: Channel?
 
+    /// Bounds concurrent per-command channels. sshd caps sessions per
+    /// connection (`MaxSessions`, default 10), and a parallel status sweep +
+    /// heartbeat + a user action can brush against that limit — a refused
+    /// channel open surfaces as a failed command. Extras queue briefly instead.
+    private let maxInFlightCommands = 5
+    private let commandGateLock = NSLock()
+    private var inFlightCommands = 0
+    private var queuedCommands: [() -> Void] = []
+
     init() {
         self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     }
@@ -73,7 +82,46 @@ class LegacySSHClient: SSHClientProtocol {
     /// AppleScript the caller supplies.
     func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         let wrapped = ShellCommandUtilities.wrapAppleScriptForBash(command)
-        executeCommandOnNewChannel(wrapped, description: description, completion: completion)
+        runGated { [weak self] finished in
+            guard let self else {
+                finished()
+                completion(.failure(SSHError.channelNotConnected))
+                return
+            }
+            self.executeCommandOnNewChannel(wrapped, description: description) { result in
+                finished()
+                completion(result)
+            }
+        }
+    }
+
+    /// Runs `work` immediately when under the in-flight cap, otherwise queues
+    /// it. `work` must call its `finished` callback exactly once (the command
+    /// paths all funnel through a once-only promise) to release the slot.
+    private func runGated(_ work: @escaping (_ finished: @escaping () -> Void) -> Void) {
+        let finished = { [weak self] in
+            guard let self else { return }
+            self.commandGateLock.lock()
+            if self.queuedCommands.isEmpty {
+                self.inFlightCommands -= 1
+                self.commandGateLock.unlock()
+            } else {
+                let next = self.queuedCommands.removeFirst()
+                self.commandGateLock.unlock()
+                next()
+            }
+        }
+
+        let run = { work(finished) }
+        commandGateLock.lock()
+        if inFlightCommands < maxInFlightCommands {
+            inFlightCommands += 1
+            commandGateLock.unlock()
+            run()
+        } else {
+            queuedCommands.append(run)
+            commandGateLock.unlock()
+        }
     }
 
     private func executeCommandOnNewChannel(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
@@ -118,9 +166,11 @@ class LegacySSHClient: SSHClientProtocol {
                 }
                 let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true)
                 return channel.triggerUserOutboundEvent(execRequest).flatMap { _ in
-                    channel.eventLoop.scheduleTask(in: .seconds(5)) {
+                    // Matches the streaming executor's watchdog: AppleScript can
+                    // legitimately run long (System Events, app foregrounding).
+                    channel.eventLoop.scheduleTask(in: .seconds(6)) {
                         if let pendingPromise = handler.pendingCommandPromise {
-                            sshLog("⏰ Legacy command timed out after 5 seconds")
+                            sshLog("⏰ Legacy command timed out after 6 seconds")
                             pendingPromise.fail(SSHError.timeout)
                             channel.close(promise: nil)
                         }
