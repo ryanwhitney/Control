@@ -8,8 +8,15 @@ import os
 /// session – a PTY running `/usr/bin/osascript -s s -l AppleScript -i` and keep it
 /// alive for the lifetime of the executor.  Every command is streamed into that
 /// interpreter, demarcated with a unique sentinel so responses can be matched back
-/// to their promises.  If a fatal timeout or channel error occurs the shell is
-/// closed and the executor will be recreated on next use.
+/// to their promises.
+///
+/// A hung script can only be unstuck by killing the interpreter, but the queue
+/// survives: on a fatal timeout burst the executor rebuilds its shell channel
+/// and keeps working through the same queue, so one wedged command (e.g. a
+/// System Events call against a mid-launch app) costs only itself — not every
+/// command queued behind it. After `maxConsecutiveRebuilds` back-to-back
+/// rebuilds with no completed command the executor gives up and fails the
+/// queue, so a genuinely dead connection still errors out promptly.
 @available(iOS 16.0, *) // OSAllocatedUnfairLock requires iOS 16
 actor ChannelExecutor {
     /// Monotonic executor id for logging. Guarded by a lock rather than a
@@ -27,8 +34,11 @@ actor ChannelExecutor {
     /// `markShellFailed` (or individually by their own watchdog).
     private var shellWaiters: [Int: CheckedContinuation<Channel?, Never>] = [:]
     private var nextShellWaiterId = 0
-    private let shellHandler: StreamingShellHandler
+    private var shellHandler: StreamingShellHandler
     private let channelKey: String
+    /// Bumped on every rebuild so a late setup callback from a torn-down
+    /// channel can't set or fail the shell that replaced it.
+    private var shellGeneration = 0
     
     // MARK: - Single-flight queue support
     private struct WorkItem {
@@ -58,6 +68,12 @@ actor ChannelExecutor {
     private var consecutiveTimeouts = 0
     private let maxConsecutiveTimeouts = 2
 
+    /// Back-to-back shell rebuilds without a completed command in between.
+    /// Distinguishes "one wedged script" (rebuild and carry on) from "the
+    /// connection is dead" (every command times out — give up).
+    private var consecutiveRebuilds = 0
+    private let maxConsecutiveRebuilds = 3
+
     /// Command watchdog duration.  AppleScript can legitimately take >2 s under load.
     private let commandTimeoutSeconds: TimeAmount = .seconds(6)
     
@@ -67,14 +83,19 @@ actor ChannelExecutor {
             next += 1
             return value
         }
-        
+
         self.connection = connection
         self.channelKey = channelKey
-        
-        // Create a single interactive shell session
+        self.shellHandler = StreamingShellHandler()
+        setupShellChannel()
+    }
+
+    /// Opens the interactive shell session on `connection` for the current
+    /// `shellHandler`/`shellGeneration`. Called from init and from every rebuild.
+    private func setupShellChannel() {
         let promise = connection.eventLoop.makePromise(of: Channel.self)
-        let handler = StreamingShellHandler()
-        self.shellHandler = handler
+        let handler = shellHandler
+        let generation = shellGeneration
         connection.pipeline.handler(type: NIOSSHHandler.self)
             .flatMap { sshHandler -> EventLoopFuture<Channel> in
                 sshHandler.createChannel(promise) { child, type in
@@ -88,7 +109,7 @@ actor ChannelExecutor {
             .flatMap { (chan: Channel) -> EventLoopFuture<Void> in
                 // Persist the channel reference as soon as it's available
                 Task { [weak self] in
-                    await self?.setShellChannel(chan)
+                    await self?.setShellChannel(chan, generation: generation)
                 }
                 // Always use the interactive AppleScript shell
                 return setupInteractiveShell(channel: chan, command: "/usr/bin/osascript -s s -l AppleScript -i")
@@ -99,9 +120,24 @@ actor ChannelExecutor {
                 case .success: break
                 case .failure(let error):
                     sshLog("☄︎ [E\(self.executorId)] ChannelExecutor: ❌ Failed to start interactive shell: \(error)")
-                    Task { await self.markShellFailed() }
+                    Task { await self.markShellFailed(generation: generation) }
                 }
             }
+    }
+
+    /// Tears down the (presumed wedged) shell and opens a fresh one. The work
+    /// queue is untouched: queued commands were never sent, so they carry over
+    /// and run on the new interpreter via `ensureShellChannelReady`.
+    private func rebuildShellChannel() {
+        sshLog("☄︎ [E\(executorId):\(channelKey)] ♻️ Rebuilding shell channel (\(consecutiveRebuilds)/\(maxConsecutiveRebuilds)) – \(workQueue.count) queued commands carry over")
+        shellGeneration += 1
+        if let chan = shellChannel {
+            chan.close(mode: .all, promise: nil)
+        }
+        shellChannel = nil
+        shellFailed = false
+        shellHandler = StreamingShellHandler()
+        setupShellChannel()
     }
 
     /// Executes `command` by queueing it. Exactly one command is inflight on the interactive shell.
@@ -159,10 +195,15 @@ actor ChannelExecutor {
     // MARK: - Internal queue processor
     private func processNext() async {
         guard !isBusy, !workQueue.isEmpty else { return }
+        // Claim the flight slot before suspending: the await below is an actor
+        // reentrancy point, and a second unclaimed caller would race
+        // `removeFirst` on the same queue.
+        isBusy = true
         guard let chan = await ensureShellChannelReady() else {
             // Channel never became ready — fail everything queued so callers
             // don't hang forever on a continuation that would never resume.
             // The channelError makes SSHClient drop and recreate this executor.
+            isBusy = false
             let pending = workQueue
             workQueue.removeAll()
             for item in pending {
@@ -170,9 +211,13 @@ actor ChannelExecutor {
             }
             return
         }
+        // close() may have drained the queue while we were suspended.
+        guard !workQueue.isEmpty else {
+            isBusy = false
+            return
+        }
 
         let item = workQueue.removeFirst()
-        isBusy = true
 
         // Capture immutable locals so the event-loop closures never touch actor
         // state or the (event-loop-confined) handler off its own loop.
@@ -209,19 +254,27 @@ actor ChannelExecutor {
         }
     }
 
-    /// Post-command bookkeeping: count consecutive timeouts, tear the channel
-    /// down after a small burst, otherwise process the next queued command.
+    /// Post-command bookkeeping: count consecutive timeouts, rebuild the shell
+    /// after a small burst (queue survives), give up after too many rebuilds,
+    /// otherwise process the next queued command.
     private func finish(result: Result<String, Error>) async {
         if case .failure(let error) = result, case SSHError.timeout = error {
             consecutiveTimeouts += 1
             if consecutiveTimeouts >= maxConsecutiveTimeouts {
-                sshLog("☄︎ [E\(executorId):\(channelKey)] ⚠️ \(consecutiveTimeouts) consecutive timeouts – closing shell channel")
                 consecutiveTimeouts = 0
-                close()
-                return
+                guard consecutiveRebuilds < maxConsecutiveRebuilds else {
+                    sshLog("☄︎ [E\(executorId):\(channelKey)] ⚠️ Still timing out after \(maxConsecutiveRebuilds) rebuilds – closing")
+                    close()
+                    return
+                }
+                consecutiveRebuilds += 1
+                rebuildShellChannel()
             }
         } else {
             consecutiveTimeouts = 0
+            if case .success = result {
+                consecutiveRebuilds = 0
+            }
         }
         isBusy = false
         await processNext()
@@ -265,9 +318,16 @@ actor ChannelExecutor {
         }
     }
 
-    /// Close shell channel
+    /// True once the executor has permanently given up (closed); the owner
+    /// should evict it so the next command gets a fresh executor.
+    var isDefunct: Bool { shellFailed }
+
+    /// Close shell channel permanently. Idempotent: two teardown paths can
+    /// race here (the executor's own give-up and SSHClient's eviction).
     func close() {
+        guard !(shellFailed && shellChannel == nil) else { return }
         sshLog("☄︎ [E\(executorId)] ChannelExecutor: Closing shell channel")
+        shellGeneration += 1
         if let chan = self.shellChannel {
             chan.close(mode: .all, promise: nil)
         }
@@ -285,17 +345,23 @@ actor ChannelExecutor {
         resumeShellWaiters(with: nil)
     }
 
-    /// Set shell channel from async context
-    private func setShellChannel(_ channel: Channel) {
-        // A failure or close may already have been recorded — don't resurrect.
-        guard !shellFailed else { return }
+    /// Set shell channel from async context. `generation` guards against a
+    /// late callback from a torn-down channel touching its replacement.
+    private func setShellChannel(_ channel: Channel, generation: Int) {
+        // A stale generation, failure, or close may already have been recorded
+        // — don't resurrect.
+        guard generation == shellGeneration, !shellFailed else {
+            channel.close(mode: .all, promise: nil)
+            return
+        }
         self.shellChannel = channel
         resumeShellWaiters(with: channel)
     }
 
     /// Shell setup failed: fail fast for current and future commands instead of
     /// making every batch wait out a watchdog before erroring.
-    private func markShellFailed() {
+    private func markShellFailed(generation: Int) {
+        guard generation == shellGeneration else { return }
         shellFailed = true
         if let chan = shellChannel {
             chan.close(mode: .all, promise: nil)

@@ -31,6 +31,7 @@ struct PermissionsView: View, SSHConnectedView {
 
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
+    @State private var isCheckSweepRunning = false
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
     @State private var headerHeight: CGFloat = 0
@@ -282,9 +283,14 @@ struct PermissionsView: View, SSHConnectedView {
     }
 
     private func checkAllPermissions() async {
+        // A second tap while a sweep is running would double every command.
+        guard !isCheckSweepRunning else { return }
+        isCheckSweepRunning = true
+        defer { isCheckSweepRunning = false }
+
         viewLog("PermissionsView: Starting permission check for all platforms", view: "PermissionsView")
         viewLog("Enabled platforms: \(enabledPlatforms)", view: "PermissionsView")
-        
+
         // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
@@ -328,7 +334,7 @@ struct PermissionsView: View, SSHConnectedView {
 
         viewLog("Activating \(platform.name)...", view: "PermissionsView")
         let activateResult = await withCheckedContinuation { continuation in
-            connectionManager.executeCommandOnDedicatedChannel(platformId, activateScript, description: "\(platform.name): activate") { result in
+            connectionManager.executeCommandIsolated(activateScript, description: "\(platform.name): activate") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -348,7 +354,7 @@ struct PermissionsView: View, SSHConnectedView {
 
         viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
         let stateResult = await withCheckedContinuation { continuation in
-            connectionManager.executeCommandOnDedicatedChannel(platformId, stateScript, description: "\(platform.name): fetch status") { result in
+            connectionManager.executeCommandIsolated(stateScript, description: "\(platform.name): fetch status") { result in
                 continuation.resume(returning: result)
             }
         }
@@ -367,16 +373,21 @@ struct PermissionsView: View, SSHConnectedView {
             }
         case .failure(let error):
             viewLog("Initial permission check failed for \(platform.name): \(error)", view: "PermissionsView")
-            // Keep checking - no response likely means waiting for user to accept permissions
-            // Keep the checking state and start a retry loop
+            // Keep checking - no response likely means waiting for user to accept
+            // permissions. Bounded by wall clock, not attempts: each attempt can
+            // block ~6s in the command watchdog, so an attempt count is a wildly
+            // variable bound (60 attempts was accidentally ~6 minutes).
+            let deadline = Date().addingTimeInterval(60)
             var attempts = 0
-            while attempts < 60 { // Try for up to 30 seconds
+            while Date() < deadline {
 
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between checks
+                // 1s between retries: after a timeout the shell channel is being
+                // rebuilt, and retrying sooner just lands on a cold interpreter.
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                 viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
                 let retryResult = await withCheckedContinuation { continuation in
-                    connectionManager.executeCommandOnDedicatedChannel(platformId, stateScript, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
+                    connectionManager.executeCommandIsolated(stateScript, description: "\(platform.name): fetch status (retry \(attempts + 1))") { result in
                         continuation.resume(returning: result)
                     }
                 }
@@ -401,7 +412,7 @@ struct PermissionsView: View, SSHConnectedView {
             }
 
             // If we get here, we've timed out waiting for a response
-            viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts", view: "PermissionsView")
+            viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts (60s)", view: "PermissionsView")
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }

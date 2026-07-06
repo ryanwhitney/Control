@@ -500,4 +500,9 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         lastActivityAt = Date()
         client.executeCommandOnDedicatedChannel(channelKey, command, description: description, completion: completion)
     }
+
+    nonisolated func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
+        lastActivityAt = Date()
+        client.executeCommandIsolated(command, description: description, completion: completion)
+    }
 }
