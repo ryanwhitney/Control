@@ -14,11 +14,24 @@ extension View {
     ) -> some View {
         if #available(iOS 26.0, *) {
             buttonStyle(.glass)
+            
         } else {
             buttonStyle(fallback)
         }
     }
-
+    
+    @ViewBuilder
+    func glassEffectOrFallback<Background: View>(
+        @ViewBuilder background: () -> Background
+    ) -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular.tint(.red.opacity(0.2)))
+                
+        } else {
+            self.background(background())
+        }
+    }
+    
     /// Applies a background + corner radius only on pre-iOS 26 systems, where
     /// the Liquid Glass button style isn't available to provide its own surface.
     @ViewBuilder
