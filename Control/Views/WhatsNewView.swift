@@ -45,7 +45,7 @@ struct WhatsNewView: View {
                         VStack (alignment: .leading,spacing: 16){
                             Text("In this update, I’ve overhauled how Control talks to your Mac. Commands are now as close to instant as possible.")
                             Text("If the new method doesn't play nicely with your machine, switch to **compatibility mode** in settings.")
-                            Text("Also here:").italic()+Text(" minor design touch-ups, bug fixes, and troubleshooting improvements.")
+                            Text("Also here:").italic()+Text(" better support for VoiceOver and Voice Control, bug fixes, design touch-ups, and troubleshooting improvements.")
                             Text("Control gets better with your feedback.").bold()+Text(" Thanks for trying the app, and thanks to all who have reached out. Enjoy!")
                             Text("–RW")
                                 .foregroundStyle(.secondary)
