@@ -122,9 +122,11 @@ struct ChooseAppsView: View, SSHConnectedView {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             // The header sits after the list in the ZStack; read it first, with
-            // a running summary of the selection.
+            // a running summary of the selection. Count only visible platforms:
+            // a saved selection can hold ids no longer listed (e.g. a disabled
+            // experimental app), which would announce "8 of 7 apps selected".
             .accessibilitySortPriority(1)
-            .accessibilityValue("\(selectedPlatforms.count) of \(availablePlatforms.count) apps selected")
+            .accessibilityValue("\(visibleSelectionCount) of \(availablePlatforms.count) apps selected")
             .frame(maxWidth:.infinity)
             .multilineTextAlignment(.center)
             .background(GeometryReader {
@@ -183,6 +185,11 @@ struct ChooseAppsView: View, SSHConnectedView {
             Text(SSHError.timeout.formatError(displayName: displayName).message)
         }
         .alert(isPresented: showingError) { connectionErrorAlert() }
+    }
+
+    /// Selected platforms that are actually in the visible list.
+    private var visibleSelectionCount: Int {
+        availablePlatforms.filter { selectedPlatforms.contains($0.id) }.count
     }
 
     private func updateSelectedPlatforms() {

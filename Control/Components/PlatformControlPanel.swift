@@ -21,11 +21,14 @@ struct PlatformControl: View {
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    // Fixed icon frames, scaled with Dynamic Type.
-    @ScaledMetric(relativeTo: .largeTitle) private var primaryIconWidth: CGFloat = 40
-    @ScaledMetric(relativeTo: .largeTitle) private var primaryIconHeight: CGFloat = 45
-    @ScaledMetric(relativeTo: .largeTitle) private var trackIconWidth: CGFloat = 25
-    @ScaledMetric(relativeTo: .largeTitle) private var trackIconHeight: CGFloat = 28
+    // Transport icons stay fixed-size on purpose: platforms with five actions
+    // (VLC/IINA/mpv) already fill a small phone's width at these sizes, so any
+    // Dynamic Type growth pushes the outer buttons off screen with no way to
+    // reach them. The buttons are 60pt targets — comfortably above minimums.
+    private let primaryIconWidth: CGFloat = 40
+    private let primaryIconHeight: CGFloat = 45
+    private let trackIconWidth: CGFloat = 25
+    private let trackIconHeight: CGFloat = 28
 
     private var isPhoneLandscape: Bool {
         verticalSizeClass == .compact
@@ -49,11 +52,15 @@ struct PlatformControl: View {
                         .id(platform.name)
                         .accessibilityValue(pagerAccessibilityValue)
                         .accessibilityAdjustableAction { direction in
+                            // Step from the live selection, not this page's own
+                            // index: focus stays on the old page's title briefly
+                            // after a switch, and stepping from pageIndex there
+                            // drops repeat swipes or jumps the wrong way.
                             switch direction {
                             case .increment:
-                                onSelectPage(pageIndex + 1)
+                                onSelectPage(selectedIndex + 1)
                             case .decrement:
-                                onSelectPage(pageIndex - 1)
+                                onSelectPage(selectedIndex - 1)
                             @unknown default:
                                 break
                             }

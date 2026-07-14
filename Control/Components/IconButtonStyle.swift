@@ -5,21 +5,23 @@ struct IconButtonStyle: ButtonStyle {
     @State private var bounceCount = 0
     @State private var isAnimating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Scale the fixed icon/button sizes with Dynamic Type.
-    @ScaledMetric(relativeTo: .largeTitle) private var iconFontSize: CGFloat = 36
-    @ScaledMetric(relativeTo: .largeTitle) private var buttonSize: CGFloat = 60
+    // Fixed sizes on purpose: a five-button transport row at these sizes already
+    // fills a small phone's width, so scaling with Dynamic Type clips the outer
+    // buttons off screen. 60pt is comfortably above tap-target minimums.
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
-            .font(.system(size: iconFontSize))
+            .font(.system(size: 36))
             .fontWeight(.regular)
-            .frame(width: buttonSize, height: buttonSize)
+            .frame(width: 60, height: 60)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
-            // Freezing the trigger value under Reduce Motion disables the
-            // bounce while keeping the opacity press feedback.
-            .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: reduceMotion ? 0 : bounceCount)
+            .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
+            // The built-in Reduce Motion switch for symbol effects; keeps the
+            // opacity press feedback. (A conditional trigger value would fire a
+            // spurious bounce when the setting itself toggles.)
+            .symbolEffectsRemoved(reduceMotion)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
             // Drive the bounce/fade from the press state, NOT a simultaneousGesture:

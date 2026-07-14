@@ -14,6 +14,13 @@ struct RemoteLoginInstructions: View {
     @ScaledMetric(relativeTo: .title3) private var headerIconSize: CGFloat = 25
     @ScaledMetric(relativeTo: .body) private var infoIconSize: CGFloat = 15
 
+    /// Loop-observer token, paired add/remove so observers can't accumulate
+    /// (each block retains the player — an unremoved one leaks it).
+    @State private var loopObserver: (any NSObjectProtocol)?
+    /// One-time playback setup flag, so a row re-appear (scroll-back, or
+    /// popping the older-macOS page) doesn't reset a video the user started.
+    @State private var hasConfiguredPlayback = false
+
     /// The numbered "Enable Remote Login" steps, with their bold emphasis baked in.
     private let remoteLoginSteps: [Text] = [
         Text("Open ") + Text("System Settings").bold() + Text(" on your Mac."),
@@ -40,7 +47,8 @@ struct RemoteLoginInstructions: View {
                         // as its action.
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Screen recording with no audio, showing how to find and enable Remote Login in System Settings on macOS. The same steps are listed below.")
-                        .accessibilityHint("Double tap to play or pause")
+                        .accessibilityHint("Plays or pauses the video")
+                        .accessibilityInputLabels(["Video", "Play video", "Pause video"])
                         .accessibilityAction {
                             if player.timeControlStatus == .playing {
                                 player.pause()
@@ -101,10 +109,14 @@ struct RemoteLoginInstructions: View {
         }
         .navigationBarHidden(true)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if !UIAccessibility.isReduceMotionEnabled {
-                player?.play()
+        // Screen-level teardown: dropping the observer here releases the player
+        // when the sheet goes away. (startLooping re-registers on return from a
+        // pushed page without re-running the one-time setup.)
+        .onDisappear {
+            if let loopObserver {
+                NotificationCenter.default.removeObserver(loopObserver)
             }
+            loopObserver = nil
         }
     }
 
@@ -141,24 +153,32 @@ struct RemoteLoginInstructions: View {
         }
     }
 
-    /// Mutes the player and loops it, keeping playback silent regardless of the ringer.
+    /// Mutes the player and loops it, keeping playback silent regardless of the
+    /// ringer. Setup runs once per presentation; the loop observer is
+    /// re-registered whenever the row appears with none active (its removal
+    /// lives in the screen-level onDisappear).
     private func startLooping(_ player: AVPlayer) {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            print("Failed to set audio session category: \(error)")
+        if !hasConfiguredPlayback {
+            hasConfiguredPlayback = true
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                print("Failed to set audio session category: \(error)")
+            }
+
+            player.volume = 0
+            player.seek(to: .zero)
+            // Autoplay unless Reduce Motion is on; then the user starts playback
+            // themselves (player controls, or the VoiceOver double-tap action)
+            // and the loop below keeps it going from there.
+            if !UIAccessibility.isReduceMotionEnabled {
+                player.play()
+            }
         }
 
-        player.volume = 0
-        player.seek(to: .zero)
-        // Autoplay unless Reduce Motion is on; then the user starts playback
-        // themselves (player controls, or the VoiceOver double-tap action) and
-        // the loop below keeps it going from there.
-        if !UIAccessibility.isReduceMotionEnabled {
-            player.play()
-        }
-        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
+        guard loopObserver == nil else { return }
+        loopObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
             player.seek(to: .zero)
             player.play()
         }
