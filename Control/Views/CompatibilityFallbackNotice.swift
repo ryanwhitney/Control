@@ -29,7 +29,7 @@ struct CompatibilityFallbackNotice: View {
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
 
-            Text("Due to connection issues, Control is switching to Compatability mode. It’s a little slower, but more reliable for communicating with some Macs.")
+            Text("Due to connection issues, Control is switching to Compatibility mode. It’s a little slower, but more reliable for communicating with some Macs.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -3,19 +3,27 @@ import MultiBlur
 
 struct WhatsNewView: View {
     @StateObject private var preferences = UserPreferences.shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onDismiss: () -> Void
-
+    
+    /// The sheet only floats as a centered, bordered card in regular-width
+    /// presentations (e.g. iPad). On iPhone it's a full-screen sheet, where a
+    /// border would look out of place.
+    private var isFloatingDialog: Bool {
+        horizontalSizeClass == .regular
+    }
+    
     var body: some View {
         NavigationView {
             ZStack(alignment: .top) {
                 Image("control-2-header")
                     .resizable()
                     .scaledToFit()
+                    
                 // Scrollable Content
                 ScrollView {
+                    Spacer(minLength: 240)
                     VStack(spacing: 16) {
-                        // Header
-                        Spacer(minLength: 260)
                         VStack(spacing: 0) {
                             Text("Version 2.0.0")
                                 .font(.subheadline)
@@ -32,28 +40,37 @@ struct WhatsNewView: View {
                         }
                         .padding(.horizontal)
                         .padding(.top)
-                        .padding(.bottom, 6)
                         VStack (alignment: .leading,spacing: 16){
-                            Text("In this update, I’ve overhauled how Control talks to your Mac, Commands are now close to instant where possible. (Some apps don't support being controlled directly, and others are slow to responond.")
-                            Text("If the new methods don’t play nicely with your machine, switch to **compatibility mode** in settings.")
-                            Text("Enjoy!")
+                            Text("In this update, I’ve overhauled how Control talks to your Mac. Commands are now as close to instant as possible.")
+                            Text("If the new method doesn't play nicely with your machine, switch to **compatibility mode** in settings.")
+                            Text("Also here:").italic()+Text(" minor design touch-ups, bug fixes, and troubleshooting improvements.")
+                            Text("Control gets better with your feedback.").bold()+Text(" Thanks for trying the app, and thanks to all who have reached out. Enjoy!")
+                            Text("–RW")
+                                .foregroundStyle(.secondary)
+                                .font(.footnote)
+                                .fontWidth(.expanded)
+                                .fontWeight(.bold)
                         }
-                        .padding(.horizontal)
+                        .padding()
+                    }
+                    .background{
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(.black)
+                            .blur(radius: 80)
                     }
                     .padding(.horizontal)
-                
+                    .padding(.bottom, 100)
+                    
                 }
-                .background(Color(.black))
-                .border(Color(.gray).opacity(0.5), width: 1)
                 .scrollContentBackground(.hidden)
-
+                
                 // Fixed Button at Bottom
                 VStack{
                     Spacer()
                     BottomButtonPanel{
                         if #available(iOS 26.0, *) {
                             Button {
-                                //                            preferences.markWhatsNewAsSeen()
+                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
@@ -71,7 +88,7 @@ struct WhatsNewView: View {
                             .padding(.vertical, 16)
                         } else {
                             Button {
-                                //                            preferences.markWhatsNewAsSeen()
+                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
@@ -92,6 +109,9 @@ struct WhatsNewView: View {
                     }
                 }
             }
+            .background(Color(.black))
+            .border(Color(.gray).opacity(isFloatingDialog ? 0.5 : 0), width: 1)
+            
             .navigationBarHidden(true)
         }
         .presentationBackground(.black)
@@ -101,7 +121,7 @@ struct WhatsNewView: View {
 
 struct FeatureCard: View {
     let feature: String
-
+    
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Text(feature)
