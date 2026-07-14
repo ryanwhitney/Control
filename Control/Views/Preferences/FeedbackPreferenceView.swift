@@ -36,7 +36,7 @@ struct FeedbackPreferenceView: View {
                     .fontWeight(.bold)
                 }
                 .background(Color.accentColor.opacity(0.025))
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.accentColor)
                 .frame(maxWidth: .infinity)
@@ -70,7 +70,7 @@ struct FeedbackPreferenceView: View {
                     .fontWeight(.bold)
                 }
                 .background(Color.orange.opacity(0.025))
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.orange)
                 .frame(maxWidth: .infinity)
