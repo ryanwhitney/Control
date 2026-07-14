@@ -42,11 +42,15 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     var lastScenePhaseChange: (from: ScenePhase, to: ScenePhase, time: Date)?
 
     // MARK: - Streaming transport auto-fallback
-    /// Canary for the streaming transport: true once a *real* heartbeat reply
-    /// has landed on the current connection — distinguishing "connected but the
-    /// stream never replied" from a live connection. Reset on every connect;
-    /// set only in `handleHeartbeatSuccess`.
-    var heartbeatEverSucceeded = false
+    /// Canary for the streaming transport: true once *any* real reply — a
+    /// command result or a heartbeat echo — has landed on the current
+    /// connection, distinguishing "connected but the stream never replied"
+    /// from a live connection. Command replies count because a busy Mac (Low
+    /// Power Mode, heavy AppleScript) can starve heartbeat echoes while app
+    /// commands keep succeeding; that's a slow Mac, not a broken transport.
+    /// Reset on every connect; set in `handleHeartbeatSuccess` and
+    /// `noteCommandResponded`.
+    var connectionEverResponded = false
     /// The transport the *current* connection was built with. Used to decide
     /// whether an unresponsive connection is a streaming-layer failure worth
     /// auto-falling-back (vs. a Compatibility connection, which we leave alone).
@@ -202,13 +206,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             guard !reconnectPending else { return }
 
             // Streaming-transport canary: we reached `.connected` but not one
-            // heartbeat reply ever landed → the Fast/streaming layer is broken,
-            // not the network or permissions (which would fail Compatibility too).
-            // Auto-switch to Compatibility once and let the active view re-drive +
-            // show the notice, rather than dead-ending on a "Connection Lost".
+            // reply of any kind (command result or heartbeat echo) ever landed →
+            // the Fast/streaming layer is broken, not the network or permissions
+            // (which would fail Compatibility too). Auto-switch to Compatibility
+            // once and let the active view re-drive + show the notice, rather
+            // than dead-ending on a "Connection Lost".
             if allowTransportFallback,
                activeConnectionMethod == .streaming,
-               !heartbeatEverSucceeded,
+               !connectionEverResponded,
                !hasAutoFallenBackToCompatibility,
                currentCredentials != nil,
                let fallback = transportFallbackHandler {
@@ -268,7 +273,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         let method = sessionMethodOverride ?? UserPreferences.shared.connectionMethod
         sshClient = Self.makeTransport(for: method)
         activeConnectionMethod = method
-        heartbeatEverSucceeded = false
+        connectionEverResponded = false
         connectionLog("Transport: \(method.displayName)\(sessionMethodOverride != nil ? " (auto)" : "")")
 
         connectionState = .connecting
@@ -444,6 +449,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
 
             switch result {
             case .success(let output):
+                self?.noteCommandResponded()
                 completion(.success(output))
             case .failure(let error):
                 sshLog("❌ [\(commandId)] Command failed: \(error)")
@@ -498,11 +504,21 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     nonisolated func executeCommandOnDedicatedChannel(_ channelKey: String, _ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         // Note activity so the heartbeat loop speeds up its pings (no Task hop).
         lastActivityAt = Date()
-        client.executeCommandOnDedicatedChannel(channelKey, command, description: description, completion: completion)
+        client.executeCommandOnDedicatedChannel(channelKey, command, description: description) { [weak self] result in
+            if case .success = result {
+                self?.noteCommandResponded()
+            }
+            completion(result)
+        }
     }
 
     nonisolated func executeCommandIsolated(_ command: String, description: String?, completion: @escaping (Result<String, Error>) -> Void) {
         lastActivityAt = Date()
-        client.executeCommandIsolated(command, description: description, completion: completion)
+        client.executeCommandIsolated(command, description: description) { [weak self] result in
+            if case .success = result {
+                self?.noteCommandResponded()
+            }
+            completion(result)
+        }
     }
 }
