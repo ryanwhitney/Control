@@ -70,6 +70,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                                         Image(systemName: "flask.fill")
                                             .foregroundStyle(.tint)
                                             .font(.caption)
+                                            .accessibilityLabel("Experimental")
                                     }
                                 }
                                 .padding()
@@ -87,7 +88,6 @@ struct ChooseAppsView: View, SSHConnectedView {
                             }
                         }
                         .animation(.spring(), value: selectedPlatforms)
-                        .accessibilityAddTraits(.isToggle)
                     }
                 }
                 .padding()
@@ -118,7 +118,13 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
+            // One heading element instead of a header trait on each fragment.
+            .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
+            // The header sits after the list in the ZStack; read it first, with
+            // a running summary of the selection.
+            .accessibilitySortPriority(1)
+            .accessibilityValue("\(selectedPlatforms.count) of \(availablePlatforms.count) apps selected")
             .frame(maxWidth:.infinity)
             .multilineTextAlignment(.center)
             .background(GeometryReader {

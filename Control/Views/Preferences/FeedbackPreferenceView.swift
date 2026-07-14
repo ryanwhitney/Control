@@ -25,6 +25,7 @@ struct FeedbackPreferenceView: View {
                 } label: {
                     HStack {
                         Image(systemName: "envelope")
+                            .accessibilityHidden(true)
                         Text("Send Feedback")
                             .multiblur([(10,0.25), (50,0.35)])
                     }
@@ -59,6 +60,7 @@ struct FeedbackPreferenceView: View {
                 } label: {
                     HStack {
                         Image(systemName: "star.fill")
+                            .accessibilityHidden(true)
                         Text("Review on App Store")
                             .multiblur([(10,0.25), (50,0.35)])
                     }

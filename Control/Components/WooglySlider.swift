@@ -6,6 +6,7 @@ struct WooglySlider: View {
     var range: ClosedRange<Double>
     var step: Double?
     var onEditingChanged: ((Bool) -> Void)?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sliderWidth: CGFloat = 50.0
     @State private var isExpanded = false
     @State private var isAnimating = false
@@ -63,8 +64,8 @@ struct WooglySlider: View {
                 .onEnded { _ in
                     dragStartValue = value
                     onEditingChanged?(false)
-                    
-                    if abs(velocity) > 300 {
+
+                    if abs(velocity) > 300 && !reduceMotion {
                         startInertiaAnimation()
                     } else {
                         isExpanded = false
@@ -119,6 +120,13 @@ struct WooglySlider: View {
             }
     }
 
+    /// Current value as a 0–100 percentage of the range, for accessibility.
+    private var percentValue: Int {
+        let span = range.upperBound - range.lowerBound
+        guard span > 0 else { return 0 }
+        return Int(((value - range.lowerBound) / span * 100).rounded())
+    }
+
     struct SizePreferenceKey: PreferenceKey {
         static let defaultValue: CGSize = .zero
         static func reduce(value: inout CGSize, nextValue: () -> CGSize) {}
@@ -132,14 +140,15 @@ struct WooglySlider: View {
                     value: $value,
                     in: range,
                     step: step ?? (range.upperBound - range.lowerBound) / 100
-                ) { 
-                    Text("Volume \(value)")
+                ) {
+                    Text("Volume")
                 } onEditingChanged: { editing in
                     onEditingChanged?(editing)
                     if editing {
                         animationTimer?.cancel()
                     }
                 }
+                .accessibilityValue("\(percentValue) percent")
                 .opacity(0.02)
                 .blendMode(.darken)
 
@@ -163,6 +172,9 @@ struct WooglySlider: View {
                 .clipShape(.capsule)
                 .animation(.interpolatingSpring(stiffness: 100, damping: 20), value: value)
                 .animation(.spring(response: 0.4, dampingFraction: 0.5), value: isAnimating)
+                // The hidden Slider above is the accessibility element; keep
+                // VoiceOver/Voice Control from also landing on the visualization.
+                .accessibilityHidden(true)
             }
             .background(
                 GeometryReader { geometryProxy in

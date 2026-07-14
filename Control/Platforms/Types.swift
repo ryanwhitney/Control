@@ -36,6 +36,25 @@ enum AppAction: Identifiable, Equatable {
             return "Close \(appName)"
         }
     }
+
+    /// Alternative spoken names for Voice Control ("Tap skip forward"), shorter
+    /// and more natural than the descriptive VoiceOver labels.
+    var inputLabels: [String] {
+        switch self {
+        case .skipForward(let seconds):
+            return ["Skip forward", "Forward", "Forward \(seconds) seconds"]
+        case .skipBackward(let seconds):
+            return ["Skip back", "Back", "Back \(seconds) seconds"]
+        case .previousTrack:
+            return ["Previous track", "Previous"]
+        case .nextTrack:
+            return ["Next track", "Next"]
+        case .playPauseToggle:
+            return ["Play", "Pause", "Play pause"]
+        case .closeApp(let appName):
+            return ["Close \(appName)", "Close"]
+        }
+    }
 }
 
 struct ActionConfig: Identifiable {

@@ -5,6 +5,17 @@ struct ComputerRowView: View {
     let isConnecting: Bool
     let action: () -> Void
 
+    private var accessibilityDetails: String {
+        var parts = [computer.host]
+        if let username = computer.lastUsername {
+            parts.append("saved user \(username)")
+        }
+        if isConnecting {
+            parts.append("connecting")
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         Button(action: action) {
             HStack {
@@ -26,8 +37,11 @@ struct ComputerRowView: View {
                 }
             }
         }
-        .accessibilityLabel("Device")
-        .accessibilityValue("\(computer.name) at host  \(computer.host); \(computer.lastUsername != nil ? "saved user: \(computer.lastUsername!)" : "")")
+        // The name is the label so VoiceOver leads with it and Voice Control users
+        // can say "Tap Ryan's MacBook Pro"; host and saved user ride in the value.
+        .accessibilityLabel(computer.name)
+        .accessibilityValue(accessibilityDetails)
+        .accessibilityInputLabels([computer.name])
         .disabled(isConnecting)
     }
 }

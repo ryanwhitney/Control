@@ -28,6 +28,7 @@ struct SupportPreferenceView: View {
                 } label: {
                     HStack {
                         Image(systemName: "envelope")
+                            .accessibilityHidden(true)
                         Text("Contact Support")
                             .multiblur([(10,0.25), (50,0.35)])
                     }
@@ -62,6 +63,7 @@ struct SupportPreferenceView: View {
                     HStack {
                         Text("View Control On GitHub")
                         Image(systemName: "arrow.up.right")
+                            .accessibilityHidden(true)
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
@@ -75,6 +77,7 @@ struct SupportPreferenceView: View {
                 .tint(.indigo)
                 .frame(maxWidth: .infinity)
                 .disabled(showMailComposer)
+                .accessibilityHint("Opens in your browser")
             }
             .padding()
             .background(Color.black.opacity(0.25))
@@ -104,6 +107,7 @@ struct SupportPreferenceView: View {
                     HStack {
                         Text("Open Debug Logs")
                         Image(systemName: "chevron.right")
+                            .accessibilityHidden(true)
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)

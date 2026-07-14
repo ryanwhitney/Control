@@ -24,10 +24,12 @@ struct CompatibilityFallbackNotice: View {
                 .font(.system(size: 40))
                 .foregroundStyle(preferences.tintColorValue)
                 .padding(.top, 28)
+                .accessibilityHidden(true)
 
             Text("Switched to Compatibility Mode")
                 .font(.title2.bold())
                 .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
 
             Text("Due to connection issues, Control is switching to Compatibility mode. It’s a little slower, but more reliable for communicating with some Macs.")
                 .font(.subheadline)

@@ -4,16 +4,22 @@ import UIKit
 struct IconButtonStyle: ButtonStyle {
     @State private var bounceCount = 0
     @State private var isAnimating = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Scale the fixed icon/button sizes with Dynamic Type.
+    @ScaledMetric(relativeTo: .largeTitle) private var iconFontSize: CGFloat = 36
+    @ScaledMetric(relativeTo: .largeTitle) private var buttonSize: CGFloat = 60
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
-            .font(.system(size: 36))
+            .font(.system(size: iconFontSize))
             .fontWeight(.regular)
-            .frame(width: 60, height: 60)
+            .frame(width: buttonSize, height: buttonSize)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
-            .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
+            // Freezing the trigger value under Reduce Motion disables the
+            // bounce while keeping the opacity press feedback.
+            .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: reduceMotion ? 0 : bounceCount)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
             // Drive the bounce/fade from the press state, NOT a simultaneousGesture:

@@ -3,13 +3,40 @@ import SwiftUI
 struct PlatformControl: View {
     let platform: any AppPlatform
     @Binding var state: AppState
+    /// Position of this page in the pager plus a way to move it, so VoiceOver can
+    /// switch apps from the title (swipe up/down) instead of hunting for the page
+    /// indicator and losing focus on every page change.
+    let pageIndex: Int
+    let pageCount: Int
+    /// The *currently selected* page and its app name — not this page's own. The
+    /// adjustable announcement comes from the focused (old) title's value, so the
+    /// value must track the selection or VoiceOver reads a stale position.
+    let selectedIndex: Int
+    let selectedName: String
+    let onSelectPage: (Int) -> Void
+    let titleFocus: AccessibilityFocusState<String?>.Binding
     @EnvironmentObject var controller: AppController
     @StateObject private var preferences = UserPreferences.shared
     @State private var showingExperimentalAlert = false
     @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    // Fixed icon frames, scaled with Dynamic Type.
+    @ScaledMetric(relativeTo: .largeTitle) private var primaryIconWidth: CGFloat = 40
+    @ScaledMetric(relativeTo: .largeTitle) private var primaryIconHeight: CGFloat = 45
+    @ScaledMetric(relativeTo: .largeTitle) private var trackIconWidth: CGFloat = 25
+    @ScaledMetric(relativeTo: .largeTitle) private var trackIconHeight: CGFloat = 28
 
     private var isPhoneLandscape: Bool {
         verticalSizeClass == .compact
+    }
+
+    /// "app 3 of 7" while resting on this page; after an adjustment it becomes
+    /// "app 4 of 7, Music" so the switch announces where you landed by name.
+    private var pagerAccessibilityValue: String {
+        let position = "app \(selectedIndex + 1) of \(pageCount)"
+        guard selectedIndex != pageIndex else { return position }
+        return "\(position), \(selectedName)"
     }
 
     var body: some View {
@@ -20,6 +47,18 @@ struct PlatformControl: View {
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
                         .id(platform.name)
+                        .accessibilityValue(pagerAccessibilityValue)
+                        .accessibilityAdjustableAction { direction in
+                            switch direction {
+                            case .increment:
+                                onSelectPage(pageIndex + 1)
+                            case .decrement:
+                                onSelectPage(pageIndex - 1)
+                            @unknown default:
+                                break
+                            }
+                        }
+                        .accessibilityFocused(titleFocus, equals: platform.id)
                     if platform.experimental {
                         Button {
                             showingExperimentalAlert = true
@@ -35,7 +74,7 @@ struct PlatformControl: View {
                 .padding(.bottom, isPhoneLandscape ? 10 : 50)
                 VStack(alignment: .center) {
                     Text(state.title)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .multilineTextAlignment(.center)
                         .id("\(platform.name)_title")
                         .frame(maxWidth: .infinity)
@@ -46,6 +85,8 @@ struct PlatformControl: View {
                         .id("\(platform.name)_subtitle")
                         .frame(maxWidth: .infinity)
                 }
+                // One swipe stop for the whole now-playing readout.
+                .accessibilityElement(children: .combine)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 40)
@@ -67,25 +108,26 @@ struct PlatformControl: View {
                             Image(systemName: dynamicIcon(isPlaying))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
-                                .frame(width: 40, height: 45)
+                                .frame(width: primaryIconWidth, height: primaryIconHeight)
                                 .accessibilityLabel(isPlaying ? "Pause" : "Play")
                         } else {
                             if appAction.staticIcon == "forward.end.fill" || appAction.staticIcon == "backward.end.fill" {
                                 Image(systemName: appAction.staticIcon)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(width: 25, height: 28)
+                                    .frame(width: trackIconWidth, height: trackIconHeight)
                                     .accessibilityLabel(appAction.label)
                             } else {
                                 Image(systemName: appAction.staticIcon)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(width: 40, height: 45)
+                                    .frame(width: primaryIconWidth, height: primaryIconHeight)
                                     .accessibilityLabel(appAction.label)
                             }
                         }
                     }
                     .buttonStyle(IconButtonStyle())
+                    .accessibilityInputLabels(appAction.action.inputLabels)
                 }
             }
             .padding(.bottom, isPhoneLandscape ? 40 : 60)
@@ -109,6 +151,27 @@ struct PlatformControl: View {
     }
 }
 
+private struct PlatformControlPreviewHost: View {
+    @AccessibilityFocusState private var titleFocus: String?
+
+    var body: some View {
+        PlatformControl(
+            platform: SafariApp(),
+            state: .constant(.init(
+                title: "Skin",
+                subtitle: "Wild Powwers",
+                isPlaying: true
+            )),
+            pageIndex: 0,
+            pageCount: 1,
+            selectedIndex: 0,
+            selectedName: "Safari",
+            onSelectPage: { _ in },
+            titleFocus: $titleFocus
+        )
+    }
+}
+
 #Preview {
     let client = SSHClient()
     client.connect(
@@ -117,15 +180,8 @@ struct PlatformControl: View {
         password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
     ) { _ in }
 
-    return PlatformControl(
-        platform: SafariApp(),
-        state: .constant(.init(
-            title: "Skin",
-            subtitle: "Wild Powwers",
-            isPlaying: true
-        ))
-    )
-    .environmentObject(AppController(sshClient: client, platformRegistry: PlatformRegistry()))
-    .padding()
-    .preferredColorScheme(.dark)
+    return PlatformControlPreviewHost()
+        .environmentObject(AppController(sshClient: client, platformRegistry: PlatformRegistry()))
+        .padding()
+        .preferredColorScheme(.dark)
 }

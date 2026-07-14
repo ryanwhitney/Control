@@ -2,10 +2,34 @@ import SwiftUI
 
 struct ConnectionsListView: View {
     @EnvironmentObject private var viewModel: ConnectionsViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// True once the rows are tall enough to fill the viewport, meaning the help
     /// button should ride at the bottom of the scrollable content rather than float.
     @State private var contentFillsViewport = false
+
+    /// Row insert/remove transition: a slide normally, a plain fade under Reduce Motion.
+    private var rowTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        return .asymmetric(
+            insertion: .move(edge: .trailing).combined(with: .opacity),
+            removal: .move(edge: .leading).combined(with: .opacity)
+        )
+    }
+
+    /// Same idea for the searching/status row.
+    private var statusRowTransition: AnyTransition {
+        if reduceMotion {
+            return .opacity
+        }
+        return .asymmetric(
+            insertion: .move(edge: .trailing),
+            removal: .move(edge: .leading)
+        )
+        .combined(with: .opacity)
+    }
 
     private var statusText: String {
         if viewModel.isSearching {
@@ -38,12 +62,9 @@ struct ConnectionsListView: View {
                     ) {
                         viewModel.selectComputer(computer)
                     }
-                    .accessibilityHint(viewModel.connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
+                    .accessibilityHint(viewModel.connectingComputer?.id == computer.id ? "Currently connecting" : "Connects to this Mac")
                     .accessibilityAddTraits(viewModel.connectingComputer?.id == computer.id ? .updatesFrequently : [])
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
+                    .transition(rowTransition)
                 }
 
                 if viewModel.networkComputers.isEmpty || viewModel.isSearching {
@@ -57,13 +78,7 @@ struct ConnectionsListView: View {
                                 .progressViewStyle(.circular)
                         }
                     }
-                    .transition(
-                        .asymmetric(
-                            insertion: .move(edge: .trailing),
-                            removal: .move(edge: .leading)
-                        )
-                        .combined(with: .opacity)
-                    )
+                    .transition(statusRowTransition)
                 }
             }
 
@@ -75,7 +90,7 @@ struct ConnectionsListView: View {
                     ) {
                         viewModel.selectComputer(computer)
                     }
-                    .accessibilityHint(viewModel.connectingComputer?.id == computer.id ? "Currently connecting" : "Tap to connect")
+                    .accessibilityHint(viewModel.connectingComputer?.id == computer.id ? "Currently connecting" : "Connects to this Mac")
                     .accessibilityAddTraits(viewModel.connectingComputer?.id == computer.id ? .updatesFrequently : [])
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
@@ -94,14 +109,13 @@ struct ConnectionsListView: View {
                         .accessibilityLabel("Edit \(computer.name)")
                         .tint(.accentColor)
                     }
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing).combined(with: .opacity),
-                        removal: .move(edge: .leading).combined(with: .opacity)
-                    ))
+                    .transition(rowTransition)
                 }
             }
             .opacity(viewModel.savedComputers.isEmpty ? 0 : 1)
-            .accessibilityLabel("Recent connections")
+            // When the section is faded out it still exists; keep VoiceOver from
+            // wading through invisible rows.
+            .accessibilityHidden(viewModel.savedComputers.isEmpty)
 
             // Tall list: the help button becomes an inline footer, revealed when
             // the user scrolls to the bottom instead of floating over the rows.

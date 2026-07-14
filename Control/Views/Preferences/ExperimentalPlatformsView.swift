@@ -27,7 +27,13 @@ struct ExperimentalPlatformsView: View {
             VStack(spacing: 12) {
                 ForEach(platformRegistry.experimentalPlatforms, id: \.id) { platform in
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
+                        // Labeled Toggle (same layout: label leading, switch
+                        // trailing) so VoiceOver reads the app name instead of
+                        // an unnamed switch.
+                        Toggle(isOn: Binding(
+                            get: { platformRegistry.enabledExperimentalPlatforms.contains(platform.id) },
+                            set: { _ in platformRegistry.toggleExperimentalPlatform(platform.id) }
+                        )) {
                             HStack(spacing: 8) {
                                 Text(platform.name)
                                     .font(.headline)
@@ -35,14 +41,8 @@ struct ExperimentalPlatformsView: View {
                                 Image(systemName: "flask.fill")
                                     .foregroundStyle(.tint)
                                     .font(.subheadline)
+                                    .accessibilityHidden(true)
                             }
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: Binding(
-                                get: { platformRegistry.enabledExperimentalPlatforms.contains(platform.id) },
-                                set: { _ in platformRegistry.toggleExperimentalPlatform(platform.id) }
-                            ))
                         }
 
                     }

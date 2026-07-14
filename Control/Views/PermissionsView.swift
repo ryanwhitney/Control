@@ -91,6 +91,10 @@ struct PermissionsView: View, SSHConnectedView {
         }
         .alert(isPresented: showingError) { connectionErrorAlert() }
         .onChange(of: allPermissionsGranted) {
+            // The success state is otherwise conveyed by a visual crossfade only.
+            if allPermissionsGranted {
+                AccessibilityNotification.Announcement("All permissions granted. You're all set.").post()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 withAnimation(.spring()) {
                     permissionsGranted = true
@@ -121,10 +125,12 @@ struct PermissionsView: View, SSHConnectedView {
                 .frame(width: 50, height: 50)
                 .foregroundStyle(.tint)
                 .padding(.bottom, 10)
+                .accessibilityHidden(true)
             Text("You're all set")
                 .font(.title2)
                 .bold()
         }
+        .accessibilityElement(children: .combine)
         .padding()
     }
 
@@ -146,6 +152,12 @@ struct PermissionsView: View, SSHConnectedView {
                             .cornerRadius(12)
                             .opacity(permissionStates[platform.id] != .initial ? 1 : 0.5)
                             .animation(.spring(), value: permissionStates[platform.id])
+                            // One element per row with an explicit status, so the
+                            // unchecked state reads "not checked yet" instead of a
+                            // bare app name.
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(platform.name)
+                            .accessibilityValue(statusDescription(for: platform.id))
                         }
                     }
                     .opacity(showAppList ? 1 : 0)
@@ -183,7 +195,13 @@ struct PermissionsView: View, SSHConnectedView {
                         .foregroundColor(.secondary)
                         .padding(.horizontal)
                 }
+                // One heading element instead of a header trait on each fragment.
+                .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
+                // The header sits after the list in the ZStack; read it first,
+                // and summarize what's about to be checked.
+                .accessibilitySortPriority(1)
+                .accessibilityValue("Apps to check: \(enabledPlatformNames.joined(separator: ", "))")
                 .frame(maxWidth:.infinity)
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
@@ -204,6 +222,26 @@ struct PermissionsView: View, SSHConnectedView {
         }
         .toolbarBackground(.black, for: .navigationBar)
         .navigationTitle("")
+    }
+
+    private var enabledPlatformNames: [String] {
+        PlatformRegistry.allPlatforms
+            .filter { enabledPlatforms.contains($0.id) }
+            .map { $0.name }
+    }
+
+    /// Spoken status for a row's accessibility value.
+    private func statusDescription(for platformId: String) -> String {
+        switch permissionStates[platformId] ?? .initial {
+        case .initial:
+            return "not checked yet"
+        case .checking:
+            return "checking"
+        case .granted:
+            return "permission granted"
+        case .failed(let reason):
+            return reason
+        }
     }
 
     private func permissionStatusIcon(for platformId: String) -> some View {
@@ -313,6 +351,21 @@ struct PermissionsView: View, SSHConnectedView {
         viewLog("Permission check complete. Results:", view: "PermissionsView")
         for platformId in enabledPlatforms {
             viewLog("  \(platformId): \(permissionStates[platformId] ?? .initial)", view: "PermissionsView")
+        }
+
+        // Summarize the sweep for VoiceOver; the all-granted case is announced
+        // by the success transition instead.
+        if !allPermissionsGranted {
+            let grantedCount = enabledPlatforms.filter { permissionStates[$0] == .granted }.count
+            let failedNames = PlatformRegistry.allPlatforms
+                .filter { enabledPlatforms.contains($0.id) }
+                .filter { if case .failed = permissionStates[$0.id] ?? .initial { return true } else { return false } }
+                .map { $0.name }
+            var summary = "Permission check finished. \(grantedCount) of \(enabledPlatforms.count) granted."
+            if !failedNames.isEmpty {
+                summary += " Needs attention: \(failedNames.joined(separator: ", "))."
+            }
+            AccessibilityNotification.Announcement(summary).post()
         }
     }
 
