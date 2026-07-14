@@ -19,6 +19,9 @@ struct ControlView: View, SSHConnectedView {
     /// via the title's adjustable action keeps focus on the (new) title instead
     /// of resetting to the first element on the page.
     @AccessibilityFocusState private var focusedPlatformId: String?
+    /// The pending focus re-anchor for the latest page switch; superseded
+    /// switches cancel it so stale focus writes never fire.
+    @State private var focusRestoreTask: Task<Void, Never>?
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
@@ -304,8 +307,8 @@ struct ControlView: View, SSHConnectedView {
                         showingThemeSettings = true
                     } label: {
                         // Label (not HStack) so VoiceOver reads only the title,
-                        // not the decorative symbol; menus place the icon
-                        // trailing, matching the old layout.
+                        // not the decorative symbol; the menu system decides
+                        // icon placement per OS either way.
                         Label {
                             Text("Change Theme")
                         } icon: {
@@ -387,6 +390,10 @@ struct ControlView: View, SSHConnectedView {
                 selectedPlatformIndex = index
             } else {
                 viewLog("No previous platform preference, using default index 0", view: "ControlView")
+                // Actually reset: a stale index survives this view's @State when
+                // the platform list shrinks (e.g. the viewed app was disabled in
+                // Manage Apps), leaving the pager pointing past the end.
+                selectedPlatformIndex = 0
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -394,6 +401,7 @@ struct ControlView: View, SSHConnectedView {
         }
         .onDisappear {
             viewLog("View disappeared", view: "ControlView")
+            focusRestoreTask?.cancel()
             Task { @MainActor in
                 appController.cleanup()
                 // Drop the reconnect/fallback handlers registered in onAppear:
@@ -475,11 +483,16 @@ struct ControlView: View, SSHConnectedView {
 
     /// Switches the visible platform page (used by the titles' VoiceOver
     /// adjustable action) and re-anchors accessibility focus on the incoming
-    /// page's title once the pager has settled.
+    /// page's title once the pager has settled. Only the latest switch's
+    /// re-anchor survives, so rapid adjustments can't queue competing focus
+    /// writes that yank focus after the user has moved on.
     private func selectPlatform(at newIndex: Int) {
         guard let platform = appController.platforms[safe: newIndex] else { return }
         selectedPlatformIndex = newIndex
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        focusRestoreTask?.cancel()
+        focusRestoreTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
             focusedPlatformId = platform.id
         }
     }

@@ -199,9 +199,10 @@ struct PermissionsView: View, SSHConnectedView {
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
                 // The header sits after the list in the ZStack; read it first,
-                // and summarize what's about to be checked.
+                // with the app list. (Neutral wording — this string is static,
+                // so it must stay true after checks have run.)
                 .accessibilitySortPriority(1)
-                .accessibilityValue("Apps to check: \(enabledPlatformNames.joined(separator: ", "))")
+                .accessibilityValue("Apps: \(enabledPlatformNames.joined(separator: ", "))")
                 .frame(maxWidth:.infinity)
                 .background(GeometryReader {
                     LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
@@ -244,23 +245,22 @@ struct PermissionsView: View, SSHConnectedView {
         }
     }
 
+    /// Purely visual: the row is one accessibility element (children ignored)
+    /// whose spoken status comes from `statusDescription(for:)` — don't add
+    /// accessibility labels here, they can never be read.
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
             case .initial:
                 EmptyView()
-                    .accessibilityHidden(true)
             case .checking:
                 ProgressView()
-                    .accessibilityLabel("Checking permissions")
             case .granted:
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                    .accessibilityLabel("Permissions granted")
             case .failed:
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
-                    .accessibilityLabel("Permission check failed")
             }
         }
     }
