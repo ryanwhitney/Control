@@ -62,6 +62,12 @@ struct MPVApp: AppPlatform {
                     if cleanTitle ends with " - mpv" then
                         set cleanTitle to text 1 thru -7 of cleanTitle
                     end if
+                    -- Idle mpv titles its window "no file - mpv"; report it as
+                    -- "Nothing playing" like every other platform.
+                    if cleanTitle is "no file" or cleanTitle is "" then
+                        set cleanTitle to "Nothing playing"
+                        set isPlaying to false
+                    end if
                     set resultString to cleanTitle & "\(sep)   \(sep)" & isPlaying
                 end if
             end tell
