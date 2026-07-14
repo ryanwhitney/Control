@@ -291,7 +291,7 @@ struct PermissionsView: View, SSHConnectedView {
                     .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
             }
             .background(.ultraThinMaterial)
-            .cornerRadius(12)
+            .cornerRadius(.infinity)
             .buttonStyle(.bordered)
             .tint(.gray)
             .frame(maxWidth: .infinity)

@@ -196,7 +196,7 @@ struct AuthenticationView: View {
                     .fontWeight(.bold)
                 }
                 .background(.ultraThinMaterial)
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.gray)
                 .frame(maxWidth: .infinity)

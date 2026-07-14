@@ -38,7 +38,7 @@ struct SupportPreferenceView: View {
                     .fontWeight(.bold)
                 }
                 .background(Color.green.opacity(0.025))
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.green)
                 .frame(maxWidth: .infinity)
@@ -72,7 +72,7 @@ struct SupportPreferenceView: View {
                     .multiblur([(10,0.25), (50,0.35)])
                 }
                 .background(Color.indigo.opacity(0.025))
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.indigo)
                 .frame(maxWidth: .infinity)
@@ -116,7 +116,7 @@ struct SupportPreferenceView: View {
                     .multiblur([(10,0.25), (50,0.35)])
                 }
                 .background(Color.red.opacity(0.025))
-                .cornerRadius(12)
+                .cornerRadius(.infinity)
                 .buttonStyle(.bordered)
                 .tint(.red)
                 .frame(maxWidth: .infinity)
