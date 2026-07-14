@@ -40,7 +40,7 @@ struct HelpPromptButton: View {
         } label: {
             Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
                 .font(.subheadline)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
     }

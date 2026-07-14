@@ -91,19 +91,26 @@ struct AuthenticationView: View {
             Form {
                 if mode.showsNetworkMessage {
                     Section {
-                        HStack {
-                            Image(systemName: "network")
-                                .padding(.trailing, 4)
-
-                            Text("Must be on the same Wi-Fi network with Remote Login enabled. ")
-                                + Text("Learn more…")
-                                .foregroundStyle(.tint)
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .onTapGesture {
+                        // A real Button (not a tap gesture on text) so VoiceOver
+                        // and Voice Control can reach it; underline marks the
+                        // link without relying on color alone.
+                        Button {
                             isPopoverPresented = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "network")
+                                    .padding(.trailing, 4)
+                                    .accessibilityHidden(true)
+
+                                Text("Must be on the same Wi-Fi network with Remote Login enabled. ")
+                                    + Text("Learn more…")
+                                    .underline()
+                                    .foregroundStyle(.tint)
+                            }
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                         }
+                        .buttonStyle(.plain)
                         .popover(isPresented: $isPopoverPresented) {
                             NavigationView {
                                 RemoteLoginInstructions()

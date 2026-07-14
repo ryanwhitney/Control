@@ -19,6 +19,7 @@ struct EmptyStateView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 60, height: 40)
                         .foregroundStyle(.tint)
+                        .accessibilityHidden(true)
                     Text("No connections found")
                         .font(.title2)
                         .fontWeight(.bold)

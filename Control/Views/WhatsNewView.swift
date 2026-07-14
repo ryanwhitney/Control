@@ -19,6 +19,7 @@ struct WhatsNewView: View {
                 Image("control-2-header")
                     .resizable()
                     .scaledToFit()
+                    .accessibilityHidden(true)
                     
                 // Scrollable Content
                 ScrollView {
@@ -37,6 +38,7 @@ struct WhatsNewView: View {
                                 .foregroundStyle(.primary)
                                 .multilineTextAlignment(.center)
                                 .fontWeight(.bold)
+                                .accessibilityAddTraits(.isHeader)
                         }
                         .padding(.horizontal)
                         .padding(.top)

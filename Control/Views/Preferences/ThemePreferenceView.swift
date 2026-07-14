@@ -21,6 +21,8 @@ struct ThemePreferenceView: View {
         let computerInfo = defaultComputerInfo
         VStack {
             VStack(spacing: 0) {
+                // Decorative mock of the control screen: its buttons/slider only
+                // drive the preview, so keep assistive tech out of it.
                 VStack(spacing: 32) {
                     ComputerRowView(
                         computer: Connection(
@@ -69,7 +71,6 @@ struct ThemePreferenceView: View {
                                 step: 0.01,
                                 onEditingChanged: { _ in }
                             )
-                            .accessibilityLabel("Volume Slider")
                             Button{
                                 let newVolume = min(previewVolume + 0.05, 1.0)
                                 previewVolume = newVolume
@@ -86,6 +87,7 @@ struct ThemePreferenceView: View {
                     .padding(.top, 4)
                 }
                 .animation(.spring(), value: preferences.tintColor)
+                .accessibilityHidden(true)
                 .padding(.horizontal, 32)
                 .padding(.top, 16)
                 .padding(.bottom, 24)
@@ -106,9 +108,11 @@ struct ThemePreferenceView: View {
                                     if preferences.tintColor == value {
                                         Image(systemName: "checkmark")
                                             .foregroundStyle(color)
+                                            .accessibilityHidden(true)
                                     }
                                 }
                             }
+                            .accessibilityAddTraits(preferences.tintColor == value ? [.isSelected] : [])
                             .foregroundStyle(.primary)
                         }
                     }

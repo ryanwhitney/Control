@@ -8,7 +8,7 @@ struct PreferencesView: View {
         NavigationStack {
             List {
                 Section {
-                    Picker("Connection Method", selection: $preferences.connectionMethod) {
+                    Picker("Control Mode", selection: $preferences.connectionMethod) {
                         ForEach(ConnectionMethod.allCases) { method in
                             Text(method.displayName).tag(method)
                         }
@@ -88,6 +88,7 @@ struct PreferencesRow<Destination: View>: View {
                     .padding(4)
                     .background(color)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .accessibilityHidden(true)
                 Text(title)
             }
         }

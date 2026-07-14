@@ -14,6 +14,11 @@ struct ControlView: View, SSHConnectedView {
     
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Tracks VoiceOver focus on the per-page platform titles so switching apps
+    /// via the title's adjustable action keeps focus on the (new) title instead
+    /// of resetting to the first element on the page.
+    @AccessibilityFocusState private var focusedPlatformId: String?
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var appController: AppController
     @StateObject private var preferences = UserPreferences.shared
@@ -154,7 +159,13 @@ struct ControlView: View, SSHConnectedView {
                                 state: Binding(
                                     get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: "", subtitle: "") },
                                     set: { appController.states[platform.id] = $0 }
-                                )
+                                ),
+                                pageIndex: index,
+                                pageCount: appController.platforms.count,
+                                selectedIndex: selectedPlatformIndex,
+                                selectedName: appController.platforms[safe: selectedPlatformIndex]?.name ?? "",
+                                onSelectPage: { selectPlatform(at: $0) },
+                                titleFocus: $focusedPlatformId
                             )
                             .environmentObject(appController)
                             .tag(index)
@@ -180,6 +191,8 @@ struct ControlView: View, SSHConnectedView {
                                 await appController.updateState(for: platform)
                             }
                         } else {
+                            // Fires immediately; scrub-through repeats are capped by
+                            // updateState's own 2s per-platform dedupe.
                             Task { await appController.updateState(for: platform) }
                         }
                         // Re-center the background prefetch on the tab now on
@@ -201,6 +214,7 @@ struct ControlView: View, SSHConnectedView {
                                 .padding(.top, 3)
                         }
                         .frame(width: 44, height: 44)
+                        .accessibilityInputLabels(["Volume down", "Decrease volume", "Quieter"])
                         .disabled(!volumeInitialized)
                         WooglySlider(
                             value: Binding(
@@ -223,8 +237,6 @@ struct ControlView: View, SSHConnectedView {
                                 }
                             }
                         )
-                        .accessibilityLabel("Volume Slider")
-                        .accessibilityValue("system volume \(Int(volume * 100))%")
                         .disabled(!volumeInitialized)
                         Button{
                             adjustVolume(by: 5)
@@ -236,6 +248,7 @@ struct ControlView: View, SSHConnectedView {
                                 .padding(.top, 3)
                         }
                         .frame(width: 44, height: 44)
+                        .accessibilityInputLabels(["Volume up", "Increase volume", "Louder"])
                         .disabled(!volumeInitialized)
                     }
                 }
@@ -271,8 +284,9 @@ struct ControlView: View, SSHConnectedView {
                         statusLabel(for: status)
                             .id(status)
                             // Slide in from behind the title (which lifts to make
-                            // room) and reverse on the way out.
-                            .transition(.move(edge: .top).combined(with: .opacity))
+                            // room) and reverse on the way out. Under Reduce
+                            // Motion, just fade.
+                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                 }
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: connectionStatus)
@@ -289,8 +303,12 @@ struct ControlView: View, SSHConnectedView {
                     Button {
                         showingThemeSettings = true
                     } label: {
-                        HStack{
+                        // Label (not HStack) so VoiceOver reads only the title,
+                        // not the decorative symbol; menus place the icon
+                        // trailing, matching the old layout.
+                        Label {
                             Text("Change Theme")
+                        } icon: {
                             Image(systemName: "circle.fill")
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
@@ -298,8 +316,9 @@ struct ControlView: View, SSHConnectedView {
                     Button {
                         showingSetupFlow = true
                     } label: {
-                        HStack{
+                        Label {
                             Text("Manage Apps")
+                        } icon: {
                             Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
                                 .foregroundStyle(preferences.tintColorValue, .secondary)
                         }
@@ -308,8 +327,9 @@ struct ControlView: View, SSHConnectedView {
                         Button {
                             showingDebugLogs = true
                         } label: {
-                            HStack {
+                            Label {
                                 Text("Debug Logs")
+                            } icon: {
                                 Image(systemName: "apple.terminal")
                                     .foregroundStyle(.red)
                                     .font(.caption)
@@ -453,6 +473,17 @@ struct ControlView: View, SSHConnectedView {
 
 
 
+    /// Switches the visible platform page (used by the titles' VoiceOver
+    /// adjustable action) and re-anchors accessibility focus on the incoming
+    /// page's title once the pager has settled.
+    private func selectPlatform(at newIndex: Int) {
+        guard let platform = appController.platforms[safe: newIndex] else { return }
+        selectedPlatformIndex = newIndex
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            focusedPlatformId = platform.id
+        }
+    }
+
     private func adjustVolume(by amount: Int) {
         guard volumeInitialized else { 
             viewLog("⚠️ ControlView: Volume adjustment attempted before initialization", view: "ControlView")
@@ -489,6 +520,7 @@ private struct ReconnectingLabel: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Reconnecting")
+        .accessibilityAddTraits(.updatesFrequently)
     }
 }
 

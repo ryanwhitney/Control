@@ -10,13 +10,17 @@ struct RemoteLoginInstructions: View {
         return nil
     }()
 
+    /// Scale the two fixed icon sizes with Dynamic Type.
+    @ScaledMetric(relativeTo: .title3) private var headerIconSize: CGFloat = 25
+    @ScaledMetric(relativeTo: .body) private var infoIconSize: CGFloat = 15
+
     /// The numbered "Enable Remote Login" steps, with their bold emphasis baked in.
     private let remoteLoginSteps: [Text] = [
-        Text("Open ") + Text("System Settings").bold() + Text("."),
+        Text("Open ") + Text("System Settings").bold() + Text(" on your Mac."),
         Text("Select ") + Text("General").bold() + Text(" on the left panel."),
         Text("Scroll to select ") + Text("Sharing").bold() + Text("."),
         Text("Enable ") + Text("Remote Login").bold() + Text(" near the bottom."),
-        Text("Click the ") + Text(Image(systemName: "info.circle")).bold()
+        Text("Click the ") + Text(Image(systemName: "info.circle")).accessibilityLabel("info").bold()
             + Text(" icon and") + Text(" disable ").bold() + Text("“Allow full disk access”."),
     ]
 
@@ -30,6 +34,20 @@ struct RemoteLoginInstructions: View {
                     VideoPlayer(player: player)
                         .aspectRatio(videoAspectRatio, contentMode: .fit)
                         .frame(maxWidth: .infinity)
+                        // The player's internal controls otherwise become the
+                        // accessibility elements and the description is never
+                        // read; flatten to one described element with play/pause
+                        // as its action.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Screen recording with no audio, showing how to find and enable Remote Login in System Settings on macOS. The same steps are listed below.")
+                        .accessibilityHint("Double tap to play or pause")
+                        .accessibilityAction {
+                            if player.timeControlStatus == .playing {
+                                player.pause()
+                            } else {
+                                player.play()
+                            }
+                        }
                         .onAppear { startLooping(player) }
                 }
             }
@@ -84,7 +102,9 @@ struct RemoteLoginInstructions: View {
         .navigationBarHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            player?.play()
+            if !UIAccessibility.isReduceMotionEnabled {
+                player?.play()
+            }
         }
     }
 
@@ -93,10 +113,13 @@ struct RemoteLoginInstructions: View {
         HStack(spacing: 8) {
             Image(systemName: "\(number).circle.fill")
                 .foregroundStyle(.secondary, .tertiary)
-                .font(.system(size: 25))
+                .font(.system(size: headerIconSize))
+                .accessibilityHidden(true)
             Text(title)
                 .font(.title3).bold()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
         .padding(.vertical, verticalPadding)
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
@@ -109,10 +132,11 @@ struct RemoteLoginInstructions: View {
     private func infoRow(_ systemImage: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 15))
+                .font(.system(size: infoIconSize))
                 .padding(.leading, -6)
                 .frame(minWidth: 16, alignment: .center)
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(text)
         }
     }
@@ -128,7 +152,12 @@ struct RemoteLoginInstructions: View {
 
         player.volume = 0
         player.seek(to: .zero)
-        player.play()
+        // Autoplay unless Reduce Motion is on; then the user starts playback
+        // themselves (player controls, or the VoiceOver double-tap action) and
+        // the loop below keeps it going from there.
+        if !UIAccessibility.isReduceMotionEnabled {
+            player.play()
+        }
         NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { _ in
             player.seek(to: .zero)
             player.play()

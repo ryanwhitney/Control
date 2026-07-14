@@ -5,6 +5,8 @@ import Network
 struct ConnectionsView: View {
     @StateObject private var viewModel = ConnectionsViewModel()
     @Environment(\.scenePhase) private var scenePhase
+    // Scales the fixed-size wordmark title with Dynamic Type.
+    @ScaledMetric(relativeTo: .subheadline) private var titleFontSize: CGFloat = 14
 
     var body: some View {
         NavigationStack {
@@ -46,7 +48,7 @@ struct ConnectionsView: View {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 4) {
                         Text("Control".uppercased())
-                            .font(.system(size: 14, weight: .bold, design: .default).width(.expanded))
+                            .font(.system(size: titleFontSize, weight: .bold, design: .default).width(.expanded))
                     }
                     .accessibilityAddTraits(.isHeader)
                 }
@@ -79,8 +81,6 @@ struct ConnectionsView: View {
                 }
             }
             .navigationTitle("")
-            .accessibilityLabel("Control App - Connections List - Home")
-            .accessibilityAddTraits(.isHeader)
             .sheet(isPresented: $viewModel.showingAddDialog) {
                 AddConnectionSheet()
                     .environmentObject(viewModel)

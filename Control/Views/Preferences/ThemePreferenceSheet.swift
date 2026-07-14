@@ -11,7 +11,7 @@ struct ThemePreferenceSheet: View {
             ScrollView(.horizontal){
                 HStack(spacing: 16) {
                     ForEach(UserPreferences.themeColors.indices, id: \.self) { index in
-                        let (_, value, color) = UserPreferences.themeColors[index]
+                        let (name, value, color) = UserPreferences.themeColors[index]
                         Button {
                             preferences.tintColor = value
                         } label: {
@@ -21,7 +21,8 @@ struct ThemePreferenceSheet: View {
                                 .background(Circle().fill(color))
                                 .frame(width: 44, height: 44)
                         }
-                        .accessibilityLabel("Select \(value)")
+                        .accessibilityLabel(name)
+                        .accessibilityAddTraits(preferences.tintColor == value ? [.isSelected] : [])
 
                     }
                     .foregroundStyle(.primary)
