@@ -8,6 +8,16 @@ import Foundation
 extension SSHConnectionManager {
 
     func startHeartbeat() {
+        // The scene handler pauses the heartbeat on backgrounding and resumes it
+        // on foreground — but a connect flow that finishes *while* backgrounded
+        // (running under the 30s background task) would re-arm it here. Don't:
+        // background QoS throttles the reply path and the timeout watchdog, so
+        // pings measure the throttling, not the connection, and healthy
+        // connections get dropped. The `.active` handler starts it on return.
+        guard lastScenePhaseChange?.to != .background else {
+            connectionLog("♡ Skipping heartbeat start while app is backgrounded")
+            return
+        }
         stopHeartbeat()
         consecutiveHeartbeatFailures = 0
         currentHeartbeatInterval = minHeartbeatInterval
@@ -88,7 +98,7 @@ extension SSHConnectionManager {
         consecutiveHeartbeatFailures = 0
         // A real reply landed → this connection's transport works; a later drop is
         // a genuine disconnect, not a streaming-layer failure to auto-fall-back.
-        heartbeatEverSucceeded = true
+        connectionEverResponded = true
         // A stable heartbeat means any reconnect that got us here has settled;
         // clear the flap budget so future drops get a fresh set of retries.
         consecutiveReconnects = 0
@@ -99,6 +109,29 @@ extension SSHConnectionManager {
             connectionLog("♡ Heartbeat OK (\(id), \(String(format: "%.0f", rtt*1000)) ms)")
         }
         recoveryDeadline = nil
+    }
+
+    /// A command round-tripped successfully on the current connection. That's
+    /// liveness evidence equal to a heartbeat echo: it feeds the transport
+    /// canary (so a busy Mac starving ping echoes while serving commands never
+    /// triggers the Fast→Compatibility fallback) and credits any in-progress
+    /// recovery, the same way `handleHeartbeatSuccess` does. Nonisolated so
+    /// transport-thread completion callbacks can call it directly.
+    nonisolated func noteCommandResponded() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.connectionEverResponded = true
+            self.consecutiveReconnects = 0
+            if self.consecutiveHeartbeatFailures > 0 {
+                self.consecutiveHeartbeatFailures = 0
+                self.recoveryDeadline = nil
+                connectionLog("♡ Command reply while heartbeat lagging — counting as liveness")
+            }
+            if self.connectionState == .recovering {
+                self.connectionState = .connected
+                connectionLog("✅ Recovery confirmed by command reply")
+            }
+        }
     }
 
     private func handleHeartbeatFailure(reason: String) {
