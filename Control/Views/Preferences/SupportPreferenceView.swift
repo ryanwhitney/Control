@@ -34,13 +34,10 @@ struct SupportPreferenceView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(.green)
+                    .glassPillLabel()
                     .fontWeight(.bold)
                 }
-                .background(Color.green.opacity(0.025))
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.green)
+                .glassPillButtonStyle(tint: .green)
                 .frame(maxWidth: .infinity)
                 .disabled(showMailComposer)
             }
@@ -67,14 +64,11 @@ struct SupportPreferenceView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(.indigo)
+                    .glassPillLabel()
                     .fontWeight(.bold)
                     .multiblur([(10,0.25), (50,0.35)])
                 }
-                .background(Color.indigo.opacity(0.025))
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.indigo)
+                .glassPillButtonStyle(tint: .indigo)
                 .frame(maxWidth: .infinity)
                 .disabled(showMailComposer)
                 .accessibilityHint("Opens in your browser")
@@ -111,14 +105,11 @@ struct SupportPreferenceView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(.red)
+                    .glassPillLabel()
                     .fontWeight(.bold)
                     .multiblur([(10,0.25), (50,0.35)])
                 }
-                .background(Color.red.opacity(0.025))
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.red)
+                .glassPillButtonStyle(tint: .red)
                 .frame(maxWidth: .infinity)
             }
             .padding()

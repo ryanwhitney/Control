@@ -53,13 +53,10 @@ struct CompatibilityFallbackNotice: View {
                 }
                 .padding(.vertical, 11)
                 .frame(maxWidth: .infinity)
-                .foregroundStyle(.tint)
-                .tint(.accentColor)
+                .glassPillLabel()
                 .fontWeight(.bold)
             }
-            .cornerRadius(.infinity)
-            .buttonStyle(.bordered)
-            .tint(.accentColor)
+            .glassPillButtonStyle(tint: .accentColor)
             .frame(maxWidth: .infinity)
 
         }
