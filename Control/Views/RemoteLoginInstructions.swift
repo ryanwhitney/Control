@@ -55,7 +55,9 @@ struct RemoteLoginInstructions: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { togglePlayback(player) }
-                        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+                        // KVO can emit off-main (e.g. pauses from interruptions);
+                        // hop to main before touching state.
+                        .onReceive(player.publisher(for: \.timeControlStatus).receive(on: RunLoop.main)) { status in
                             isPlaying = status != .paused
                         }
                         // One described element for the whole player, with
