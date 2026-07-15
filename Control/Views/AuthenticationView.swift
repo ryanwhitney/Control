@@ -186,19 +186,15 @@ struct AuthenticationView: View {
                                 .controlSize(.regular)
                         } else {
                             Text(mode.saveButtonTitle)
-                                .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
+                                .multiblur([(10,0.25), (20,0.85), (50,0.85),  (100,0.85)])
                         }
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .tint(.accentColor)
-                    .foregroundStyle(.tint)
+                    .glassPillLabel(tint: .accentColor)
                     .fontWeight(.bold)
                 }
-                .background(.ultraThinMaterial)
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.gray)
+                .glassPillButtonStyle()
                 .frame(maxWidth: .infinity)
                 .disabled(!canSubmit || isConnecting)
                 .listRowBackground(Color.clear)

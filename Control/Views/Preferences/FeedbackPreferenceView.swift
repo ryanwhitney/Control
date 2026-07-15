@@ -31,14 +31,10 @@ struct FeedbackPreferenceView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(.tint)
-                    .tint(.accentColor)
+                    .glassPillLabel()
                     .fontWeight(.bold)
                 }
-                .background(Color.accentColor.opacity(0.025))
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.accentColor)
+                .glassPillButtonStyle(tint: .accentColor)
                 .frame(maxWidth: .infinity)
                 .disabled(showMailComposer)
             }
@@ -66,13 +62,10 @@ struct FeedbackPreferenceView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .foregroundStyle(.orange)
+                    .glassPillLabel()
                     .fontWeight(.bold)
                 }
-                .background(Color.orange.opacity(0.025))
-                .cornerRadius(.infinity)
-                .buttonStyle(.bordered)
-                .tint(.orange)
+                .glassPillButtonStyle(tint: .orange)
                 .frame(maxWidth: .infinity)
             }
             .padding()
