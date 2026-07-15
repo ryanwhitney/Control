@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import Combine
 
 struct RemoteLoginInstructions: View {
     @State private var player: AVPlayer? = {
@@ -20,6 +21,9 @@ struct RemoteLoginInstructions: View {
     /// One-time playback setup flag, so a row re-appear (scroll-back, or
     /// popping the older-macOS page) doesn't reset a video the user started.
     @State private var hasConfiguredPlayback = false
+    /// Mirrors the player's timeControlStatus so the play overlay tracks
+    /// pauses we didn't initiate (backgrounding, interruptions) too.
+    @State private var isPlaying = false
 
     /// The numbered "Enable Remote Login" steps, with their bold emphasis baked in.
     private let remoteLoginSteps: [Text] = [
@@ -38,24 +42,30 @@ struct RemoteLoginInstructions: View {
             Section {
                 if let player {
                     let videoAspectRatio: CGFloat = 1430 / 940
-                    VideoPlayer(player: player)
+                    InlineVideoPlayer(player: player)
                         .aspectRatio(videoAspectRatio, contentMode: .fit)
                         .frame(maxWidth: .infinity)
-                        // The player's internal controls otherwise become the
-                        // accessibility elements and the description is never
-                        // read; flatten to one described element with play/pause
-                        // as its action.
+                        // AVKit's own touch handling is dead weight with its
+                        // controls disabled; the whole surface is our tap target.
+                        .allowsHitTesting(false)
+                        .overlay {
+                            if !isPlaying {
+                                playOverlay(player)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { togglePlayback(player) }
+                        .onReceive(player.publisher(for: \.timeControlStatus)) { status in
+                            isPlaying = status != .paused
+                        }
+                        // One described element for the whole player, with
+                        // play/pause as its action — the overlay and the hosted
+                        // view never surface individually.
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Screen recording with no audio, showing how to find and enable Remote Login in System Settings on macOS. The same steps are listed below.")
                         .accessibilityHint("Plays or pauses the video")
                         .accessibilityInputLabels(["Video", "Play video", "Pause video"])
-                        .accessibilityAction {
-                            if player.timeControlStatus == .playing {
-                                player.pause()
-                            } else {
-                                player.play()
-                            }
-                        }
+                        .accessibilityAction { togglePlayback(player) }
                         .onAppear { startLooping(player) }
                 }
             }
@@ -120,6 +130,46 @@ struct RemoteLoginInstructions: View {
         }
     }
 
+    /// Our own play affordance for the paused state: AVKit's control overlay
+    /// renders its buttons without glyphs in this List context (the reason
+    /// native controls are off — see InlineVideoPlayer). Interactive Liquid
+    /// Glass on iOS 26+, the ultra-thin-material look on earlier versions.
+    @ViewBuilder
+    private func playOverlay(_ player: AVPlayer) -> some View {
+        let icon = Image(systemName: "play.fill")
+            .font(.system(size: 24))
+            .foregroundStyle(.white)
+            .padding(22)
+
+        if #available(iOS 26.0, *) {
+            Button {
+                togglePlayback(player)
+            } label: {
+                icon
+            }
+            .buttonStyle(.plain)
+            // Clear, not regular: the app forces dark mode, and regular
+            // glass's dark variant renders flat gray over the bright video.
+            // Clear is the over-media variant — translucent in both schemes.
+            .glassEffect(.clear.interactive(), in: .circle)
+        } else {
+            Button {
+                togglePlayback(player)
+            } label: {
+                icon.background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func togglePlayback(_ player: AVPlayer) {
+        if player.timeControlStatus == .playing {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
     /// A centered, numbered section header (e.g. "1  Enable Remote Login:").
     private func stepHeader(_ number: Int, _ title: String, verticalPadding: CGFloat = 0, topInset: CGFloat = 0) -> some View {
         HStack(spacing: 8) {
@@ -169,10 +219,11 @@ struct RemoteLoginInstructions: View {
 
             player.volume = 0
             player.seek(to: .zero)
-            // Autoplay unless Reduce Motion is on; then the user starts playback
-            // themselves (player controls, or the VoiceOver double-tap action)
-            // and the loop below keeps it going from there.
-            if !UIAccessibility.isReduceMotionEnabled {
+            // Autoplay unless Reduce Motion or Auto-Play Video Previews says
+            // not to; then the user starts playback themselves (the play
+            // overlay, or the VoiceOver double-tap action) and the loop below
+            // keeps it going from there.
+            if !UIAccessibility.isReduceMotionEnabled && UIAccessibility.isVideoAutoplayEnabled {
                 player.play()
             }
         }
@@ -183,6 +234,30 @@ struct RemoteLoginInstructions: View {
             player.play()
         }
     }
+}
+
+/// Video surface with no native controls: AVKit's control overlay draws its
+/// buttons without glyphs inside a `List` row (broken since iOS 16, with
+/// `VideoPlayer` and hosted AVPlayerViewController alike), so the view above
+/// supplies its own play overlay and tap-to-toggle instead.
+private struct InlineVideoPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = false
+        // No PiP for a silent tutorial loop, and keep it out of Now Playing /
+        // lock-screen controls.
+        controller.allowsPictureInPicturePlayback = false
+        controller.updatesNowPlayingInfoCenter = false
+        // Clear, not AVKit's default black, so subpixel aspect rounding can't
+        // show black hairlines against the clear list row.
+        controller.view.backgroundColor = .clear
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {}
 }
 
 #Preview {
