@@ -19,6 +19,7 @@ enum SSHTransportConnector {
     struct Established {
         let connection: Channel
         let session: Channel
+        let hostKeyInfo: SSHHostKeyInfo
     }
 
     static func connect(
@@ -26,6 +27,7 @@ enum SSHTransportConnector {
         host: String,
         username: String,
         password: String,
+        trustedHostKeyFingerprints: Set<String>,
         connectionId: String,
         makeChildHandlers: @escaping () -> [ChannelHandler],
         completion: @escaping (Result<Established, Error>) -> Void
@@ -50,6 +52,14 @@ enum SSHTransportConnector {
             }
         }
 
+        let hostKeyDelegate = HostKeyPinningDelegate(trustedFingerprints: trustedHostKeyFingerprints)
+        hostKeyDelegate.onMismatch = {
+            attempt.finish(.failure(SSHError.hostKeyMismatch(observed: hostKeyDelegate.observedInfo))) {
+                timeout.cancel()
+                sshLog("❌ [\(connectionId)] Host key mismatch")
+            }
+        }
+
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
@@ -58,7 +68,7 @@ enum SSHTransportConnector {
                 channel.pipeline.addHandler(NIOSSHHandler(
                     role: .client(.init(
                         userAuthDelegate: authDelegate,
-                        serverAuthDelegate: AcceptAllHostKeysDelegate()
+                        serverAuthDelegate: hostKeyDelegate
                     )),
                     allocator: channel.allocator,
                     inboundChildChannelInitializer: { childChannel, channelType in
@@ -82,7 +92,17 @@ enum SSHTransportConnector {
                 openSessionChannel(on: connection, makeChildHandlers: makeChildHandlers) { sessionResult in
                     switch sessionResult {
                     case .success(let session):
-                        let delivered = attempt.finish(.success(Established(connection: connection, session: session))) {
+                        // validateHostKey always runs before a child channel
+                        // opens, so observedInfo is guaranteed set here.
+                        guard let hostKeyInfo = hostKeyDelegate.observedInfo else {
+                            attempt.finish(.failure(SSHError.hostKeyMismatch(observed: nil))) {
+                                timeout.cancel()
+                                sshLog("❌ [\(connectionId)] Session opened without an observed host key")
+                            }
+                            session.close(promise: nil)
+                            return
+                        }
+                        let delivered = attempt.finish(.success(Established(connection: connection, session: session, hostKeyInfo: hostKeyInfo))) {
                             timeout.cancel()
                         }
                         if !delivered {
@@ -217,10 +237,49 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     }
 }
 
-class AcceptAllHostKeysDelegate: NIOSSHClientServerAuthenticationDelegate {
+/// Pins the Mac's SSH host key across connections. `trustedFingerprints` is
+/// the set of keys the user has already accepted for this host (from
+/// `SavedConnections`). Following the `known_hosts` model, a key is accepted
+/// if it's in that set — a Mac that legitimately presents more than one host
+/// key (e.g. across an OS update that changes the negotiated key type) won't
+/// false-alarm once each key has been confirmed. An *empty* set means the
+/// host has never been pinned, so the presented key is trust-on-first-use.
+/// A non-empty set that doesn't contain the presented key is rejected: the
+/// identity changed since we last saw it — a benign reason (reinstalled
+/// macOS, new Mac same name) or a spoofed device on the network — which the
+/// caller surfaces as `SSHError.hostKeyMismatch` for the user to decide on.
+final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
+    private let trustedFingerprints: Set<String>
+    /// Set synchronously before either promise outcome — always populated
+    /// once `validateHostKey` has run, whether accepted or rejected. The
+    /// mismatch/retry flow needs the *rejected* key too, to add it to the
+    /// trusted set if the user consciously chooses to trust it.
+    private(set) var observedInfo: SSHHostKeyInfo?
+    var onMismatch: (() -> Void)?
+
+    init(trustedFingerprints: Set<String>) {
+        self.trustedFingerprints = trustedFingerprints
+    }
+
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
-        // Accept all host keys - in production, you should verify against known hosts
-        validationCompletePromise.succeed(())
+        guard let info = try? SSHHostKeyFingerprint.compute(for: hostKey) else {
+            // NIOSSH already parsed this key during key exchange, so this is
+            // effectively unreachable — fail closed rather than silently
+            // accept an unparseable identity.
+            validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: nil))
+            onMismatch?()
+            return
+        }
+        observedInfo = info
+
+        // Empty set → trust-on-first-use; otherwise the presented key must be
+        // one the user has already accepted for this host.
+        if trustedFingerprints.isEmpty || trustedFingerprints.contains(info.fingerprint) {
+            validationCompletePromise.succeed(())
+            return
+        }
+        validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: info))
+        onMismatch?()
     }
 }
 

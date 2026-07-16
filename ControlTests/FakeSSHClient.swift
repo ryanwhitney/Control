@@ -27,8 +27,8 @@ final class FakeSSHClient: SSHClientProtocol {
     /// strategy; defaults to the streaming value so tests get that path.
     var serializesAppCommands: Bool = true
 
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
-        completion(.success(()))
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
+        completion(.success(SSHHostKeyInfo(fingerprint: "SHA256:fake", keyType: "ssh-ed25519")))
     }
 
     func disconnect() {}

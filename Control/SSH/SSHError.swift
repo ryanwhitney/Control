@@ -9,6 +9,11 @@ enum SSHError: Error {
     case connectionFailed(String)
     case timeout
     case channelError(String)
+    /// The SSH server's host key doesn't match what we pinned from a prior
+    /// successful connection. `observed` carries the key actually presented
+    /// (for internal logging and for re-pinning if the user chooses to
+    /// reconnect anyway) — never surfaced in `formatError`'s user-facing copy.
+    case hostKeyMismatch(observed: SSHHostKeyInfo?)
 
     /// Single connection-error classifier shared by both transports, so the same
     /// network failure maps to the same `SSHError` (and user-facing message)
@@ -138,6 +143,11 @@ enum SSHError: Error {
                 Could not establish an SSH session with \(displayName).
                 Please ensure Remote Login is enabled and try again.
                 """
+            )
+        case .hostKeyMismatch:
+            return (
+                "This Mac Looks Different",
+                "Something changed about how \(displayName) identifies itself since you last connected. This is expected if you recently reinstalled macOS, restored from a backup, or set up a new Mac with the same name. If none of that sounds familiar, don't reconnect — the password you enter next could go to a different device."
             )
         }
     }

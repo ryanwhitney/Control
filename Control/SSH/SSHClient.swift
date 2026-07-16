@@ -115,7 +115,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
         try? group.syncShutdownGracefully()
     }
 
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
         let connectionId = String(UUID().uuidString.prefix(8))
         sshLog("⚯ [\(connectionId)] SSHClient: Connecting to \(host) as \(username)")
 
@@ -133,6 +133,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
             host: host,
             username: username,
             password: password,
+            trustedHostKeyFingerprints: trustedHostKeyFingerprints,
             connectionId: connectionId,
             makeChildHandlers: { [SSHChannelErrorHandler()] }
         ) { [weak self] result in
@@ -146,7 +147,7 @@ class SSHClient: SSHClientProtocol, @unchecked Sendable {
                 self.connection = established.connection
                 self.stateLock.unlock()
                 sshLog("☕︎ [\(connectionId)] SSH connection ready for channels")
-                completion(.success(()))
+                completion(.success(established.hostKeyInfo))
             case .failure(let error):
                 completion(.failure(error))
             }

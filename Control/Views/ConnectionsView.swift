@@ -90,7 +90,12 @@ struct ConnectionsView: View {
                     .environmentObject(viewModel)
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
-                Button("OK", role: .cancel) { }
+                if viewModel.lastErrorWasHostKeyMismatch {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Reconnect") { viewModel.acknowledgeHostKeyChangeAndRetry() }
+                } else {
+                    Button("OK", role: .cancel) { }
+                }
             } message: {
                 Text(viewModel.connectionError?.message ?? "")
             }
@@ -167,17 +172,7 @@ struct ConnectionsView: View {
         }
         .onChange(of: viewModel.showingError) { _, newValue in
             if !newValue {
-                viewModel.connectingComputer = nil
-                if viewModel.lastErrorWasAuthFailure {
-                    // Re-prompt for credentials - keep selectedConnection and username
-                    viewModel.password = ""
-                    viewModel.lastErrorWasAuthFailure = false
-                    viewModel.isAuthenticating = true
-                } else {
-                    viewModel.selectedConnection = nil
-                    viewModel.username = ""
-                    viewModel.password = ""
-                }
+                viewModel.handleErrorAlertDismissed()
             }
         }
     }
@@ -194,6 +189,8 @@ private struct AddConnectionSheet: View {
                 mode: .edit,
                 existingHost: computer.host,
                 existingName: computer.name,
+                existingHostKeyFingerprint: viewModel.savedConnections.hostKeyFingerprint(for: computer.host),
+                existingHostKeyType: viewModel.savedConnections.hostKeyType(for: computer.host),
                 username: $viewModel.username,
                 password: $viewModel.password,
                 saveCredentials: $viewModel.saveCredentials,

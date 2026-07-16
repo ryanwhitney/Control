@@ -18,6 +18,7 @@ class ConnectionsViewModel: ObservableObject {
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
     @Published var lastErrorWasAuthFailure = false
+    @Published var lastErrorWasHostKeyMismatch = false
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
@@ -29,6 +30,17 @@ class ConnectionsViewModel: ObservableObject {
     private var scanStartTime: Date?
     private var scanCompletionTimer: Timer?
     private var scanUpdateTimer: Timer?
+
+    /// The host key a mismatch just presented, stashed from the
+    /// `SSHError.hostKeyMismatch` so "Reconnect" can re-pin exactly that key.
+    /// nil unless the last error was a host-key mismatch awaiting the user's
+    /// consent.
+    private var pendingHostKeyToTrust: SSHHostKeyInfo?
+
+    /// Set when the user taps "Reconnect" on the host-key-change alert, so the
+    /// alert-dismiss handler retries with the credentials already in hand
+    /// instead of clearing state or re-prompting.
+    private var pendingHostKeyReconnect = false
 
     let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
@@ -145,6 +157,7 @@ class ConnectionsViewModel: ObservableObject {
             do {
                 try await performConnection(computer: computer)
                 connectingComputer = nil
+                pinHostKeyFingerprintIfNeeded(for: computer.host)
                 navigateToApp(computer: computer)
             } catch {
                 connectingComputer = nil
@@ -172,12 +185,65 @@ class ConnectionsViewModel: ObservableObject {
                     password: saveCredentials ? password : nil,
                     saveCredentials: saveCredentials
                 )
+                // Must run after `add(...)` above: pinning no-ops on a
+                // hostname with no saved row yet, and for a brand-new host
+                // `add(...)` is what creates that row.
+                pinHostKeyFingerprintIfNeeded(for: computer.host)
 
                 navigateToApp(computer: computer)
             } catch {
                 connectingComputer = nil
                 handleConnectionError(error: error, computer: computer)
             }
+        }
+    }
+
+    /// Pins the host key observed during the connection that just succeeded.
+    /// Silent no-op if nothing was observed (shouldn't happen after a
+    /// successful connect, but defensive since the cache is best-effort).
+    /// Runs before `navigateToApp(computer:)`, mirroring the existing
+    /// `savedConnections.add(...)` mutation on the same path.
+    private func pinHostKeyFingerprintIfNeeded(for hostname: String) {
+        guard let info = connectionManager.lastObservedHostKeyInfo else { return }
+        savedConnections.updateHostKeyFingerprint(hostname, fingerprint: info.fingerprint, keyType: info.keyType)
+    }
+
+    /// Called when the user taps "Reconnect" on the host-key-mismatch alert:
+    /// adds the *just-rejected* key to the connection's trusted set (stashed
+    /// in `pendingHostKeyToTrust` from the mismatch error) so the retry will
+    /// accept it, then flags the dismiss handler to reconnect. The retry
+    /// reuses the credentials already in hand — the user consented by tapping
+    /// Reconnect, so there's no need to re-prompt for the password.
+    func acknowledgeHostKeyChangeAndRetry() {
+        if let host = selectedConnection?.host, let info = pendingHostKeyToTrust {
+            savedConnections.updateHostKeyFingerprint(host, fingerprint: info.fingerprint, keyType: info.keyType)
+        }
+        pendingHostKeyToTrust = nil
+        pendingHostKeyReconnect = true
+    }
+
+    /// Routes the connection-error alert's dismissal to the right recovery:
+    /// silently reconnect after a confirmed host-key change, re-prompt for
+    /// credentials after an auth failure, or clear state and return to the
+    /// list for anything else.
+    func handleErrorAlertDismissed() {
+        connectingComputer = nil
+        if pendingHostKeyReconnect {
+            pendingHostKeyReconnect = false
+            if let computer = selectedConnection {
+                // A mismatch only happens on an already-pinned connection, so
+                // the saved row exists; connectWithNewCredentials reconnects,
+                // re-persists credentials, and re-pins — all idempotent here.
+                connectWithNewCredentials(computer: computer)
+            }
+        } else if lastErrorWasAuthFailure {
+            password = ""
+            lastErrorWasAuthFailure = false
+            isAuthenticating = true
+        } else {
+            selectedConnection = nil
+            username = ""
+            password = ""
         }
     }
 
@@ -258,7 +324,8 @@ class ConnectionsViewModel: ObservableObject {
         try await connectionManager.connect(
             host: computer.host,
             username: username,
-            password: password
+            password: password,
+            trustedHostKeyFingerprints: savedConnections.trustedHostKeyFingerprints(for: computer.host)
         )
 
         viewLog("✓ ConnectionsViewModel: Connection verified successfully", view: "ConnectionsViewModel")
@@ -272,11 +339,22 @@ class ConnectionsViewModel: ObservableObject {
             let formattedError = sshError.formatError(displayName: computer.name)
             connectionError = (formattedError.title, formattedError.message)
 
-            // Track if this was an auth failure so we can re-prompt for credentials
-            if case .authenticationFailed = sshError {
+            // Track the specific failure kind so we can pick the right
+            // recovery path: re-prompt for credentials (auth failure) or
+            // offer Cancel/Reconnect (host key mismatch).
+            switch sshError {
+            case .authenticationFailed:
                 lastErrorWasAuthFailure = true
-            } else {
+                lastErrorWasHostKeyMismatch = false
+                pendingHostKeyToTrust = nil
+            case .hostKeyMismatch(let observed):
                 lastErrorWasAuthFailure = false
+                lastErrorWasHostKeyMismatch = true
+                pendingHostKeyToTrust = observed
+            default:
+                lastErrorWasAuthFailure = false
+                lastErrorWasHostKeyMismatch = false
+                pendingHostKeyToTrust = nil
             }
         } else {
             viewLog("❌ Handling generic error", view: "ConnectionsViewModel")
@@ -289,6 +367,8 @@ class ConnectionsViewModel: ObservableObject {
                 """
             )
             lastErrorWasAuthFailure = false
+            lastErrorWasHostKeyMismatch = false
+            pendingHostKeyToTrust = nil
         }
         showingError = true
     }

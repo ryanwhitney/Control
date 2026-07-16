@@ -7,6 +7,20 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     /// Set only by the manager and its extensions (+Heartbeat drives the
     /// recovering/connected transitions, hence no `private(set)`).
     @Published var connectionState: ConnectionState = .disconnected
+    /// The host key observed on the most recent *successful* `connect()`. Set
+    /// only on success, never on a mismatch rejection, so it always holds a
+    /// trusted value that `ConnectionsViewModel` reads to pin to
+    /// `SavedConnections`. Not `@Published`: it's read imperatively after a
+    /// connect completes, never observed by a view.
+    private(set) var lastObservedHostKeyInfo: SSHHostKeyInfo?
+    /// The set of host-key fingerprints trusted for the connection this
+    /// session is serving, set explicitly by the caller (which owns
+    /// `SavedConnections`) at `connect()` time and reused for in-session
+    /// reconnects. Making it explicit — rather than inferring the expected
+    /// key from `lastObservedHostKeyInfo` — means an in-session reconnect
+    /// can never silently fall back to trust-on-first-use if that value were
+    /// ever unset.
+    private var sessionTrustedFingerprints: Set<String> = []
     /// Active SSH transport, selected per `UserPreferences.connectionMethod` on
     /// each connect. `nonisolated(unsafe)`: it is assigned on the MainActor in
     /// `connect()` before any command is dispatched, and only read thereafter.
@@ -254,8 +268,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    func connect(host: String, username: String, password: String) async throws {
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>) async throws {
         connectionLog("SSHConnectionManager: Connection Request")
+        // Remember the trust set for this connection so in-session reconnects
+        // (handleConnection) verify against the same keys without needing the
+        // view to re-supply them.
+        sessionTrustedFingerprints = trustedHostKeyFingerprints
         
         // Show connection metadata without exposing sensitive info
         let isLocal = host.contains(".local")
@@ -285,25 +303,35 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             var hasResumed = false
             let connectionId = UUID().uuidString.prefix(8)
             
-            client.connect(host: host, username: username, password: password) { result in
+            client.connect(host: host, username: username, password: password, trustedHostKeyFingerprints: trustedHostKeyFingerprints) { result in
                 Task { @MainActor in
                     guard !hasResumed else {
                         connectionLog("⚠️ [\(connectionId)] Continuation already resumed, ignoring duplicate result: \(result)")
                         return
                     }
                     hasResumed = true
-                    
+
                     switch result {
-                    case .success:
+                    case .success(let hostKeyInfo):
                         connectionLog("✓ [\(connectionId)] Connection successful")
                         self.connectionState = .connected
                         self.consecutiveHeartbeatFailures = 0
                         self.recoveryDeadline = nil
+                        self.lastObservedHostKeyInfo = hostKeyInfo
+                        // Trust the just-verified key for this session's
+                        // reconnects (covers trust-on-first-use, where the set
+                        // started empty).
+                        self.sessionTrustedFingerprints.insert(hostKeyInfo.fingerprint)
                         continuation.resume()
                     case .failure(let error):
                         connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
                         self.connectionState = .failed(error.localizedDescription)
                         self.currentCredentials = nil
+                        // Note: lastObservedHostKeyInfo is deliberately NOT set
+                        // here. On a mismatch the rejected key travels up inside
+                        // SSHError.hostKeyMismatch(observed:) for the caller to
+                        // decide on; letting it overwrite the trusted value would
+                        // make the next in-session reconnect silently accept it.
 
                         // Ensure client is disconnected on failure to prevent stale
                         // state. The connect retry loop (handleConnection) owns the
@@ -381,7 +409,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return true
     }
     
-    /// Shared connection handler that manages common connection logic
+    /// Shared connection handler that manages common connection logic. Used by
+    /// in-session views (ControlView / ChooseAppsView / PermissionsView) to
+    /// (re)establish the connection. Host-key verification here reuses
+    /// `lastObservedHostKeyInfo` — the fingerprint the initial connect already
+    /// verified this session — so a mid-session reconnect to a changed key is
+    /// still caught, without these views needing access to `SavedConnections`.
+    /// The first connect and its persistent pinning live in
+    /// `ConnectionsViewModel` (which owns `SavedConnections`).
     func handleConnection(
         host: String,
         username: String,
@@ -402,7 +437,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             while true {
                 attempt += 1
                 do {
-                    try await connect(host: host, username: username, password: password)
+                    try await connect(host: host, username: username, password: password, trustedHostKeyFingerprints: sessionTrustedFingerprints)
                     await onSuccess()
                     return
                 } catch {
@@ -489,11 +524,16 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     // MARK: - SSHClientProtocol Conformance
     
     /// Protocol-required connect method with completion handler
-    nonisolated func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    nonisolated func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
         Task {
             do {
-                try await self.connect(host: host, username: username, password: password)
-                completion(.success(()))
+                try await self.connect(host: host, username: username, password: password, trustedHostKeyFingerprints: trustedHostKeyFingerprints)
+                let info = await self.lastObservedHostKeyInfo
+                if let info {
+                    completion(.success(info))
+                } else {
+                    completion(.failure(SSHError.hostKeyMismatch(observed: nil)))
+                }
             } catch {
                 completion(.failure(error))
             }

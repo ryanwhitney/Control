@@ -632,7 +632,8 @@ private struct PermissionsNameExplanationSheet: View {
     client.connect(
         host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
         username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
-        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
+        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
+        trustedHostKeyFingerprints: []
     ) { _ in }
 
     return PermissionsView(

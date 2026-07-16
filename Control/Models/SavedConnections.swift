@@ -15,7 +15,10 @@ class SavedConnections: ObservableObject {
         var enabledPlatforms: Set<String>
         var lastViewedPlatform: String?
         var saveCredentialsPreference: Bool?  // nil = legacy
-        
+        var hostKeyFingerprint: String?  // most-recently-observed key, for display; nil = never pinned
+        var hostKeyType: String?  // paired with hostKeyFingerprint
+        var hostKeyFingerprints: [String]?  // every key the user has accepted for this host (known_hosts-style set)
+
         init(hostname: String, name: String? = nil, username: String? = nil) {
             self.id = UUID()
             self.hostname = hostname
@@ -26,6 +29,9 @@ class SavedConnections: ObservableObject {
             self.enabledPlatforms = []
             self.lastViewedPlatform = nil
             self.saveCredentialsPreference = nil
+            self.hostKeyFingerprint = nil
+            self.hostKeyType = nil
+            self.hostKeyFingerprints = nil
         }
     }
     
@@ -161,6 +167,59 @@ class SavedConnections: ObservableObject {
         _ = SecItemDelete(deleteQuery as CFDictionary)
     }
     
+    func hostKeyFingerprint(for hostname: String) -> String? {
+        return items.first(where: { $0.hostname == hostname })?.hostKeyFingerprint
+    }
+
+    func hostKeyType(for hostname: String) -> String? {
+        return items.first(where: { $0.hostname == hostname })?.hostKeyType
+    }
+
+    /// Every host-key fingerprint the user has accepted for `hostname`. Empty
+    /// when the host has never been pinned (trust-on-first-use). Unions the
+    /// stored set with the legacy single `hostKeyFingerprint` so connections
+    /// saved before the set existed migrate transparently.
+    func trustedHostKeyFingerprints(for hostname: String) -> Set<String> {
+        guard let connection = items.first(where: { $0.hostname == hostname }) else { return [] }
+        var trusted = Set(connection.hostKeyFingerprints ?? [])
+        if let legacy = connection.hostKeyFingerprint {
+            trusted.insert(legacy)
+        }
+        return trusted
+    }
+
+    /// Records `fingerprint` as the most-recently-observed key for `hostname`
+    /// (shown as the connection's verification code) and adds it to the set of
+    /// keys trusted for that host. A harmless no-op overwrite when the key
+    /// hasn't changed; the mechanism by which a user-confirmed reconnect after
+    /// a mismatch establishes new trust. No-ops if `hostname` has no row yet —
+    /// callers must ensure the row exists first (e.g. after `add(...)`).
+    ///
+    /// A nil→non-nil transition is expected exactly once per connection:
+    /// either this is a brand-new host's first-ever connect, or an existing
+    /// user's first connect after updating to a build that has pinning —
+    /// both are silent by design. If a connection that has *already*
+    /// connected before (`hasConnectedBefore`) still has no fingerprint at
+    /// pin time, this is that one-time backfill: logged for the developer,
+    /// never surfaced to the user. Repeated occurrences for the same host
+    /// would indicate pinning isn't persisting.
+    func updateHostKeyFingerprint(_ hostname: String, fingerprint: String, keyType: String) {
+        guard let index = items.firstIndex(where: { $0.hostname == hostname }) else { return }
+
+        if items[index].hostKeyFingerprint == nil && items[index].hasConnectedBefore {
+            debugLog("⚠️ Host key fingerprint backfilled for pre-existing connection '\(hostname)' with no prior baseline — expected once per legacy connection; repeated occurrences for the same host indicate pinning isn't persisting", category: "SavedConnections")
+        }
+
+        items[index].hostKeyFingerprint = fingerprint
+        items[index].hostKeyType = keyType
+        var trusted = items[index].hostKeyFingerprints ?? []
+        if !trusted.contains(fingerprint) {
+            trusted.append(fingerprint)
+        }
+        items[index].hostKeyFingerprints = trusted
+        save()
+    }
+
     func getSaveCredentialsPreference(for hostname: String) -> Bool {
 
         // Return the user's preference, with smart defaults for legacy connections
