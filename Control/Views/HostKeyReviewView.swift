@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The fingerprint value plus the on-Mac Terminal check. Used by the
 /// informational verification screen (reached from Edit) to show a single
@@ -20,17 +21,111 @@ struct HostKeyFingerprintSections: View {
         }
 
         if let path = SSHHostKeyFingerprint.localVerificationPath(for: keyType) {
-            Section("Double-Check It") {
-                Text("Want to be sure? On \(displayName) itself, open Terminal and run:")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Text("ssh-keygen -lf \(path)")
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-                Text("It should print the same fingerprint shown above.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            TerminalCheckSection(
+                displayName: displayName,
+                keyPath: path,
+                resultInstruction: "Check that it prints the same fingerprint shown above."
+            )
+        }
+    }
+}
+
+/// The on-Mac Terminal check, spelled out as numbered steps a non-technical
+/// user can follow — including how to open Terminal at all. Shared by the
+/// compare screen and the Edit-flow info screen; `resultInstruction` is each
+/// screen's step 3 (what to do with the printed fingerprint). The footer is
+/// the trust-building part: the command ships with macOS and only reads.
+struct TerminalCheckSection: View {
+    let displayName: String
+    let keyPath: String
+    let resultInstruction: String
+
+    var body: some View {
+        Section {
+            NumberedStep(number: 1) {
+                Text("On \(displayName), open **Terminal** — press ⌘ Space and type “Terminal”.")
             }
+            NumberedStep(number: 2) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Copy this command, paste or type it there, and press Return:")
+                    CopyableCommand(command: "ssh-keygen -lf \(keyPath)")
+                }
+            }
+            NumberedStep(number: 3) {
+                Text(resultInstruction)
+            }
+        } header: {
+            Text("Check It on the Mac")
+        } footer: {
+            Text("ssh-keygen is built into every Mac. This command only reads the key file and prints its fingerprint — it doesn't change anything.")
+        }
+    }
+}
+
+/// A step number in a filled circle beside the step's instructions.
+private struct NumberedStep<Content: View>: View {
+    let number: Int
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "\(number).circle.fill")
+                .foregroundStyle(.secondary)
+            content
+        }
+        .font(.callout)
+    }
+}
+
+/// The verification command with a copy button, so it can be pasted into
+/// Terminal (Universal Clipboard) instead of retyped — pasting is also the
+/// guardrail against mistyping the command.
+private struct CopyableCommand: View {
+    let command: String
+    @State private var copied = false
+    @State private var resetTask: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(command)
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+            Button {
+                UIPasteboard.general.string = command
+                withAnimation { copied = true }
+                resetTask?.cancel()
+                resetTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation { copied = false }
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(copied ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(copied ? "Copied" : "Copy command")
+        }
+    }
+}
+
+/// A section header with a status dot, so "which fingerprint is which"
+/// survives glancing back and forth between the phone and the Mac. Orange =
+/// the unverified key being presented now; gray = what was trusted before.
+/// Deliberately not green or the app tint — the new key hasn't earned a
+/// trusted look yet.
+private struct FingerprintStateHeader: View {
+    let title: String
+    let dotColor: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(dotColor)
+                .accessibilityHidden(true)
+            Text(title)
         }
     }
 }
@@ -75,8 +170,9 @@ private struct TrustDecisionButtons: View {
 
 /// Reached from "Verify" on the host-key-change alert. A plain-language page: a
 /// quick "did you change this Mac?" self-check with trust / don't-connect, and
-/// an Advanced link to compare the fingerprints. Trusting only takes effect if
-/// the reconnect it triggers actually verifies the key.
+/// a Compare Fingerprints link inside the "didn't change anything?" section so
+/// the cautious path ends in an action. Trusting only takes effect if the
+/// reconnect it triggers actually verifies the key.
 struct HostKeyReviewView: View {
     let displayName: String
     let newKey: SSHHostKeyInfo
@@ -89,7 +185,6 @@ struct HostKeyReviewView: View {
             Form {
                 Section {
                     Text("Every Mac has a unique fingerprint it uses to prove it's really itself. \(displayName)'s fingerprint has changed since you last connected.")
-                        .font(.callout)
                 }
 
                 Section("Is this expected?") {
@@ -101,13 +196,10 @@ struct HostKeyReviewView: View {
                     Label("Set it up as a new Mac with the same name", systemImage: "desktopcomputer")
                 }
 
-                Section("Didn't change anything?") {
-                    Text("Then don't reconnect yet. Another device on your network could be posing as \(displayName) — reconnecting would hand it your Mac's password. Compare the fingerprints, or check the Mac in person, before you trust it.")
+                Section {
+                    Text("Don't reconnect yet — another device on your network could be posing as \(displayName), and reconnecting would hand it your Mac's password.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                }
-
-                Section {
                     NavigationLink {
                         HostKeyFingerprintCompareView(
                             displayName: displayName,
@@ -117,9 +209,13 @@ struct HostKeyReviewView: View {
                             onDecline: onDecline
                         )
                     } label: {
-                        Label("Compare the fingerprints", systemImage: "checkmark.shield")
+                        Label("Compare Fingerprints", systemImage: "magnifyingglass")
                     }
-                    .accessibilityHint("Advanced: shows the old and new fingerprints and how to check them on the Mac")
+                    .accessibilityHint("Shows the old and new fingerprints and how to check them on the Mac")
+                } header: {
+                    Text("Didn't change anything?")
+                } footer: {
+                    Text("Comparing takes about a minute and tells you for sure.")
                 }
             }
             .navigationTitle("Verify This Mac")
@@ -131,9 +227,9 @@ struct HostKeyReviewView: View {
     }
 }
 
-/// The advanced page: the new and previous fingerprints side by side, the
-/// on-Mac command to read the real one, and what each outcome means — including
-/// the spoofing case and what to do about it.
+/// The compare page: the new and previous fingerprints with status-dot
+/// headers, the numbered on-Mac Terminal check, and what each outcome means —
+/// including the spoofing case and what to do about it.
 struct HostKeyFingerprintCompareView: View {
     let displayName: String
     let newKey: SSHHostKeyInfo
@@ -149,34 +245,32 @@ struct HostKeyFingerprintCompareView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Showing now") {
+            Section {
                 FingerprintText(fingerprint: newKey.fingerprint)
+            } header: {
+                FingerprintStateHeader(title: "Showing Now", dotColor: .orange)
             }
 
             if !previousKeys.isEmpty {
-                Section("What you trusted before") {
+                Section {
                     ForEach(previousKeys, id: \.fingerprint) { key in
                         FingerprintText(fingerprint: key.fingerprint)
                     }
+                } header: {
+                    FingerprintStateHeader(title: "What You Trusted Before", dotColor: .gray)
                 }
             }
 
             if let path = SSHHostKeyFingerprint.localVerificationPath(for: newKey.keyType) {
-                Section("Read it on the Mac") {
-                    Text("On \(displayName), open Terminal and run:")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("ssh-keygen -lf \(path)")
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                    Text("It prints the Mac's fingerprint right now.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
+                TerminalCheckSection(
+                    displayName: displayName,
+                    keyPath: path,
+                    resultInstruction: "Compare what it prints with the fingerprints above."
+                )
 
                 Section("What the result means") {
                     Label {
-                        Text("If it matches **Showing now**, \(displayName)'s fingerprint really did change. It's safe to reconnect.")
+                        Text("If it matches **Showing Now**, \(displayName)'s fingerprint really did change. It's safe to reconnect.")
                     } icon: {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                     }
