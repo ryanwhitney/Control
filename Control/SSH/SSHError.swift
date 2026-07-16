@@ -150,7 +150,7 @@ enum SSHError: Error {
                 """
                 \(displayName)'s fingerprint has changed since you last connected. This usually happens after reinstalling macOS or restoring from a backup.
 
-                If you didn't make a change like that, another device could be posing as \(displayName). Verify it before you reconnect.
+                If you didn't make a change like that, another device could be pretending to be \(displayName). Verify before you reconnect.
                 """
             )
         }

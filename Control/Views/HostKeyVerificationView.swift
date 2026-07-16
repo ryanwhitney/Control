@@ -1,37 +1,39 @@
 import SwiftUI
 
 /// A per-connection detail screen (reached from the Edit sheet) that shows the
-/// Mac's trusted SSH host-key fingerprint(s) framed for a non-technical
-/// reader, plus a Terminal command to confirm it on the Mac.
-/// Purely informational — nothing here changes the connection.
+/// Mac's trusted SSH host-key fingerprint(s) as code cards, plus the Terminal
+/// steps to confirm them on the Mac — the same visual language as the
+/// mismatch review flow. Purely informational — nothing here changes the
+/// connection.
 struct HostKeyVerificationView: View {
     let displayName: String
     let trustedKeys: [SavedConnections.TrustedHostKey]
 
     var body: some View {
-        Form {
-            Section {
-                Text("Every Mac has a unique fingerprint it uses to prove it's really itself. Control checks it each time you connect, to make sure it's really \(displayName) — and not another device pretending to be it.")
-                    .font(.callout)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Every Mac has a unique fingerprint that verifies its identity. Control checks it each time you connect to make sure it's really \(displayName).")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-            }
 
-            ForEach(trustedKeys, id: \.fingerprint) { key in
-                keySection(key)
+                ForEach(trustedKeys, id: \.fingerprint) { key in
+                    FingerprintCodeCard(
+                        label: "Trusted Fingerprint",
+                        fingerprint: key.fingerprint
+                    )
+
+                    if let path = SSHHostKeyFingerprint.localVerificationPath(for: key.keyType) {
+                        TerminalCheckCard(displayName: displayName, keyPath: path) {
+                            Text("Confirm that it matches the fingerprint above.")
+                        }
+                    }
+                }
             }
+            .padding(16)
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("Verify This Mac")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    @ViewBuilder
-    private func keySection(_ key: SavedConnections.TrustedHostKey) -> some View {
-        HostKeyFingerprintSections(
-            fingerprintTitle: "\(displayName)'s Fingerprint",
-            displayName: displayName,
-            fingerprint: key.fingerprint,
-            keyType: key.keyType
-        )
     }
 }
 
