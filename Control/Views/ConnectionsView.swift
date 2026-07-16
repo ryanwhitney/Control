@@ -91,14 +91,35 @@ struct ConnectionsView: View {
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
                 if case .hostKeyMismatch = viewModel.pendingRecovery {
-                    // Destructive: reconnecting permanently trusts the new key.
+                    // Verify is the recommended path (opens the review screen);
+                    // Trust & Reconnect is the fast path, marked destructive
+                    // because it permanently trusts the new key from a two-tap
+                    // alert; Cancel is the safe do-nothing exit. If the new key
+                    // couldn't be read there's nothing to review or trust, so
+                    // only Cancel is offered.
+                    if viewModel.hostKeyReviewContext != nil {
+                        Button("Verify") { viewModel.openHostKeyReview() }
+                            .keyboardShortcut(.defaultAction)
+                        Button("Trust & Reconnect", role: .destructive) { viewModel.confirmHostKeyChangeAndReconnect() }
+                    }
                     Button("Cancel", role: .cancel) { viewModel.cancelHostKeyMismatch() }
-                    Button("Reconnect", role: .destructive) { viewModel.confirmHostKeyChangeAndReconnect() }
                 } else {
                     Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
                 }
             } message: {
                 Text(viewModel.connectionError?.message ?? "")
+            }
+            .sheet(isPresented: $viewModel.showingHostKeyReview) {
+                if let context = viewModel.hostKeyReviewContext {
+                    HostKeyReviewView(
+                        displayName: context.displayName,
+                        newKey: context.newKey,
+                        previousKeys: context.previousKeys,
+                        onTrust: { viewModel.confirmHostKeyChangeAndReconnect() },
+                        onDecline: { viewModel.cancelHostKeyMismatch() }
+                    )
+                    .interactiveDismissDisabled()
+                }
             }
             .navigationDestination(isPresented: $viewModel.showingSetupFlow) {
                 SetupFlowDestination()
@@ -155,6 +176,9 @@ struct ConnectionsView: View {
             if !newVal {
                 viewModel.connectingComputer = nil
                 viewModel.selectedConnection = nil
+                // If we popped because of an in-session host-key mismatch,
+                // present the verify/reconnect alert now that we're back.
+                viewModel.presentPendingMismatchAlertIfNeeded()
             }
         }
         .onChange(of: viewModel.showingSetupFlow) { _, newValue in
@@ -169,6 +193,7 @@ struct ConnectionsView: View {
                     viewLog("ConnectionsView: setup flow dismissed, disconnected active SSH session", view: "ConnectionsView")
                 }
                 viewModel.connectingComputer = nil
+                viewModel.presentPendingMismatchAlertIfNeeded()
             }
         }
     }

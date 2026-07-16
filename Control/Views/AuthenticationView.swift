@@ -156,9 +156,9 @@ struct AuthenticationView: View {
                                     trustedKeys: existingTrustedHostKeys
                                 )
                             } label: {
-                                Label("Verification Code", systemImage: "checkmark.shield")
+                                Label("Verify This Mac", systemImage: "checkmark.shield")
                             }
-                            .accessibilityHint("Shows this Mac's verification code and how to check it")
+                            .accessibilityHint("Shows this Mac's fingerprint and how to check it")
                         }
                     }
                 } else {

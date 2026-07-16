@@ -18,8 +18,11 @@ class ConnectionsViewModel: ObservableObject {
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
     /// Which recovery the current error alert should offer. Drives the alert's
-    /// buttons (mismatch → Cancel/Reconnect) and the dismissal handling.
+    /// buttons (mismatch → Verify / Trust & Reconnect / Cancel) and the
+    /// dismissal handling.
     @Published private(set) var pendingRecovery: PendingRecovery = .none
+    /// Presents the host-key review screen (reached from the alert's "Verify").
+    @Published var showingHostKeyReview = false
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
@@ -37,6 +40,10 @@ class ConnectionsViewModel: ObservableObject {
     /// failed rather than `selectedConnection`, which isn't set in the
     /// add-connection flow.
     private var recoveryComputer: Connection?
+
+    /// Set when an in-session mismatch has popped the user back to the list;
+    /// the list presents the verify/reconnect alert once it's on screen again.
+    private var presentMismatchOnReturn = false
 
     let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
@@ -70,6 +77,10 @@ class ConnectionsViewModel: ObservableObject {
         // the store, keyed by host, without the manager holding a reference to it.
         connectionManager.trustedHostKeyProvider = { [savedConnections] host in
             savedConnections.trustedHostKeyFingerprints(for: host)
+        }
+        // Route in-session mismatches back into this list's verify/reconnect flow.
+        connectionManager.hostKeyMismatchHandler = { [weak self] rejectedKey in
+            self?.handleInSessionHostKeyMismatch(rejectedKey: rejectedKey)
         }
 
         updateSavedComputers(savedConnections.items)
@@ -215,27 +226,73 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
-    /// The user tapped "Reconnect" on the host-key-change alert. The rejected
-    /// key is trusted for the retry only; the normal pin-on-success path
-    /// persists it once the reconnect verifies it, so a retry that never
-    /// succeeds leaves no trust behind. Acts on `recoveryComputer` (the Mac that
-    /// failed), which — unlike `selectedConnection` — is set in every flow,
-    /// including add-connection.
+    /// The data the host-key review screen needs: the Mac's name, the new
+    /// (rejected) fingerprint being presented, and the fingerprint(s) previously
+    /// trusted — so the screen can tell the user which one a manual check should
+    /// match. Nil unless a mismatch is awaiting review.
+    var hostKeyReviewContext: (displayName: String, newKey: SSHHostKeyInfo, previousKeys: [SavedConnections.TrustedHostKey])? {
+        guard let computer = recoveryComputer,
+              case .hostKeyMismatch(let rejected) = pendingRecovery,
+              let key = rejected else { return nil }
+        return (computer.name, key, savedConnections.trustedHostKeys(for: computer.host))
+    }
+
+    /// The user tapped "Verify" on the host-key-change alert — open the review
+    /// screen. State stays put; the screen's buttons drive the outcome.
+    func openHostKeyReview() {
+        showingHostKeyReview = true
+    }
+
+    /// The user chose to trust the new key ("Trust & Reconnect" on the alert or
+    /// the review screen). The rejected key is trusted for the
+    /// retry only; the normal pin-on-success path persists it once the reconnect
+    /// verifies it, so a retry that never succeeds leaves no trust behind. Acts
+    /// on `recoveryComputer` (the Mac that failed), which — unlike
+    /// `selectedConnection` — is set in every flow, including add-connection.
     func confirmHostKeyChangeAndReconnect() {
         guard let computer = recoveryComputer else { return }
         var approvedKey: SSHHostKeyInfo?
         if case .hostKeyMismatch(let rejected) = pendingRecovery { approvedKey = rejected }
+        showingHostKeyReview = false
         clearRecoveryState()
         connectWithNewCredentials(computer: computer, approvedHostKey: approvedKey)
     }
 
-    /// The user dismissed the host-key-change alert without reconnecting.
-    /// Nothing is trusted or persisted.
+    /// The user declined ("Cancel" on the alert, "Don't Connect" on the review
+    /// screen). Nothing is trusted or persisted.
     func cancelHostKeyMismatch() {
+        showingHostKeyReview = false
         clearRecoveryState()
         selectedConnection = nil
         username = ""
         password = ""
+    }
+
+    /// An in-session reconnect (ControlView / setup flow) hit a mismatch. Rather
+    /// than trust or reconnect from a screen that can't reach the store, capture
+    /// the failure, pop back to the connections list, and present the same
+    /// verify/reconnect alert there — one recovery path for both entry points.
+    private func handleInSessionHostKeyMismatch(rejectedKey: SSHHostKeyInfo?) {
+        guard let computer = selectedConnection else { return }
+        recoveryComputer = computer
+        pendingRecovery = .hostKeyMismatch(rejectedKey: rejectedKey)
+        let formatted = SSHError.hostKeyMismatch(observed: rejectedKey).formatError(displayName: computer.name)
+        connectionError = (formatted.title, formatted.message)
+        presentMismatchOnReturn = true
+        navigateToControl = false
+        showingSetupFlow = false
+    }
+
+    /// Called by the list once it's back on screen after an in-session mismatch
+    /// popped a detail view. Deferred so the alert presents after the pop
+    /// animation settles rather than racing it.
+    func presentPendingMismatchAlertIfNeeded() {
+        guard presentMismatchOnReturn else { return }
+        presentMismatchOnReturn = false
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            showingError = true
+        }
     }
 
     /// "OK" on a non-mismatch error alert: re-prompt for credentials after an
@@ -359,8 +416,8 @@ class ConnectionsViewModel: ObservableObject {
             connectionError = (formattedError.title, formattedError.message)
 
             // Pick the recovery the alert should offer: re-prompt for
-            // credentials (auth failure), Cancel/Reconnect (host key mismatch),
-            // or a plain dismissal for anything else.
+            // credentials (auth failure), the verify/trust/cancel choice
+            // (host-key mismatch), or a plain dismissal for anything else.
             switch sshError {
             case .authenticationFailed:
                 pendingRecovery = .authFailure

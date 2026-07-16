@@ -13,6 +13,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     /// through this, keyed by the host they are reconnecting to, so the check
     /// can never reuse a different Mac's trust set.
     var trustedHostKeyProvider: (@MainActor (String) -> Set<String>)?
+    /// Invoked when an in-session reconnect (`handleConnection`) hits a host-key
+    /// mismatch. Installed by `ConnectionsViewModel`, which owns the recovery UI
+    /// and the store; it routes the user back to the connections list and into
+    /// the same verify/reconnect flow the first connect uses, so pinning stays
+    /// in one place. When unset, the mismatch falls through to `onError`.
+    var hostKeyMismatchHandler: (@MainActor (SSHHostKeyInfo?) -> Void)?
     /// The in-session reconnect retry loop (`handleConnection`). Held so it can
     /// be cancelled when the connection is torn down — otherwise a loop left
     /// running after the user leaves a Mac could reconnect to it (or still be
@@ -444,9 +450,15 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                     if Task.isCancelled || error is CancellationError { return }
                     // A host-key mismatch is deterministic — the key won't change
                     // between attempts — and security-relevant, so surface it at
-                    // once instead of re-handshaking with the suspect host.
-                    if case SSHError.hostKeyMismatch = error {
-                        onError(error)
+                    // once instead of re-handshaking with the suspect host. Route
+                    // it to the dedicated verify/reconnect flow if one is
+                    // installed; otherwise fall back to the generic error.
+                    if case SSHError.hostKeyMismatch(let observed) = error {
+                        if let handler = hostKeyMismatchHandler {
+                            handler(observed)
+                        } else {
+                            onError(error)
+                        }
                         return
                     }
                     if attempt >= maxConnectAttempts {
