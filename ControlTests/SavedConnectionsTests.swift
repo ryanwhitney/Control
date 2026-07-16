@@ -2,139 +2,104 @@ import Testing
 import Foundation
 @testable import Control
 
-/// Isolates each test from the shared `UserDefaults.standard` key
-/// `SavedConnections` reads/writes, since the model has no injectable store.
-private func withCleanSavedConnectionsDefaults(_ body: () throws -> Void) rethrows {
-    let key = "SavedConnections"
-    let previous = UserDefaults.standard.data(forKey: key)
-    UserDefaults.standard.removeObject(forKey: key)
-    defer {
-        if let previous {
-            UserDefaults.standard.set(previous, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-    try body()
+/// A private, throwaway `UserDefaults` suite so each test is isolated both from
+/// the app's real `UserDefaults.standard` and from other tests — no shared
+/// state to clear, so nothing to race or to leave behind on a crash.
+private func makeTestConnections() -> SavedConnections {
+    let suiteName = "SavedConnectionsTests-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return SavedConnections(defaults: defaults)
 }
 
-/// Serialized: these tests all mutate the one shared `UserDefaults.standard`
-/// "SavedConnections" key (the model has no injectable store), so running them
-/// in parallel would let one test's clear/restore race another's read/write.
-@Suite(.serialized)
-struct SavedConnectionsHostKeyFingerprintTests {
+private let ed25519 = "ssh-ed25519"
+private let ecdsa = "ecdsa-sha2-nistp256"
 
-    @Test func roundTripsFingerprintAndKeyType() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            connections.add(hostname: "test.local", name: "Test Mac", saveCredentials: false)
+struct SavedConnectionsHostKeyTests {
 
-            #expect(connections.hostKeyFingerprint(for: "test.local") == nil)
-            #expect(connections.hostKeyType(for: "test.local") == nil)
+    @Test func pinsAndReadsBackAKey() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "test.local", name: "Test Mac", saveCredentials: false)
 
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:abc123", keyType: "ssh-ed25519")
+        #expect(connections.trustedHostKeys(for: "test.local").isEmpty)
 
-            #expect(connections.hostKeyFingerprint(for: "test.local") == "SHA256:abc123")
-            #expect(connections.hostKeyType(for: "test.local") == "ssh-ed25519")
-        }
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: "test.local")
+
+        #expect(connections.trustedHostKeyFingerprints(for: "test.local") == ["SHA256:abc"])
+        #expect(connections.trustedHostKeys(for: "test.local").first?.keyType == ed25519)
     }
 
-    @Test func noOpsWhenHostnameHasNoSavedRow() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            // No `add(...)` call — this hostname has no row.
-            connections.updateHostKeyFingerprint("never-added.local", fingerprint: "SHA256:xyz", keyType: "ssh-ed25519")
-            #expect(connections.hostKeyFingerprint(for: "never-added.local") == nil)
-        }
+    @Test func noOpsWhenHostnameHasNoSavedRow() {
+        let connections = makeTestConnections()
+        // No `add(...)` — this hostname has no row.
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:xyz", keyType: ed25519), for: "never-added.local")
+        #expect(connections.trustedHostKeys(for: "never-added.local").isEmpty)
     }
 
-    @Test func overwritingAnExistingFingerprintIsHarmless() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            connections.add(hostname: "test.local", saveCredentials: false)
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:first", keyType: "ssh-ed25519")
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:second", keyType: "ssh-ed25519")
-            #expect(connections.hostKeyFingerprint(for: "test.local") == "SHA256:second")
-        }
+    /// A confirmed key change replaces the old key of the *same type*, so the
+    /// superseded key stops being trusted — the security-relevant behavior.
+    @Test func newKeyOfSameTypeReplacesTheOldOne() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "test.local", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:first", keyType: ed25519), for: "test.local")
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:second", keyType: ed25519), for: "test.local")
+
+        #expect(connections.trustedHostKeyFingerprints(for: "test.local") == ["SHA256:second"])
     }
 
-    /// Pinning accumulates every confirmed key into the trusted set (rather
-    /// than replacing), so a Mac that presents a previously-accepted key is
-    /// still recognized after a newer one has also been confirmed.
-    @Test func trustedSetAccumulatesEveryConfirmedKey() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            connections.add(hostname: "test.local", saveCredentials: false)
+    /// A key of a *different* type coexists — a Mac can legitimately offer more
+    /// than one algorithm.
+    @Test func keysOfDifferentTypesCoexist() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "test.local", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "test.local")
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ec", keyType: ecdsa), for: "test.local")
 
-            #expect(connections.trustedHostKeyFingerprints(for: "test.local") == [])
-
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:first", keyType: "ssh-ed25519")
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:second", keyType: "ecdsa-sha2-nistp256")
-
-            // Both keys are trusted; primary/display tracks the most recent.
-            #expect(connections.trustedHostKeyFingerprints(for: "test.local") == ["SHA256:first", "SHA256:second"])
-            #expect(connections.hostKeyFingerprint(for: "test.local") == "SHA256:second")
-
-            // Re-pinning an already-trusted key doesn't duplicate it.
-            connections.updateHostKeyFingerprint("test.local", fingerprint: "SHA256:first", keyType: "ssh-ed25519")
-            #expect(connections.trustedHostKeyFingerprints(for: "test.local") == ["SHA256:first", "SHA256:second"])
-        }
+        #expect(connections.trustedHostKeyFingerprints(for: "test.local") == ["SHA256:ed", "SHA256:ec"])
     }
 
-    /// A connection pinned before the trusted-set field existed (only the
-    /// legacy single `hostKeyFingerprint`) must still be trusted.
-    @Test func legacySingleFingerprintMigratesIntoTrustedSet() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            connections.add(hostname: "legacy.local", saveCredentials: false)
-            connections.updateHostKeyFingerprint("legacy.local", fingerprint: "SHA256:legacy", keyType: "ssh-ed25519")
-            #expect(connections.trustedHostKeyFingerprints(for: "legacy.local").contains("SHA256:legacy"))
-        }
+    /// Re-pinning the identical key doesn't grow the set.
+    @Test func rePinningTheSameKeyIsIdempotent() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "test.local", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "test.local")
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "test.local")
+
+        #expect(connections.trustedHostKeys(for: "test.local").count == 1)
     }
 
-    /// Simulates the exact scenario a pre-existing user hits after updating to
-    /// a build with pinning: a connection that has already connected
-    /// successfully (under the old, unpinned behavior) still has no
-    /// fingerprint. The backfill-logging branch must not change the write's
-    /// outcome — same silent pin as any other first-time pin.
-    @Test func legacyConnectionWithNoBaselineStillPinsNormally() throws {
-        try withCleanSavedConnectionsDefaults {
-            let connections = SavedConnections()
-            connections.add(hostname: "legacy.local", saveCredentials: false)
-            connections.markAsConnected("legacy.local")
+    /// Trust is matched case-insensitively, so a Mac pinned under one spelling
+    /// isn't silently re-trusted (TOFU) under a differently-cased spelling, and
+    /// a later pin updates the same row rather than forking a second trust set.
+    @Test func trustLookupIsCaseInsensitive() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "ryans-macbook.local", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "ryans-macbook.local")
 
-            #expect(connections.hasConnectedBefore("legacy.local") == true)
-            #expect(connections.hostKeyFingerprint(for: "legacy.local") == nil)
+        #expect(connections.trustedHostKeyFingerprints(for: "Ryans-MacBook.local") == ["SHA256:ed"])
 
-            connections.updateHostKeyFingerprint("legacy.local", fingerprint: "SHA256:backfilled", keyType: "ssh-ed25519")
-
-            #expect(connections.hostKeyFingerprint(for: "legacy.local") == "SHA256:backfilled")
-            #expect(connections.hostKeyType(for: "legacy.local") == "ssh-ed25519")
-        }
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ec", keyType: ecdsa), for: "RYANS-MACBOOK.LOCAL")
+        #expect(connections.trustedHostKeyFingerprints(for: "ryans-macbook.local") == ["SHA256:ed", "SHA256:ec"])
     }
 }
 
 struct SavedConnectionMigrationTests {
 
-    /// Simulates real pre-migration data: a `SavedConnection` encoded before
-    /// the host-key fields existed. Strips those keys from the encoded JSON
-    /// (rather than hand-writing a JSON literal, which risks getting
-    /// Foundation's default `Date`/`UUID` encoding format wrong) and confirms
-    /// decoding still succeeds with the new fields `nil`.
-    @Test func decodesPreMigrationJSONWithoutTheNewFields() throws {
+    /// Simulates real pre-pinning data: a `SavedConnection` encoded before the
+    /// host-key field existed. Strips the field from the encoded JSON (rather
+    /// than hand-writing a JSON literal, which risks getting Foundation's
+    /// default `Date`/`UUID` encoding wrong) and confirms decoding still
+    /// succeeds with the new field `nil`.
+    @Test func decodesPreMigrationJSONWithoutTheNewField() throws {
         let modern = SavedConnections.SavedConnection(hostname: "old.local", name: "Old Mac", username: "ryan")
         let encoded = try JSONEncoder().encode(modern)
 
         var dict = try #require(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        dict.removeValue(forKey: "hostKeyFingerprint")
-        dict.removeValue(forKey: "hostKeyType")
-        dict.removeValue(forKey: "hostKeyFingerprints")
+        dict.removeValue(forKey: "trustedHostKeys")
         let strippedData = try JSONSerialization.data(withJSONObject: dict)
 
         let decoded = try JSONDecoder().decode(SavedConnections.SavedConnection.self, from: strippedData)
         #expect(decoded.hostname == "old.local")
-        #expect(decoded.hostKeyFingerprint == nil)
-        #expect(decoded.hostKeyType == nil)
-        #expect(decoded.hostKeyFingerprints == nil)
+        #expect(decoded.trustedHostKeys == nil)
     }
 }

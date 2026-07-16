@@ -58,7 +58,7 @@ struct HostKeyPinningDelegateTests {
         defer { try? loop.syncShutdownGracefully() }
         let delegate = HostKeyPinningDelegate(trustedFingerprints: [])
         var mismatchFired = false
-        delegate.onMismatch = { mismatchFired = true }
+        delegate.onReject = { _ in mismatchFired = true }
 
         let publicKey = try NIOSSHPublicKey(openSSHPublicKey: testEd25519PublicKeyLine)
         let promise = loop.makePromise(of: Void.self)
@@ -74,7 +74,7 @@ struct HostKeyPinningDelegateTests {
         defer { try? loop.syncShutdownGracefully() }
         let delegate = HostKeyPinningDelegate(trustedFingerprints: [testEd25519Fingerprint])
         var mismatchFired = false
-        delegate.onMismatch = { mismatchFired = true }
+        delegate.onReject = { _ in mismatchFired = true }
 
         let publicKey = try NIOSSHPublicKey(openSSHPublicKey: testEd25519PublicKeyLine)
         let promise = loop.makePromise(of: Void.self)
@@ -92,7 +92,7 @@ struct HostKeyPinningDelegateTests {
         defer { try? loop.syncShutdownGracefully() }
         let delegate = HostKeyPinningDelegate(trustedFingerprints: ["SHA256:some-other-key", testEd25519Fingerprint])
         var mismatchFired = false
-        delegate.onMismatch = { mismatchFired = true }
+        delegate.onReject = { _ in mismatchFired = true }
 
         let publicKey = try NIOSSHPublicKey(openSSHPublicKey: testEd25519PublicKeyLine)
         let promise = loop.makePromise(of: Void.self)
@@ -102,19 +102,26 @@ struct HostKeyPinningDelegateTests {
         #expect(mismatchFired == false)
     }
 
-    @Test func keyNotInTrustedSetRejectsAndFiresOnMismatchOnce() throws {
+    @Test func keyNotInTrustedSetRejectsAndFiresOnRejectOnce() throws {
         let loop = EmbeddedEventLoop()
         defer { try? loop.syncShutdownGracefully() }
         let delegate = HostKeyPinningDelegate(trustedFingerprints: ["SHA256:not-the-real-one"])
-        var mismatchCount = 0
-        delegate.onMismatch = { mismatchCount += 1 }
+        var rejections: [SSHError] = []
+        delegate.onReject = { rejections.append($0) }
 
         let publicKey = try NIOSSHPublicKey(openSSHPublicKey: testEd25519PublicKeyLine)
         let promise = loop.makePromise(of: Void.self)
         delegate.validateHostKey(hostKey: publicKey, validationCompletePromise: promise)
 
         #expect(throws: (any Error).self) { try promise.futureResult.wait() }
-        #expect(mismatchCount == 1)
+        #expect(rejections.count == 1)
+        // The reject carries the presented key so the caller can offer to trust
+        // exactly it — and it's a mismatch, not a generic failure.
+        guard case .hostKeyMismatch(let observed) = rejections.first else {
+            Issue.record("Expected hostKeyMismatch, got \(String(describing: rejections.first))")
+            return
+        }
+        #expect(observed?.fingerprint == testEd25519Fingerprint)
     }
 
     /// The retry flow depends on this: even a *rejected* key must still be

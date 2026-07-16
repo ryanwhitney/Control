@@ -147,7 +147,13 @@ enum SSHError: Error {
         case .hostKeyMismatch:
             return (
                 "This Mac Looks Different",
-                "Something changed about how \(displayName) identifies itself since you last connected. This is expected if you recently reinstalled macOS, restored from a backup, or set up a new Mac with the same name. If none of that sounds familiar, don't reconnect — the password you enter next could go to a different device."
+                """
+                The security key \(displayName) uses to identify itself have changed since you last connected.
+
+                This will happens after reinstalling macOS, restoring from a backup, or setting up a new Mac with the same name.
+
+                If you weren't expecting this change, don't reconnect until you've verified it's the correct Mac.
+                """
             )
         }
     }

@@ -27,8 +27,18 @@ final class FakeSSHClient: SSHClientProtocol {
     /// strategy; defaults to the streaming value so tests get that path.
     var serializesAppCommands: Bool = true
 
+    /// What `connect` returns. Overridable so a test can drive the mismatch
+    /// path (`.failure(SSHError.hostKeyMismatch(observed:))`); defaults to a
+    /// canned success.
+    var connectResult: Result<SSHHostKeyInfo, Error> = .success(SSHHostKeyInfo(fingerprint: "SHA256:fake", keyType: "ssh-ed25519"))
+
+    /// The trusted set the most recent `connect` was asked to verify against,
+    /// so a test can assert which fingerprints were passed down.
+    private(set) var lastTrustedFingerprints: Set<String> = []
+
     func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
-        completion(.success(SSHHostKeyInfo(fingerprint: "SHA256:fake", keyType: "ssh-ed25519")))
+        lastTrustedFingerprints = trustedHostKeyFingerprints
+        completion(connectResult)
     }
 
     func disconnect() {}

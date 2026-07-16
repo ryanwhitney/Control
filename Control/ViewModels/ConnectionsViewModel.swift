@@ -17,8 +17,9 @@ class ConnectionsViewModel: ObservableObject {
     @Published var navigateToControl = false
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
-    @Published var lastErrorWasAuthFailure = false
-    @Published var lastErrorWasHostKeyMismatch = false
+    /// Which recovery the current error alert should offer. Drives the alert's
+    /// buttons (mismatch → Cancel/Reconnect) and the dismissal handling.
+    @Published private(set) var pendingRecovery: PendingRecovery = .none
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
@@ -31,16 +32,11 @@ class ConnectionsViewModel: ObservableObject {
     private var scanCompletionTimer: Timer?
     private var scanUpdateTimer: Timer?
 
-    /// The host key a mismatch just presented, stashed from the
-    /// `SSHError.hostKeyMismatch` so "Reconnect" can re-pin exactly that key.
-    /// nil unless the last error was a host-key mismatch awaiting the user's
-    /// consent.
-    private var pendingHostKeyToTrust: SSHHostKeyInfo?
-
-    /// Set when the user taps "Reconnect" on the host-key-change alert, so the
-    /// alert-dismiss handler retries with the credentials already in hand
-    /// instead of clearing state or re-prompting.
-    private var pendingHostKeyReconnect = false
+    /// The computer whose connect most recently failed, so recovery (retry after
+    /// a confirmed host-key change, or re-prompt) acts on the Mac that actually
+    /// failed rather than `selectedConnection`, which isn't set in the
+    /// add-connection flow.
+    private var recoveryComputer: Connection?
 
     let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
@@ -54,12 +50,27 @@ class ConnectionsViewModel: ObservableObject {
         var id: Self { self }
     }
 
+    /// The recovery the current connection-error alert offers, replacing the
+    /// old parallel bool flags so invalid combinations can't arise and stale
+    /// state can't leak into a later alert.
+    enum PendingRecovery: Equatable {
+        case none
+        case authFailure
+        case hostKeyMismatch(rejectedKey: SSHHostKeyInfo?)
+    }
+
     var hasConnections: Bool {
         !networkComputers.isEmpty || !savedComputers.isEmpty
     }
 
     init() {
         viewLog("ConnectionsViewModel init starting", view: "ConnectionsViewModel")
+
+        // Let in-session reconnects (handleConnection) resolve trusted keys from
+        // the store, keyed by host, without the manager holding a reference to it.
+        connectionManager.trustedHostKeyProvider = { [savedConnections] host in
+            savedConnections.trustedHostKeyFingerprints(for: host)
+        }
 
         updateSavedComputers(savedConnections.items)
         viewLog("Init: saved computers count: \(savedComputers.count)", view: "ConnectionsViewModel")
@@ -155,9 +166,9 @@ class ConnectionsViewModel: ObservableObject {
 
         Task {
             do {
-                try await performConnection(computer: computer)
+                let hostKey = try await performConnection(computer: computer)
                 connectingComputer = nil
-                pinHostKeyFingerprintIfNeeded(for: computer.host)
+                savedConnections.pinHostKey(hostKey, for: computer.host)
                 navigateToApp(computer: computer)
             } catch {
                 connectingComputer = nil
@@ -166,7 +177,11 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
-    func connectWithNewCredentials(computer: Connection) {
+    /// `approvedHostKey` is set only when reconnecting after the user confirmed
+    /// a host-key change: it is trusted for this one attempt so the connect can
+    /// proceed, and persisted (below) only once the connection actually
+    /// succeeds — never before it's verified.
+    func connectWithNewCredentials(computer: Connection, approvedHostKey: SSHHostKeyInfo? = nil) {
         viewLog("ConnectionsViewModel: Attempting connection with new credentials", view: "ConnectionsViewModel")
 
         logConnectionAttempt(computer: computer)
@@ -174,7 +189,10 @@ class ConnectionsViewModel: ObservableObject {
 
         Task {
             do {
-                try await performConnection(computer: computer)
+                let hostKey = try await performConnection(
+                    computer: computer,
+                    additionalTrustedFingerprints: approvedHostKey.map { [$0.fingerprint] } ?? []
+                )
                 connectingComputer = nil
 
                 viewLog("Saving credentials after successful verification with saveCredentials: \(saveCredentials)", view: "ConnectionsViewModel")
@@ -185,10 +203,9 @@ class ConnectionsViewModel: ObservableObject {
                     password: saveCredentials ? password : nil,
                     saveCredentials: saveCredentials
                 )
-                // Must run after `add(...)` above: pinning no-ops on a
-                // hostname with no saved row yet, and for a brand-new host
-                // `add(...)` is what creates that row.
-                pinHostKeyFingerprintIfNeeded(for: computer.host)
+                // Pin after `add(...)`: for a brand-new host that call creates
+                // the row `pinHostKey` writes into.
+                savedConnections.pinHostKey(hostKey, for: computer.host)
 
                 navigateToApp(computer: computer)
             } catch {
@@ -198,53 +215,48 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
-    /// Pins the host key observed during the connection that just succeeded.
-    /// Silent no-op if nothing was observed (shouldn't happen after a
-    /// successful connect, but defensive since the cache is best-effort).
-    /// Runs before `navigateToApp(computer:)`, mirroring the existing
-    /// `savedConnections.add(...)` mutation on the same path.
-    private func pinHostKeyFingerprintIfNeeded(for hostname: String) {
-        guard let info = connectionManager.lastObservedHostKeyInfo else { return }
-        savedConnections.updateHostKeyFingerprint(hostname, fingerprint: info.fingerprint, keyType: info.keyType)
+    /// The user tapped "Reconnect" on the host-key-change alert. The rejected
+    /// key is trusted for the retry only; the normal pin-on-success path
+    /// persists it once the reconnect verifies it, so a retry that never
+    /// succeeds leaves no trust behind. Acts on `recoveryComputer` (the Mac that
+    /// failed), which — unlike `selectedConnection` — is set in every flow,
+    /// including add-connection.
+    func confirmHostKeyChangeAndReconnect() {
+        guard let computer = recoveryComputer else { return }
+        var approvedKey: SSHHostKeyInfo?
+        if case .hostKeyMismatch(let rejected) = pendingRecovery { approvedKey = rejected }
+        clearRecoveryState()
+        connectWithNewCredentials(computer: computer, approvedHostKey: approvedKey)
     }
 
-    /// Called when the user taps "Reconnect" on the host-key-mismatch alert:
-    /// adds the *just-rejected* key to the connection's trusted set (stashed
-    /// in `pendingHostKeyToTrust` from the mismatch error) so the retry will
-    /// accept it, then flags the dismiss handler to reconnect. The retry
-    /// reuses the credentials already in hand — the user consented by tapping
-    /// Reconnect, so there's no need to re-prompt for the password.
-    func acknowledgeHostKeyChangeAndRetry() {
-        if let host = selectedConnection?.host, let info = pendingHostKeyToTrust {
-            savedConnections.updateHostKeyFingerprint(host, fingerprint: info.fingerprint, keyType: info.keyType)
-        }
-        pendingHostKeyToTrust = nil
-        pendingHostKeyReconnect = true
+    /// The user dismissed the host-key-change alert without reconnecting.
+    /// Nothing is trusted or persisted.
+    func cancelHostKeyMismatch() {
+        clearRecoveryState()
+        selectedConnection = nil
+        username = ""
+        password = ""
     }
 
-    /// Routes the connection-error alert's dismissal to the right recovery:
-    /// silently reconnect after a confirmed host-key change, re-prompt for
-    /// credentials after an auth failure, or clear state and return to the
-    /// list for anything else.
-    func handleErrorAlertDismissed() {
-        connectingComputer = nil
-        if pendingHostKeyReconnect {
-            pendingHostKeyReconnect = false
-            if let computer = selectedConnection {
-                // A mismatch only happens on an already-pinned connection, so
-                // the saved row exists; connectWithNewCredentials reconnects,
-                // re-persists credentials, and re-pins — all idempotent here.
-                connectWithNewCredentials(computer: computer)
-            }
-        } else if lastErrorWasAuthFailure {
+    /// "OK" on a non-mismatch error alert: re-prompt for credentials after an
+    /// auth failure, otherwise clear state and return to the list.
+    func dismissConnectionError() {
+        let wasAuthFailure = pendingRecovery == .authFailure
+        clearRecoveryState()
+        if wasAuthFailure {
             password = ""
-            lastErrorWasAuthFailure = false
             isAuthenticating = true
         } else {
             selectedConnection = nil
             username = ""
             password = ""
         }
+    }
+
+    private func clearRecoveryState() {
+        pendingRecovery = .none
+        recoveryComputer = nil
+        connectingComputer = nil
     }
 
     func deleteConnection(hostname: String) {
@@ -318,17 +330,24 @@ class ConnectionsViewModel: ObservableObject {
         cleanupTimers()
     }
 
-    private func performConnection(computer: Connection) async throws {
+    /// Connects and returns the host key the server presented (for pinning).
+    /// `additionalTrustedFingerprints` is empty for a normal connect; on a
+    /// user-approved reconnect after a host-key change it carries the newly
+    /// approved key so this one attempt accepts it.
+    private func performConnection(computer: Connection, additionalTrustedFingerprints: Set<String> = []) async throws -> SSHHostKeyInfo {
         // `connect()` tears down any existing connection itself, so there's no
         // pre-disconnect step here.
-        try await connectionManager.connect(
+        var trusted = savedConnections.trustedHostKeyFingerprints(for: computer.host)
+        trusted.formUnion(additionalTrustedFingerprints)
+        let hostKey = try await connectionManager.connect(
             host: computer.host,
             username: username,
             password: password,
-            trustedHostKeyFingerprints: savedConnections.trustedHostKeyFingerprints(for: computer.host)
+            trustedHostKeyFingerprints: trusted
         )
 
         viewLog("✓ ConnectionsViewModel: Connection verified successfully", view: "ConnectionsViewModel")
+        return hostKey
     }
 
     private func handleConnectionError(error: Error, computer: Connection) {
@@ -339,22 +358,16 @@ class ConnectionsViewModel: ObservableObject {
             let formattedError = sshError.formatError(displayName: computer.name)
             connectionError = (formattedError.title, formattedError.message)
 
-            // Track the specific failure kind so we can pick the right
-            // recovery path: re-prompt for credentials (auth failure) or
-            // offer Cancel/Reconnect (host key mismatch).
+            // Pick the recovery the alert should offer: re-prompt for
+            // credentials (auth failure), Cancel/Reconnect (host key mismatch),
+            // or a plain dismissal for anything else.
             switch sshError {
             case .authenticationFailed:
-                lastErrorWasAuthFailure = true
-                lastErrorWasHostKeyMismatch = false
-                pendingHostKeyToTrust = nil
+                pendingRecovery = .authFailure
             case .hostKeyMismatch(let observed):
-                lastErrorWasAuthFailure = false
-                lastErrorWasHostKeyMismatch = true
-                pendingHostKeyToTrust = observed
+                pendingRecovery = .hostKeyMismatch(rejectedKey: observed)
             default:
-                lastErrorWasAuthFailure = false
-                lastErrorWasHostKeyMismatch = false
-                pendingHostKeyToTrust = nil
+                pendingRecovery = .none
             }
         } else {
             viewLog("❌ Handling generic error", view: "ConnectionsViewModel")
@@ -366,10 +379,9 @@ class ConnectionsViewModel: ObservableObject {
                 Technical details: \(error.localizedDescription)
                 """
             )
-            lastErrorWasAuthFailure = false
-            lastErrorWasHostKeyMismatch = false
-            pendingHostKeyToTrust = nil
+            pendingRecovery = .none
         }
+        recoveryComputer = computer
         showingError = true
     }
 

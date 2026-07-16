@@ -1,63 +1,54 @@
 import SwiftUI
 
 /// A per-connection detail screen (reached from the Edit sheet) that shows the
-/// Mac's SSH host-key fingerprint framed for a non-technical reader as a
-/// "verification code", plus an optional Terminal command for anyone who wants
-/// to confirm it directly on the Mac. Purely informational — nothing here
-/// changes the connection.
+/// Mac's SSH host-key fingerprint(s) framed for a non-technical reader as a
+/// "verification code", plus a Terminal command to confirm it on the Mac.
+/// Purely informational — nothing here changes the connection.
 struct HostKeyVerificationView: View {
     let displayName: String
-    let fingerprint: String
-    let keyType: String?
-
-    /// The local file to inspect on the Mac, if the key type maps to one.
-    private var verificationPath: String? {
-        keyType.flatMap { SSHHostKeyFingerprint.localVerificationPath(for: $0) }
-    }
+    let trustedKeys: [SavedConnections.TrustedHostKey]
 
     var body: some View {
         Form {
             Section {
-                Text("Every Mac has its own verification code. Control checks \(displayName)'s code each time you connect, so your commands always reach the right computer — not another device pretending to be it.")
+                Text("Each Mac holds a set of unique keys generated when MacOS installs. Control checks these when you connect to confirm your commands reach the right machine and not another device pretending to be it.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
-            Section("\(displayName)'s Code") {
-                Text(fingerprint)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-                    .accessibilityLabel("Verification code")
-                    .accessibilityValue(spokenFingerprint)
-                    .accessibilityHint("Long press to copy")
-            }
-
-            if let path = verificationPath {
-                Section {
-                    Text("Want to be sure? On \(displayName) itself, open Terminal and run:")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("ssh-keygen -lf \(path)")
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                        .accessibilityLabel("Terminal command")
-                        .accessibilityHint("Long press to copy")
-                    Text("It should print the same code shown above.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Text("Double-Check It")
-                }
+            ForEach(trustedKeys, id: \.fingerprint) { key in
+                keySection(key)
             }
         }
         .navigationTitle("Verification Code")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// VoiceOver reads the raw `SHA256:…` string as gibberish; announce it as a
-    /// code the user can compare rather than spelling every character.
-    private var spokenFingerprint: String {
-        "A verification code. Double tap and hold to copy it, then compare it with the code on your Mac."
+    @ViewBuilder
+    private func keySection(_ key: SavedConnections.TrustedHostKey) -> some View {
+        Section("\(displayName)'s Fingerprint") {
+            // Shown in full and, for VoiceOver, spelled out character by
+            // character so it can actually be compared against the Mac —
+            // the whole point of the screen — rather than described.
+            Text(key.fingerprint)
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+                .speechSpellsOutCharacters()
+        }
+
+        if let path = SSHHostKeyFingerprint.localVerificationPath(for: key.keyType) {
+            Section("Double-Check It") {
+                Text("Want to be sure? On \(displayName) itself, open Terminal and run:")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("ssh-keygen -lf \(path)")
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                Text("It should print the same code shown above.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -65,8 +56,9 @@ struct HostKeyVerificationView: View {
     NavigationStack {
         HostKeyVerificationView(
             displayName: "Ryan's MacBook Pro",
-            fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c",
-            keyType: "ssh-ed25519"
+            trustedKeys: [
+                .init(fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c", keyType: "ssh-ed25519")
+            ]
         )
     }
 }

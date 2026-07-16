@@ -90,11 +90,12 @@ struct ConnectionsView: View {
                     .environmentObject(viewModel)
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
-                if viewModel.lastErrorWasHostKeyMismatch {
-                    Button("Cancel", role: .cancel) { }
-                    Button("Reconnect") { viewModel.acknowledgeHostKeyChangeAndRetry() }
+                if case .hostKeyMismatch = viewModel.pendingRecovery {
+                    // Destructive: reconnecting permanently trusts the new key.
+                    Button("Cancel", role: .cancel) { viewModel.cancelHostKeyMismatch() }
+                    Button("Reconnect", role: .destructive) { viewModel.confirmHostKeyChangeAndReconnect() }
                 } else {
-                    Button("OK", role: .cancel) { }
+                    Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
                 }
             } message: {
                 Text(viewModel.connectionError?.message ?? "")
@@ -170,11 +171,6 @@ struct ConnectionsView: View {
                 viewModel.connectingComputer = nil
             }
         }
-        .onChange(of: viewModel.showingError) { _, newValue in
-            if !newValue {
-                viewModel.handleErrorAlertDismissed()
-            }
-        }
     }
 }
 
@@ -189,8 +185,7 @@ private struct AddConnectionSheet: View {
                 mode: .edit,
                 existingHost: computer.host,
                 existingName: computer.name,
-                existingHostKeyFingerprint: viewModel.savedConnections.hostKeyFingerprint(for: computer.host),
-                existingHostKeyType: viewModel.savedConnections.hostKeyType(for: computer.host),
+                existingTrustedHostKeys: viewModel.savedConnections.trustedHostKeys(for: computer.host),
                 username: $viewModel.username,
                 password: $viewModel.password,
                 saveCredentials: $viewModel.saveCredentials,
@@ -317,7 +312,7 @@ private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
     override func deleteConnection(hostname: String) {}
     override func editConnection(_ computer: Connection) {}
     override func connectWithCredentials(computer: Connection) {}
-    override func connectWithNewCredentials(computer: Connection) {}
+    override func connectWithNewCredentials(computer: Connection, approvedHostKey: SSHHostKeyInfo?) {}
     override func onAppear() {}
     override func onDisappear() {}
 }

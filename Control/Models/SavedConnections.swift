@@ -4,7 +4,10 @@ import Security
 class SavedConnections: ObservableObject {
     @Published private(set) var items: [SavedConnection] = []
     private let saveKey = "SavedConnections"
-    
+    /// The backing store. Injectable so tests use a throwaway suite instead of
+    /// the app's real `UserDefaults.standard`.
+    private let defaults: UserDefaults
+
     struct SavedConnection: Codable, Identifiable {
         let id: UUID
         let hostname: String
@@ -15,9 +18,11 @@ class SavedConnections: ObservableObject {
         var enabledPlatforms: Set<String>
         var lastViewedPlatform: String?
         var saveCredentialsPreference: Bool?  // nil = legacy
-        var hostKeyFingerprint: String?  // most-recently-observed key, for display; nil = never pinned
-        var hostKeyType: String?  // paired with hostKeyFingerprint
-        var hostKeyFingerprints: [String]?  // every key the user has accepted for this host (known_hosts-style set)
+        /// Host keys the user has accepted for this Mac, at most one per key
+        /// type (a Mac can legitimately offer more than one algorithm). A
+        /// confirmed key change replaces the entry of the same type rather than
+        /// accumulating, so a superseded key stops being trusted. nil = never pinned.
+        var trustedHostKeys: [TrustedHostKey]?
 
         init(hostname: String, name: String? = nil, username: String? = nil) {
             self.id = UUID()
@@ -29,13 +34,19 @@ class SavedConnections: ObservableObject {
             self.enabledPlatforms = []
             self.lastViewedPlatform = nil
             self.saveCredentialsPreference = nil
-            self.hostKeyFingerprint = nil
-            self.hostKeyType = nil
-            self.hostKeyFingerprints = nil
+            self.trustedHostKeys = nil
         }
     }
-    
-    init() {
+
+    /// A trusted host key: its fingerprint plus the algorithm it was negotiated
+    /// with, so the verification screen can point at the right file on the Mac.
+    struct TrustedHostKey: Codable, Equatable {
+        let fingerprint: String
+        let keyType: String
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         load()
     }
     
@@ -167,56 +178,43 @@ class SavedConnections: ObservableObject {
         _ = SecItemDelete(deleteQuery as CFDictionary)
     }
     
-    func hostKeyFingerprint(for hostname: String) -> String? {
-        return items.first(where: { $0.hostname == hostname })?.hostKeyFingerprint
+    /// Matches a stored connection to `hostname` case-insensitively. Bonjour
+    /// preserves the Mac's advertised capitalization while a hand-typed host is
+    /// usually lowercase, yet both resolve to the same Mac (mDNS/DNS names are
+    /// case-insensitive). Keeping host-key trust case-insensitive stops the two
+    /// spellings from holding separate trust and silently trusting-on-first-use
+    /// under whichever one has no pin.
+    private func hostKeyIndex(for hostname: String) -> Int? {
+        items.firstIndex { $0.hostname.caseInsensitiveCompare(hostname) == .orderedSame }
     }
 
-    func hostKeyType(for hostname: String) -> String? {
-        return items.first(where: { $0.hostname == hostname })?.hostKeyType
+    /// The keys the user has accepted for `hostname` (usually one). Empty when
+    /// the host has never been pinned — the trust-on-first-use case.
+    func trustedHostKeys(for hostname: String) -> [TrustedHostKey] {
+        hostKeyIndex(for: hostname).map { items[$0].trustedHostKeys ?? [] } ?? []
     }
 
-    /// Every host-key fingerprint the user has accepted for `hostname`. Empty
-    /// when the host has never been pinned (trust-on-first-use). Unions the
-    /// stored set with the legacy single `hostKeyFingerprint` so connections
-    /// saved before the set existed migrate transparently.
+    /// The trusted fingerprints as a set, for the transport's pinning check.
     func trustedHostKeyFingerprints(for hostname: String) -> Set<String> {
-        guard let connection = items.first(where: { $0.hostname == hostname }) else { return [] }
-        var trusted = Set(connection.hostKeyFingerprints ?? [])
-        if let legacy = connection.hostKeyFingerprint {
-            trusted.insert(legacy)
-        }
-        return trusted
+        Set(trustedHostKeys(for: hostname).map(\.fingerprint))
     }
 
-    /// Records `fingerprint` as the most-recently-observed key for `hostname`
-    /// (shown as the connection's verification code) and adds it to the set of
-    /// keys trusted for that host. A harmless no-op overwrite when the key
-    /// hasn't changed; the mechanism by which a user-confirmed reconnect after
-    /// a mismatch establishes new trust. No-ops if `hostname` has no row yet —
-    /// callers must ensure the row exists first (e.g. after `add(...)`).
-    ///
-    /// A nil→non-nil transition is expected exactly once per connection:
-    /// either this is a brand-new host's first-ever connect, or an existing
-    /// user's first connect after updating to a build that has pinning —
-    /// both are silent by design. If a connection that has *already*
-    /// connected before (`hasConnectedBefore`) still has no fingerprint at
-    /// pin time, this is that one-time backfill: logged for the developer,
-    /// never surfaced to the user. Repeated occurrences for the same host
-    /// would indicate pinning isn't persisting.
-    func updateHostKeyFingerprint(_ hostname: String, fingerprint: String, keyType: String) {
-        guard let index = items.firstIndex(where: { $0.hostname == hostname }) else { return }
-
-        if items[index].hostKeyFingerprint == nil && items[index].hasConnectedBefore {
-            debugLog("⚠️ Host key fingerprint backfilled for pre-existing connection '\(hostname)' with no prior baseline — expected once per legacy connection; repeated occurrences for the same host indicate pinning isn't persisting", category: "SavedConnections")
+    /// Records `info` as trusted for `hostname`. Upserts by key type: a new
+    /// fingerprint for an already-trusted type *replaces* the old one, so a
+    /// confirmed key change stops trusting the superseded key; a new key type
+    /// is added alongside. A no-op (no write) when the key is already trusted,
+    /// so a normal reconnect doesn't churn the store. No-ops if the row doesn't
+    /// exist yet — callers pin after `add(...)` has created it.
+    func pinHostKey(_ info: SSHHostKeyInfo, for hostname: String) {
+        guard let index = hostKeyIndex(for: hostname) else { return }
+        var keys = items[index].trustedHostKeys ?? []
+        if let existing = keys.firstIndex(where: { $0.keyType == info.keyType }) {
+            guard keys[existing].fingerprint != info.fingerprint else { return }
+            keys[existing] = TrustedHostKey(fingerprint: info.fingerprint, keyType: info.keyType)
+        } else {
+            keys.append(TrustedHostKey(fingerprint: info.fingerprint, keyType: info.keyType))
         }
-
-        items[index].hostKeyFingerprint = fingerprint
-        items[index].hostKeyType = keyType
-        var trusted = items[index].hostKeyFingerprints ?? []
-        if !trusted.contains(fingerprint) {
-            trusted.append(fingerprint)
-        }
-        items[index].hostKeyFingerprints = trusted
+        items[index].trustedHostKeys = keys
         save()
     }
 
@@ -239,16 +237,16 @@ class SavedConnections: ObservableObject {
     }
     
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: saveKey),
+        guard let data = defaults.data(forKey: saveKey),
               let decoded = try? JSONDecoder().decode([SavedConnection].self, from: data) else {
             return
         }
         items = decoded
     }
-    
+
     private func save() {
         guard let encoded = try? JSONEncoder().encode(items) else { return }
-        UserDefaults.standard.set(encoded, forKey: saveKey)
+        defaults.set(encoded, forKey: saveKey)
     }
     
     func remove(hostname: String) {

@@ -53,10 +53,10 @@ enum SSHTransportConnector {
         }
 
         let hostKeyDelegate = HostKeyPinningDelegate(trustedFingerprints: trustedHostKeyFingerprints)
-        hostKeyDelegate.onMismatch = {
-            attempt.finish(.failure(SSHError.hostKeyMismatch(observed: hostKeyDelegate.observedInfo))) {
+        hostKeyDelegate.onReject = { error in
+            attempt.finish(.failure(error)) {
                 timeout.cancel()
-                sshLog("❌ [\(connectionId)] Host key mismatch")
+                sshLog("❌ [\(connectionId)] Host key rejected: \(error)")
             }
         }
 
@@ -93,9 +93,11 @@ enum SSHTransportConnector {
                     switch sessionResult {
                     case .success(let session):
                         // validateHostKey always runs before a child channel
-                        // opens, so observedInfo is guaranteed set here.
+                        // opens, so observedInfo is guaranteed set here. If it
+                        // somehow isn't, fail as a neutral connection error, not
+                        // a changed-identity alarm.
                         guard let hostKeyInfo = hostKeyDelegate.observedInfo else {
-                            attempt.finish(.failure(SSHError.hostKeyMismatch(observed: nil))) {
+                            attempt.finish(.failure(SSHError.connectionFailed("Could not verify the Mac's identity"))) {
                                 timeout.cancel()
                                 sshLog("❌ [\(connectionId)] Session opened without an observed host key")
                             }
@@ -250,12 +252,16 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
 /// caller surfaces as `SSHError.hostKeyMismatch` for the user to decide on.
 final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
     private let trustedFingerprints: Set<String>
-    /// Set synchronously before either promise outcome — always populated
-    /// once `validateHostKey` has run, whether accepted or rejected. The
-    /// mismatch/retry flow needs the *rejected* key too, to add it to the
-    /// trusted set if the user consciously chooses to trust it.
+    /// The key the server presented, computed during validation. Read on the
+    /// success path to record what was pinned. Nil only if the key couldn't be
+    /// parsed (an effectively unreachable internal failure).
     private(set) var observedInfo: SSHHostKeyInfo?
-    var onMismatch: (() -> Void)?
+    /// Delivers the reason a key was rejected, called *before* the validation
+    /// promise is failed so the caller's once-only result wins the race against
+    /// NIOSSH's teardown (which would otherwise surface a generic connection
+    /// error). Carries the error as a parameter so this delegate isn't captured
+    /// by the caller's closure — capturing it would form a retain cycle.
+    var onReject: ((SSHError) -> Void)?
 
     init(trustedFingerprints: Set<String>) {
         self.trustedFingerprints = trustedFingerprints
@@ -264,10 +270,10 @@ final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
         guard let info = try? SSHHostKeyFingerprint.compute(for: hostKey) else {
             // NIOSSH already parsed this key during key exchange, so this is
-            // effectively unreachable — fail closed rather than silently
-            // accept an unparseable identity.
-            validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: nil))
-            onMismatch?()
+            // effectively unreachable. Fail closed, but as a neutral connection
+            // error — an internal parse failure, not a changed identity.
+            onReject?(.connectionFailed("Could not read the Mac's identity"))
+            validationCompletePromise.fail(SSHError.connectionFailed("Could not read the Mac's identity"))
             return
         }
         observedInfo = info
@@ -278,8 +284,8 @@ final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
             validationCompletePromise.succeed(())
             return
         }
+        onReject?(.hostKeyMismatch(observed: info))
         validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: info))
-        onMismatch?()
     }
 }
 

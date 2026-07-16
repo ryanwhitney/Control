@@ -8,8 +8,7 @@ struct AuthenticationView: View {
     // Pass in saved info for edit mode
     let existingHost: String?
     let existingName: String?
-    let existingHostKeyFingerprint: String?
-    let existingHostKeyType: String?
+    let existingTrustedHostKeys: [SavedConnections.TrustedHostKey]
 
     @State private var hostname: String
     @State private var nickname: String
@@ -72,8 +71,7 @@ struct AuthenticationView: View {
     init(mode: Mode,
          existingHost: String? = nil,
          existingName: String? = nil,
-         existingHostKeyFingerprint: String? = nil,
-         existingHostKeyType: String? = nil,
+         existingTrustedHostKeys: [SavedConnections.TrustedHostKey] = [],
          username: Binding<String>,
          password: Binding<String>,
          saveCredentials: Binding<Bool>,
@@ -83,8 +81,7 @@ struct AuthenticationView: View {
         self.mode = mode
         self.existingHost = existingHost
         self.existingName = existingName
-        self.existingHostKeyFingerprint = existingHostKeyFingerprint
-        self.existingHostKeyType = existingHostKeyType
+        self.existingTrustedHostKeys = existingTrustedHostKeys
         self._hostname = State(initialValue: existingHost ?? "")
         self._nickname = State(initialValue: existingName ?? "")
         self._username = username
@@ -151,13 +148,12 @@ struct AuthenticationView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
-                    if let fingerprint = existingHostKeyFingerprint {
+                    if !existingTrustedHostKeys.isEmpty {
                         Section {
                             NavigationLink {
                                 HostKeyVerificationView(
                                     displayName: existingName ?? existingHost ?? "this Mac",
-                                    fingerprint: fingerprint,
-                                    keyType: existingHostKeyType
+                                    trustedKeys: existingTrustedHostKeys
                                 )
                             } label: {
                                 Label("Verification Code", systemImage: "checkmark.shield")
