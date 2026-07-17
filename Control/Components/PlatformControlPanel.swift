@@ -34,12 +34,63 @@ struct PlatformControl: View {
         verticalSizeClass == .compact
     }
 
+    // The key pad is four rows where the transport row is one, so it can't
+    // afford the generous portrait whitespace above it — on a small phone the
+    // pad's bottom row would land under the volume slider.
+    private var isKeyPad: Bool { platform.controlStyle == .keyPad }
+
+    private var titleBottomPadding: CGFloat {
+        if isPhoneLandscape { return 10 }
+        return isKeyPad ? 20 : 50
+    }
+
+    private var readoutBottomPadding: CGFloat {
+        if isPhoneLandscape { return 20 }
+        return isKeyPad ? 24 : 60
+    }
+
     /// "app 3 of 7" while resting on this page; after an adjustment it becomes
     /// "app 4 of 7, Music" so the switch announces where you landed by name.
     private var pagerAccessibilityValue: String {
         let position = "app \(selectedIndex + 1) of \(pageCount)"
         guard selectedIndex != pageIndex else { return position }
         return "\(position), \(selectedName)"
+    }
+
+    private var transportRow: some View {
+        HStack(spacing: 16) {
+            ForEach(platform.supportedActions) { appAction in
+                Button {
+                    Task {
+                        await controller.executeActionWithStatus(platform: platform, action: appAction.action)
+                    }
+                } label: {
+                    if let dynamicIcon = appAction.dynamicIcon, let isPlaying = state.isPlaying {
+                        Image(systemName: dynamicIcon(isPlaying))
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: primaryIconWidth, height: primaryIconHeight)
+                            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+                    } else {
+                        if appAction.staticIcon == "forward.end.fill" || appAction.staticIcon == "backward.end.fill" {
+                            Image(systemName: appAction.staticIcon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: trackIconWidth, height: trackIconHeight)
+                                .accessibilityLabel(appAction.label)
+                        } else {
+                            Image(systemName: appAction.staticIcon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: primaryIconWidth, height: primaryIconHeight)
+                                .accessibilityLabel(appAction.label)
+                        }
+                    }
+                }
+                .buttonStyle(IconButtonStyle())
+                .accessibilityInputLabels(appAction.action.inputLabels)
+            }
+        }
     }
 
     var body: some View {
@@ -78,7 +129,7 @@ struct PlatformControl: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.bottom, isPhoneLandscape ? 10 : 50)
+                .padding(.bottom, titleBottomPadding)
                 VStack(alignment: .center) {
                     Text(state.title)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
@@ -98,43 +149,18 @@ struct PlatformControl: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 40)
                 .padding(.horizontal, isPhoneLandscape ? 64 : 10)
-                .padding(.bottom, isPhoneLandscape ? 20 : 60)
+                .padding(.bottom, readoutBottomPadding)
                 .transition(.opacity)
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.title)
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.subtitle)
             }
 
-            HStack(spacing: 16) {
-                ForEach(platform.supportedActions) { appAction in
-                    Button {
-                        Task {
-                            await controller.executeActionWithStatus(platform: platform, action: appAction.action)
-                        }
-                    } label: {
-                        if let dynamicIcon = appAction.dynamicIcon, let isPlaying = state.isPlaying {
-                            Image(systemName: dynamicIcon(isPlaying))
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: primaryIconWidth, height: primaryIconHeight)
-                                .accessibilityLabel(isPlaying ? "Pause" : "Play")
-                        } else {
-                            if appAction.staticIcon == "forward.end.fill" || appAction.staticIcon == "backward.end.fill" {
-                                Image(systemName: appAction.staticIcon)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: trackIconWidth, height: trackIconHeight)
-                                    .accessibilityLabel(appAction.label)
-                            } else {
-                                Image(systemName: appAction.staticIcon)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: primaryIconWidth, height: primaryIconHeight)
-                                    .accessibilityLabel(appAction.label)
-                            }
-                        }
-                    }
-                    .buttonStyle(IconButtonStyle())
-                    .accessibilityInputLabels(appAction.action.inputLabels)
+            Group {
+                switch platform.controlStyle {
+                case .transport:
+                    transportRow
+                case .keyPad:
+                    KeyPadControl(platform: platform, isCompact: isPhoneLandscape)
                 }
             }
             .padding(.bottom, isPhoneLandscape ? 40 : 60)

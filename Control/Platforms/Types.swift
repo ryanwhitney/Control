@@ -1,6 +1,55 @@
 import Foundation
 import SwiftUI
 
+/// The keys the generic pad sends. Raw values are macOS virtual key codes;
+/// System Events delivers them to whatever app is frontmost.
+enum RemoteKey: String, CaseIterable {
+    case up, down, left, right, space, escape, `return`
+
+    var keyCode: Int {
+        switch self {
+        case .up: return 126
+        case .down: return 125
+        case .left: return 123
+        case .right: return 124
+        case .space: return 49
+        case .escape: return 53
+        case .return: return 36
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .up: return "Up"
+        case .down: return "Down"
+        case .left: return "Left"
+        case .right: return "Right"
+        case .space: return "Space"
+        case .escape: return "Escape"
+        case .return: return "Return"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .up: return "arrowtriangle.up.fill"
+        case .down: return "arrowtriangle.down.fill"
+        case .left: return "arrowtriangle.left.fill"
+        case .right: return "arrowtriangle.right.fill"
+        case .space: return "space"
+        case .escape: return "escape"
+        case .return: return "return"
+        }
+    }
+}
+
+/// How a platform lays out its controls: the media transport row, or the
+/// generic key pad.
+enum ControlStyle: Equatable {
+    case transport
+    case keyPad
+}
+
 enum AppAction: Identifiable, Equatable {
     case skipForward(Int)
     case skipBackward(Int)
@@ -8,6 +57,7 @@ enum AppAction: Identifiable, Equatable {
     case nextTrack
     case playPauseToggle
     case closeApp(String)
+    case key(RemoteKey)
 
     var id: String {
         switch self {
@@ -17,9 +67,10 @@ enum AppAction: Identifiable, Equatable {
         case .nextTrack: return "nextTrack"
         case .playPauseToggle: return "playPauseToggle"
         case .closeApp: return "closeApp"
+        case .key(let key): return "key_\(key.rawValue)"
         }
     }
-    
+
     var label: String {
         switch self {
         case .skipForward(let seconds):
@@ -34,6 +85,8 @@ enum AppAction: Identifiable, Equatable {
             return "Play/Pause"
         case .closeApp(let appName):
             return "Close \(appName)"
+        case .key(let key):
+            return key.label
         }
     }
 
@@ -53,6 +106,18 @@ enum AppAction: Identifiable, Equatable {
             return ["Play", "Pause", "Play pause"]
         case .closeApp(let appName):
             return ["Close \(appName)", "Close"]
+        case .key(let key):
+            switch key {
+            case .up: return ["Up", "Up arrow"]
+            case .down: return ["Down", "Down arrow"]
+            case .left: return ["Left", "Left arrow"]
+            case .right: return ["Right", "Right arrow"]
+            // Space is play/pause in most players, so accept those too — it's
+            // what people will reach for on this page.
+            case .space: return ["Space", "Spacebar", "Play", "Pause"]
+            case .escape: return ["Escape", "Esc"]
+            case .return: return ["Return", "Enter"]
+            }
         }
     }
 }
@@ -101,6 +166,9 @@ extension ActionConfig {
     static func skipForward(_ seconds: Int) -> ActionConfig {
         ActionConfig(action: .skipForward(seconds), icon: "\(seconds).arrow.trianglehead.clockwise")
     }
+    static func key(_ key: RemoteKey) -> ActionConfig {
+        ActionConfig(action: .key(key), icon: key.icon)
+    }
 }
 
 struct AppState: Equatable {
@@ -119,6 +187,7 @@ protocol AppPlatform: Identifiable {
     var fetchStateIsSelfGuarding: Bool { get }
     var experimental: Bool { get }
     var reasonForExperimental: String { get }
+    var controlStyle: ControlStyle { get }
     var supportedActions: [ActionConfig] { get }
     var menuActions: [ActionConfig] { get }
     
@@ -132,6 +201,10 @@ protocol AppPlatform: Identifiable {
 extension AppPlatform {
     var experimental: Bool { false }
     var reasonForExperimental: String { "" }
+
+    /// Media players show the transport row; only the generic key pad
+    /// (`KeyboardApp`) overrides this.
+    var controlStyle: ControlStyle { .transport }
 
     /// Most platforms expose status over AppleScript and can be polled quietly in
     /// the background as part of the global multi-app refresh. Apps without it
