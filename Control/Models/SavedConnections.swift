@@ -10,7 +10,7 @@ class SavedConnections: ObservableObject {
 
     struct SavedConnection: Codable, Identifiable {
         let id: UUID
-        let hostname: String
+        var hostname: String
         var name: String?
         var username: String?
         let lastUsed: Date
@@ -256,6 +256,25 @@ class SavedConnections: ObservableObject {
 
         // Remove password from keychain
         removePassword(for: hostname)
+    }
+
+    /// Moves a saved connection to a new hostname, carrying everything with
+    /// it: row fields, trusted host keys, and the Keychain password entry.
+    /// Used by the key-verified address repair, where the pinned identity
+    /// answered at a new address, so the trust genuinely belongs to the new
+    /// name. No-ops if the old row doesn't exist or a row already holds the
+    /// new hostname (callers exclude that case before offering the repair).
+    func updateHostname(from oldHostname: String, to newHostname: String) {
+        guard let index = items.firstIndex(where: { $0.hostname.caseInsensitiveCompare(oldHostname) == .orderedSame }),
+              !items.contains(where: { $0.hostname.caseInsensitiveCompare(newHostname) == .orderedSame }) else { return }
+        let migratingPassword = password(for: items[index].hostname)
+        let previousHostname = items[index].hostname
+        items[index].hostname = newHostname
+        save()
+        if let migratingPassword {
+            savePassword(migratingPassword, for: newHostname)
+            removePassword(for: previousHostname)
+        }
     }
     
     func markAsConnected(_ hostname: String) {

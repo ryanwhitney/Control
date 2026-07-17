@@ -18,11 +18,32 @@ class ConnectionsViewModel: ObservableObject {
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
     /// Which recovery the current error alert should offer. Drives the alert's
-    /// buttons (mismatch → Verify / Trust & Reconnect / Cancel) and the
-    /// dismissal handling.
+    /// buttons (mismatch → Verify / Cancel) and the dismissal handling.
     @Published private(set) var pendingRecovery: PendingRecovery = .none
-    /// Presents the host-key review screen (reached from the alert's "Verify").
+    /// Presents the host-key review screen (reached from the alert's "Review…").
     @Published var showingHostKeyReview = false
+    /// A key-verified address repair offer: `computer`'s pinned identity
+    /// answered a credential-free probe at `replacement`'s address, so the
+    /// mismatch at the old address is a stale name or address and rebinding is
+    /// cryptographically safe. Settable by the presenting alert's binding so
+    /// dismissal can clear it without side effects; actions carry the value.
+    @Published var pendingAddressRepair: AddressRepair?
+
+    struct AddressRepair: Identifiable {
+        let id = UUID()
+        let computer: Connection
+        let replacement: Connection
+
+        /// Alert copy varies by what actually changed: pure address move vs.
+        /// a Bonjour rename ("Mac mini (2)").
+        var message: String {
+            if replacement.name.caseInsensitiveCompare(computer.name) == .orderedSame {
+                return "\(computer.name) is answering from a new address on your network. Its fingerprint matches the one Control trusts, so this really is your Mac."
+            } else {
+                return "\(computer.name) is now named “\(replacement.name)” on your network. Its fingerprint matches the one Control trusts, so this really is your Mac."
+            }
+        }
+    }
 
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
@@ -226,15 +247,25 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
-    /// The data the host-key review screen needs: the Mac's name, the new
-    /// (rejected) fingerprint being presented, and the fingerprint(s) previously
-    /// trusted — so the screen can tell the user which one a manual check should
-    /// match. Nil unless a mismatch is awaiting review.
-    var hostKeyReviewContext: (displayName: String, newKey: SSHHostKeyInfo, previousKeys: [SavedConnections.TrustedHostKey])? {
+    /// The data the host-key review screen needs: the Mac's name and host (the
+    /// host's shape picks which conclusions apply), the new (rejected)
+    /// fingerprint, the fingerprint(s) previously trusted, and any
+    /// similarly named Macs visible on the network right now — observed facts
+    /// the conclusion pages can state instead of hypothesizing. Nil unless a
+    /// mismatch is awaiting review.
+    var hostKeyReviewContext: (displayName: String, host: String, newKey: SSHHostKeyInfo, previousKeys: [SavedConnections.TrustedHostKey], similarNamedNearby: [String])? {
         guard let computer = recoveryComputer,
               case .hostKeyMismatch(let rejected) = pendingRecovery,
               let key = rejected else { return nil }
-        return (computer.name, key, savedConnections.trustedHostKeys(for: computer.host))
+        let stem = HostIdentityHeuristics.nameStem(computer.name)
+        let nearby = networkComputers
+            .filter {
+                $0.host.caseInsensitiveCompare(computer.host) != .orderedSame
+                    && !stem.isEmpty
+                    && HostIdentityHeuristics.nameStem($0.name) == stem
+            }
+            .map(\.name)
+        return (computer.name, computer.host, key, savedConnections.trustedHostKeys(for: computer.host), nearby)
     }
 
     /// The user tapped "Verify" on the host-key-change alert — open the review
@@ -243,8 +274,8 @@ class ConnectionsViewModel: ObservableObject {
         showingHostKeyReview = true
     }
 
-    /// The user chose to trust the new key ("Trust & Reconnect" on the alert or
-    /// the review screen). The rejected key is trusted for the
+    /// The user chose to trust the new key ("Trust & Reconnect" in the verify
+    /// flow). The rejected key is trusted for the
     /// retry only; the normal pin-on-success path persists it once the reconnect
     /// verifies it, so a retry that never succeeds leaves no trust behind. Acts
     /// on `recoveryComputer` (the Mac that failed), which — unlike
@@ -416,7 +447,7 @@ class ConnectionsViewModel: ObservableObject {
             connectionError = (formattedError.title, formattedError.message)
 
             // Pick the recovery the alert should offer: re-prompt for
-            // credentials (auth failure), the verify/trust/cancel choice
+            // credentials (auth failure), the verify/cancel choice
             // (host-key mismatch), or a plain dismissal for anything else.
             switch sshError {
             case .authenticationFailed:
@@ -439,7 +470,79 @@ class ConnectionsViewModel: ObservableObject {
             pendingRecovery = .none
         }
         recoveryComputer = computer
-        showingError = true
+        if case .hostKeyMismatch(let rejected) = pendingRecovery, rejected != nil {
+            Task { await attemptAddressRepairThenPresent(for: computer) }
+        } else {
+            showingError = true
+        }
+    }
+
+    /// After a mismatch, searches the network for the Mac's pinned identity
+    /// at another address before alarming the user: a Bonjour host with the
+    /// same name stem may be the same Mac renamed or re-addressed. Probes are
+    /// key-exchange only, so no credentials are ever offered to anything.
+    /// Exactly one verified match becomes a repair offer; zero or several
+    /// (several means cloned keys, where only the user knows which box they
+    /// mean) fall through to the standard mismatch alert.
+    private func attemptAddressRepairThenPresent(for computer: Connection) async {
+        let pinned = savedConnections.trustedHostKeyFingerprints(for: computer.host)
+        let candidates = addressRepairCandidates(for: computer)
+        guard !pinned.isEmpty, !candidates.isEmpty else {
+            showingError = true
+            return
+        }
+
+        // Keep the row's spinner up while probing so the pause reads as work,
+        // and so a second tap can't start a competing connect.
+        connectingComputer = computer
+        var matches: [Connection] = []
+        for candidate in candidates.prefix(2) {
+            if let observed = await SSHTransportConnector.probeHostKey(host: candidate.host, timeout: 3.0),
+               pinned.contains(observed.fingerprint) {
+                matches.append(candidate)
+            }
+        }
+        connectingComputer = nil
+
+        if matches.count == 1, let match = matches.first {
+            viewLog("Address repair: pinned key for \(computer.host.redacted()) verified at \(match.host.redacted())", view: "ConnectionsViewModel")
+            pendingAddressRepair = AddressRepair(computer: computer, replacement: match)
+        } else {
+            showingError = true
+        }
+    }
+
+    /// Discovered hosts that could be `computer` under a new name or address:
+    /// same name stem, different host, and not already saved as their own
+    /// connection (repairing onto an existing row would merge two Macs).
+    private func addressRepairCandidates(for computer: Connection) -> [Connection] {
+        let stem = HostIdentityHeuristics.nameStem(computer.name)
+        guard !stem.isEmpty else { return [] }
+        return networkComputers.filter { candidate in
+            candidate.host.caseInsensitiveCompare(computer.host) != .orderedSame
+                && HostIdentityHeuristics.nameStem(candidate.name) == stem
+                && !savedComputers.contains { $0.host.caseInsensitiveCompare(candidate.host) == .orderedSame }
+        }
+    }
+
+    /// "Update & Connect" on the repair offer: move the saved row (pins,
+    /// password, preferences) to the verified address and reconnect. Trust
+    /// carries over because the key at the new address already matched it.
+    func acceptAddressRepair(_ repair: AddressRepair) {
+        pendingAddressRepair = nil
+        savedConnections.updateHostname(from: repair.computer.host, to: repair.replacement.host)
+        clearRecoveryState()
+        connectWithCredentials(computer: repair.replacement)
+    }
+
+    /// "Not Now" on the repair offer: nothing moves, nothing is trusted, and
+    /// the next tap re-runs the same detection.
+    func declineAddressRepair() {
+        pendingAddressRepair = nil
+        clearRecoveryState()
+        selectedConnection = nil
+        username = ""
+        password = ""
     }
 
     private func navigateToApp(computer: Connection) {

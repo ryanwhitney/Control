@@ -91,18 +91,18 @@ struct ConnectionsView: View {
             }
             .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
                 if case .hostKeyMismatch = viewModel.pendingRecovery {
-                    // Verify is the recommended path (opens the review screen);
-                    // Trust & Reconnect is the fast path, marked destructive
-                    // because it permanently trusts the new key from a two-tap
-                    // alert; Cancel is the safe do-nothing exit. If the new key
-                    // couldn't be read there's nothing to review or trust, so
-                    // only Cancel is offered.
+                    // Review opens the guided flow, which carries all the
+                    // explanation and the trust decision; the alert itself
+                    // offers no permanent security choices. Not Now is the safe
+                    // do-nothing exit: declining is a valid, reversible choice,
+                    // and the label honestly predicts the alert will return.
+                    // If the new key couldn't be read there's nothing to
+                    // review, so only Not Now is offered.
                     if viewModel.hostKeyReviewContext != nil {
-                        Button("Verify") { viewModel.openHostKeyReview() }
+                        Button("Review…") { viewModel.openHostKeyReview() }
                             .keyboardShortcut(.defaultAction)
-                        Button("Trust & Reconnect", role: .destructive) { viewModel.confirmHostKeyChangeAndReconnect() }
                     }
-                    Button("Cancel", role: .cancel) { viewModel.cancelHostKeyMismatch() }
+                    Button("Not Now", role: .cancel) { viewModel.cancelHostKeyMismatch() }
                 } else {
                     Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
                 }
@@ -113,13 +113,34 @@ struct ConnectionsView: View {
                 if let context = viewModel.hostKeyReviewContext {
                     HostKeyReviewView(
                         displayName: context.displayName,
+                        host: context.host,
                         newKey: context.newKey,
                         previousKeys: context.previousKeys,
+                        similarNamedNearby: context.similarNamedNearby,
                         onTrust: { viewModel.confirmHostKeyChangeAndReconnect() },
                         onDecline: { viewModel.cancelHostKeyMismatch() }
                     )
                     .interactiveDismissDisabled()
                 }
+            }
+            // The key-verified repair offer: the Mac's pinned identity was
+            // found at another address, so this is a routine update, not a
+            // security decision — the fingerprint already matched. The
+            // binding's setter only clears state; the actions carry the
+            // repair value so dismissal order can't lose it.
+            .alert(
+                Text(viewModel.pendingAddressRepair.map { "\($0.computer.name) Has a New Address" } ?? "New Address"),
+                isPresented: Binding(
+                    get: { viewModel.pendingAddressRepair != nil },
+                    set: { if !$0 { viewModel.pendingAddressRepair = nil } }
+                ),
+                presenting: viewModel.pendingAddressRepair
+            ) { repair in
+                Button("Update & Connect") { viewModel.acceptAddressRepair(repair) }
+                    .keyboardShortcut(.defaultAction)
+                Button("Not Now", role: .cancel) { viewModel.declineAddressRepair() }
+            } message: { repair in
+                Text(repair.message)
             }
             .navigationDestination(isPresented: $viewModel.showingSetupFlow) {
                 SetupFlowDestination()

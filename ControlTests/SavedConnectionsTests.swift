@@ -68,6 +68,43 @@ struct SavedConnectionsHostKeyTests {
         #expect(connections.trustedHostKeys(for: "test.local").count == 1)
     }
 
+    /// The address-repair migration: the row and its pinned trust follow the
+    /// new hostname, and nothing is left behind under the old one.
+    @Test func updateHostnameMovesTheRowAndItsTrust() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "mac-mini.local")
+
+        connections.updateHostname(from: "mac-mini.local", to: "mac-mini-2.local")
+
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini-2.local") == ["SHA256:ed"])
+        #expect(connections.trustedHostKeys(for: "mac-mini.local").isEmpty)
+        #expect(connections.lastUsername(for: "mac-mini-2.local") == "ryan")
+        #expect(connections.items.count == 1)
+    }
+
+    /// Migrating onto a hostname that already has its own row would merge two
+    /// Macs' identities, so it must refuse.
+    @Test func updateHostnameRefusesToClobberAnExistingRow() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", saveCredentials: false)
+        connections.add(hostname: "mac-mini-2.local", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:ed", keyType: ed25519), for: "mac-mini.local")
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:other", keyType: ed25519), for: "mac-mini-2.local")
+
+        connections.updateHostname(from: "mac-mini.local", to: "mac-mini-2.local")
+
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini.local") == ["SHA256:ed"])
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini-2.local") == ["SHA256:other"])
+    }
+
+    /// No row for the source hostname → nothing happens.
+    @Test func updateHostnameNoOpsWithoutASourceRow() {
+        let connections = makeTestConnections()
+        connections.updateHostname(from: "ghost.local", to: "somewhere.local")
+        #expect(connections.items.isEmpty)
+    }
+
     /// Trust is matched case-insensitively, so a Mac pinned under one spelling
     /// isn't silently re-trusted (TOFU) under a differently-cased spelling, and
     /// a later pin updates the same row rather than forking a second trust set.

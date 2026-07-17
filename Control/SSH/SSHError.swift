@@ -146,12 +146,8 @@ enum SSHError: Error {
             )
         case .hostKeyMismatch:
             return (
-                "\(displayName) Looks Different",
-                """
-                \(displayName)'s fingerprint has changed since you last connected. This usually happens after reinstalling macOS or restoring from a backup.
-
-                If you didn't make a change like that, another device could be pretending to be \(displayName). Verify before you reconnect.
-                """
+                "Couldn't Verify \(displayName)",
+                "This may not be the Mac you've connected to before, so Control didn't connect."
             )
         }
     }

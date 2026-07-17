@@ -128,6 +128,108 @@ enum SSHTransportConnector {
         }
     }
 
+    /// Reads the SSH host key a machine presents, without authenticating.
+    /// The key exchange runs far enough for the server to prove possession of
+    /// its host key, the fingerprint is recorded, and validation is then
+    /// failed so the connection tears down before user authentication could
+    /// begin — no credentials are ever offered. Returns nil on any failure
+    /// (unreachable, timeout, unparseable key).
+    ///
+    /// Used to search for a pinned identity at another address after a
+    /// mismatch. The result is trustworthy because only the holder of the
+    /// host's private key can complete the exchange for its fingerprint.
+    static func probeHostKey(host: String, timeout: TimeInterval = 4.0) async -> SSHHostKeyInfo? {
+        await withCheckedContinuation { continuation in
+            let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+            probeHostKey(group: group, host: host, timeout: timeout) { info in
+                group.shutdownGracefully { _ in }
+                continuation.resume(returning: info)
+            }
+        }
+    }
+
+    private static func probeHostKey(
+        group: EventLoopGroup,
+        host: String,
+        timeout: TimeInterval,
+        completion: @escaping (SSHHostKeyInfo?) -> Void
+    ) {
+        let attempt = ProbeAttempt(completion)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
+            attempt.finish(nil)
+        }
+
+        let probeDelegate = HostKeyProbeDelegate()
+        probeDelegate.onObserve = { info in
+            attempt.finish(info)
+        }
+
+        let bootstrap = ClientBootstrap(group: group)
+            .channelOption(ChannelOptions.connectTimeout, value: .seconds(3))
+            .channelInitializer { channel in
+                channel.pipeline.addHandler(NIOSSHHandler(
+                    role: .client(.init(
+                        userAuthDelegate: ProbeNoAuthDelegate(),
+                        serverAuthDelegate: probeDelegate
+                    )),
+                    allocator: channel.allocator,
+                    inboundChildChannelInitializer: nil
+                ))
+            }
+
+        bootstrap.connect(host: host, port: 22).whenComplete { result in
+            switch result {
+            case .success(let channel):
+                if !attempt.register(channel) {
+                    channel.close(promise: nil)
+                }
+                // The probe delegate fails validation once it has the key, so
+                // the channel closes itself; this covers handshake failures
+                // that never reach validateHostKey.
+                channel.closeFuture.whenComplete { _ in
+                    attempt.finish(nil)
+                }
+            case .failure:
+                attempt.finish(nil)
+            }
+        }
+    }
+
+    /// Once-only delivery for the probe, mirroring ConnectAttempt: whichever
+    /// of observation / timeout / close fires first wins, and the channel is
+    /// closed regardless of which path loses.
+    private final class ProbeAttempt {
+        private let lock = NSLock()
+        private var completion: ((SSHHostKeyInfo?) -> Void)?
+        private var channel: Channel?
+
+        init(_ completion: @escaping (SSHHostKeyInfo?) -> Void) {
+            self.completion = completion
+        }
+
+        func register(_ channel: Channel) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard completion != nil else { return false }
+            self.channel = channel
+            return true
+        }
+
+        func finish(_ info: SSHHostKeyInfo?) {
+            lock.lock()
+            let handler = completion
+            completion = nil
+            let held = channel
+            channel = nil
+            lock.unlock()
+
+            guard let handler else { return }
+            held?.close(promise: nil)
+            handler(info)
+        }
+    }
+
     private static func openSessionChannel(
         on connection: Channel,
         makeChildHandlers: @escaping () -> [ChannelHandler],
@@ -286,6 +388,28 @@ final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
         }
         onReject?(.hostKeyMismatch(observed: info))
         validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: info))
+    }
+}
+
+/// Captures the host key presented during a probe's key exchange, then fails
+/// validation so the connection ends before user authentication.
+private final class HostKeyProbeDelegate: NIOSSHClientServerAuthenticationDelegate {
+    var onObserve: ((SSHHostKeyInfo?) -> Void)?
+
+    func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+        onObserve?(try? SSHHostKeyFingerprint.compute(for: hostKey))
+        validationCompletePromise.fail(SSHError.connectionFailed("Host key probe complete"))
+    }
+}
+
+/// Never offers credentials. A probe's validation failure means auth is never
+/// reached, but if it somehow were, this delegate declines to authenticate.
+private final class ProbeNoAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
+    func nextAuthenticationType(
+        availableMethods: NIOSSHAvailableUserAuthenticationMethods,
+        nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
+    ) {
+        nextChallengePromise.succeed(nil)
     }
 }
 
