@@ -325,6 +325,40 @@ class AppController: ObservableObject {
         }
     }
 
+    /// Sends an action's script on its own: no status read appended, no state
+    /// parsed. The key pad uses this for every key press.
+    ///
+    /// Why it exists: a platform's app commands all share one serialized channel,
+    /// so the status read bundled into `executeActionWithStatus` doesn't just slow
+    /// its own command — it sits in front of the *next* one. With the frontmost-app
+    /// read attached (~134 ms of System Events work), a burst of key presses could
+    /// only drain at that rate, which is what made the pad feel sluggish next to
+    /// platforms whose actions are direct app tells. Alone, a key is one System
+    /// Events statement. The readout is refreshed separately by `updateState`, so
+    /// it's never in a key press's way.
+    ///
+    /// Requires `platform.executeAction` to be a *standalone* script — true for the
+    /// key pad and TV's key actions. Platforms whose `executeAction` returns a
+    /// fragment meant for injection into their status tell (QuickTime, mpv, IINA)
+    /// must not use this path.
+    func executeActionWithoutStatus(platform: any AppPlatform, action: AppAction) async {
+        guard isActive else {
+            appControllerLog("⚠️ Controller not active, skipping action")
+            return
+        }
+        appControllerLog("⚡︎ \(platform.name): \(action.label)")
+        let result = await executeCommand(
+            platform.executeAction(action),
+            channelKey: platform.id,
+            description: "\(platform.id): \(action.id)"
+        )
+        if case .failure(let error) = result {
+            // Connection-loss handling lives in executeCommand, which already
+            // saw this error.
+            appControllerLog("❌ Action execution failed: \(error)")
+        }
+    }
+
     // MARK: - Volume
 
     private var pendingVolume: Float?

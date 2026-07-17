@@ -69,8 +69,17 @@ struct KeyPadControl: View {
 
     private func keyButton(_ key: RemoteKey) -> some View {
         Button {
+            // Two independent tasks on purpose. The key goes out as a bare
+            // System Events statement so a run of presses drains at the speed of
+            // the link rather than of a status read, and the readout refresh is
+            // fired alongside it rather than chained behind it — nothing waits
+            // for the key command to come back. `updateState`'s own 2 s dedupe
+            // keeps a burst from queueing a refresh per press.
             Task {
-                await controller.executeActionWithStatus(platform: platform, action: .key(key))
+                await controller.executeActionWithoutStatus(platform: platform, action: .key(key))
+            }
+            Task {
+                await controller.updateState(for: platform)
             }
         } label: {
             // Sized by IconButtonStyle's font rather than a resizable frame (the
