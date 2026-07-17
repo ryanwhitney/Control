@@ -18,6 +18,7 @@ struct PlatformControl: View {
     @EnvironmentObject var controller: AppController
     @StateObject private var preferences = UserPreferences.shared
     @State private var showingExperimentalAlert = false
+    @State private var showingKeyPadEditor = false
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -128,6 +129,16 @@ struct PlatformControl: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    if isKeyPad {
+                        Button {
+                            showingKeyPadEditor = true
+                        } label: {
+                            Label("Edit keys", systemImage: "gearshape.fill")
+                                .labelStyle(.iconOnly)
+                                .foregroundStyle(.tint)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.bottom, titleBottomPadding)
                 VStack(alignment: .center) {
@@ -180,6 +191,9 @@ struct PlatformControl: View {
             Button("OK") { }
         } message: {
             Text(platform.reasonForExperimental)
+        }
+        .sheet(isPresented: $showingKeyPadEditor) {
+            KeyPadEditorView()
         }
     }
 }

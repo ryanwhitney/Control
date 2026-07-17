@@ -2,18 +2,23 @@ import SwiftUI
 import UIKit
 
 struct IconButtonStyle: ButtonStyle {
+    // Fixed sizes on purpose: a five-button transport row at these sizes already
+    // fills a small phone's width, so scaling with Dynamic Type clips the outer
+    // buttons off screen. 60pt is comfortably above tap-target minimums. The
+    // key pad passes smaller values in phone landscape, where four rows have
+    // to fit — 44pt, still the tap-target floor.
+    var width: CGFloat = 60
+    var height: CGFloat = 60
+    var fontSize: CGFloat = 36
     @State private var bounceCount = 0
     @State private var isAnimating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Fixed sizes on purpose: a five-button transport row at these sizes already
-    // fills a small phone's width, so scaling with Dynamic Type clips the outer
-    // buttons off screen. 60pt is comfortably above tap-target minimums.
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
-            .font(.system(size: 36))
+            .font(.system(size: fontSize))
             .fontWeight(.regular)
-            .frame(width: 60, height: 60)
+            .frame(width: width, height: height)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)

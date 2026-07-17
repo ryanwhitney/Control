@@ -32,9 +32,11 @@ struct KeyboardApp: AppPlatform {
     // visit while every other tab was pre-filled. The read is no more expensive
     // than the process-existence check every other platform's status already runs.
 
-    var supportedActions: [ActionConfig] {
-        RemoteKey.allCases.map { .key($0) }
-    }
+    /// Empty on purpose: an action list only feeds the transport row, which
+    /// the keyPad style never renders. The pad is positional and draws from
+    /// the user's `KeyPadLayout` instead — a flat list can't say which key
+    /// belongs in which cell.
+    var supportedActions: [ActionConfig] { [] }
 
     /// No app of our own to quit — the inherited "Close Keyboard" item would be
     /// nonsense.
@@ -113,9 +115,22 @@ struct KeyboardApp: AppPlatform {
         guard case .key(let key) = action else { return "" }
         return """
         tell application "System Events"
-            key code \(key.keyCode) -- \(key.label.lowercased())
+            \(pressStatement(for: key))
         end tell
         """
+    }
+
+    /// `key code` for the named keys; `keystroke` for character keys, so the
+    /// Mac's own layout resolves the press — "a" types a on AZERTY too, where
+    /// `key code 0` would type q. Backslash is the one catalog character an
+    /// AppleScript string literal needs escaped.
+    private func pressStatement(for key: RemoteKey) -> String {
+        switch key.press {
+        case .keyCode(let code):
+            return "key code \(code) -- \(key.label.lowercased())"
+        case .character(let character):
+            return "keystroke \"\(character.replacingOccurrences(of: "\\", with: "\\\\"))\""
+        }
     }
 
     /// Only used if something routes a key through the status-bundling path; the
