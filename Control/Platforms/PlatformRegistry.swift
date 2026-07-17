@@ -15,6 +15,9 @@ class PlatformRegistry: ObservableObject {
         SpotifyApp(),
         SafariApp(),
 //        ChromeApp()
+        // Last: it's the fallback for whatever the other pages can't drive, and
+        // this order is the pager's order.
+        KeyboardApp(),
     ]
     
     init(platforms: [any AppPlatform]? = nil) {

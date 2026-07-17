@@ -6,8 +6,9 @@ import Testing
 /// so that shared contract is tested once here rather than re-tested per app with
 /// a different song/movie name. Only the genuine per-platform differences get
 /// their own case: VLC reads the boolean from an extra column, and Safari has a
-/// distinct fallback. Each app's real end-to-end output is separately validated
-/// by the live `statusScriptRunsAndParses`.
+/// distinct fallback, and Keyboard suppresses a redundant window title. Each
+/// app's real end-to-end output is separately validated by the live
+/// `statusScriptRunsAndParses`.
 struct PlatformParsingTests {
     private let sep = ScriptTokens.fieldSeparator
 
@@ -52,5 +53,33 @@ struct PlatformParsingTests {
         #expect(state.title == "No video found here")
         #expect(state.isPlaying == nil)
         #expect(state.error == nil)
+    }
+
+    /// Keyboard reports the frontmost app plus its window title, and never a play
+    /// state — nothing on that page plays, so the shared parser's boolean must be
+    /// discarded rather than read downstream as "paused".
+    @Test func keyboardReportsFrontAppAndWindowWithoutPlayState() {
+        let state = KeyboardApp().parseState("Safari\(sep)Young Washington Review - YouTube\(sep)false")
+        #expect(state.title == "Safari")
+        #expect(state.subtitle == "Young Washington Review - YouTube")
+        #expect(state.isPlaying == nil)
+    }
+
+    /// A window title the app name already says is dropped: identical to it
+    /// ("Calendar"), or wholly contained in it ("Chrome" under "Google Chrome").
+    /// Matching ignores case and surrounding whitespace.
+    @Test func keyboardDropsWindowTitleTheAppNameAlreadySays() {
+        #expect(KeyboardApp.windowSubtitle("Calendar", appName: "Calendar") == "")
+        #expect(KeyboardApp.windowSubtitle("Chrome", appName: "Google Chrome") == "")
+        #expect(KeyboardApp.windowSubtitle("  calendar  ", appName: "Calendar") == "")
+        #expect(KeyboardApp.windowSubtitle("", appName: "TV") == "")
+    }
+
+    /// A *longer* title survives even though it contains the app name — the
+    /// remainder is real information, which is the whole reason for the subtitle.
+    @Test func keyboardKeepsWindowTitleThatAddsInformation() {
+        #expect(KeyboardApp.windowSubtitle("Activity Monitor – All Processes", appName: "Activity Monitor")
+                == "Activity Monitor – All Processes")
+        #expect(KeyboardApp.windowSubtitle("No file - mpv", appName: "mpv") == "No file - mpv")
     }
 }
