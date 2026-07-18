@@ -16,6 +16,7 @@ struct ChooseAppsView: View, SSHConnectedView {
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
     @State private var headerHeight: CGFloat = 0
+    @State private var bottomPanelHeight: CGFloat = 0
     @State private var showAppList: Bool = false
     
     private var availablePlatforms: [any AppPlatform] {
@@ -91,6 +92,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     }
                 }
                 .padding()
+                .padding(.bottom, bottomPanelHeight + 12)
             }
             .mask(
                 LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
@@ -140,7 +142,7 @@ struct ChooseAppsView: View, SSHConnectedView {
             
             VStack{
                 Spacer()
-                BottomButtonPanel{
+                BottomButtonPanel(height: $bottomPanelHeight){
                     Button(action: {
                         viewLog("Selected platforms: \(selectedPlatforms)", view: "ChooseAppsView")
                         onComplete(selectedPlatforms)

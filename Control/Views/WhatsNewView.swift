@@ -4,6 +4,7 @@ import MultiBlur
 struct WhatsNewView: View {
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var bottomPanelHeight: CGFloat = 0
     let onDismiss: () -> Void
     
     /// The sheet only floats as a centered, bordered card in regular-width
@@ -61,15 +62,17 @@ struct WhatsNewView: View {
                             .blur(radius: 80)
                     }
                     .padding(.horizontal)
-                    .padding(.bottom, 100)
-                    
+                    // Clearance for the floating Continue panel, measured live
+                    // so it stays right when Dynamic Type grows the button.
+                    .padding(.bottom, bottomPanelHeight + 12)
+
                 }
                 .scrollContentBackground(.hidden)
                 
                 // Fixed Button at Bottom
                 VStack{
                     Spacer()
-                    BottomButtonPanel{
+                    BottomButtonPanel(height: $bottomPanelHeight){
                         if #available(iOS 26.0, *) {
                             Button {
                                 preferences.markWhatsNewAsSeen()

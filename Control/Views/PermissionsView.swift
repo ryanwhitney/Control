@@ -35,6 +35,7 @@ struct PermissionsView: View, SSHConnectedView {
     @State private var permissionsGranted: Bool = false
     @State private var showSuccess: Bool = false
     @State private var headerHeight: CGFloat = 0
+    @State private var bottomPanelHeight: CGFloat = 0
     @State private var showAppList: Bool = false
     @State private var _showingConnectionLostAlert = false
     @State private var _showingError = false
@@ -170,6 +171,7 @@ struct PermissionsView: View, SSHConnectedView {
                         }
                     }
                     .padding()
+                    .padding(.bottom, bottomPanelHeight + 12)
                 }
                 .mask(
                     LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
@@ -214,7 +216,7 @@ struct PermissionsView: View, SSHConnectedView {
                 }
                 VStack{
                     Spacer()
-                    BottomButtonPanel{
+                    BottomButtonPanel(height: $bottomPanelHeight){
                         actionButtons
                             .padding()
                     }
