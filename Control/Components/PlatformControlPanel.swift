@@ -133,7 +133,7 @@ struct PlatformControl: View {
                         Button {
                             showingKeyPadEditor = true
                         } label: {
-                            Label("Edit keys", systemImage: "gearshape.fill")
+                            Label("Customize Keyboard Controls", systemImage: "gearshape.fill")
                                 .labelStyle(.iconOnly)
                                 .foregroundStyle(.tint)
                         }
