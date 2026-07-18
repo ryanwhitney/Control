@@ -128,6 +128,9 @@ struct AppState: Equatable {
 protocol AppPlatform: Identifiable {
     var id: String { get }
     var name: String { get }
+    /// Optional one-liner under the name in Choose Apps; nil for apps whose
+    /// name says it all.
+    var listDescription: String? { get }
     var defaultEnabled: Bool { get }
     var checksStatusOnlyWhenVisible: Bool { get }
     var minActionInterval: TimeInterval { get }
@@ -148,6 +151,7 @@ protocol AppPlatform: Identifiable {
 extension AppPlatform {
     var experimental: Bool { false }
     var reasonForExperimental: String { "" }
+    var listDescription: String? { nil }
 
     /// Media players show the transport row; only the generic key pad
     /// (`KeyboardApp`) overrides this.
