@@ -23,6 +23,8 @@ import Foundation
 struct KeyboardApp: AppPlatform {
     let id = "keyboard"
     let name = "Keyboard"
+    /// The one platform whose name alone doesn't say what it drives.
+    let listDescription: String? = "Works with whatever app is foregrounded on your Mac."
     let defaultEnabled = true
     let controlStyle: ControlStyle = .keyPad
     // Deliberately NOT `checksStatusOnlyWhenVisible`: that flag exists for pages

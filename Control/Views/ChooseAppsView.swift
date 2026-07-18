@@ -65,13 +65,21 @@ struct ChooseAppsView: View, SSHConnectedView {
                                     }
                                 }
                             )) {
-                                HStack {
-                                    Text(platform.name)
-                                    if platform.experimental {
-                                        Image(systemName: "flask.fill")
-                                            .foregroundStyle(.tint)
-                                            .font(.caption)
-                                            .accessibilityLabel("Experimental")
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(platform.name)
+                                        if platform.experimental {
+                                            Image(systemName: "flask.fill")
+                                                .foregroundStyle(.tint)
+                                                .font(.caption)
+                                                .accessibilityLabel("Experimental")
+                                        }
+                                    }
+                                    if let listDescription = platform.listDescription {
+                                        Text(listDescription)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
                                 .padding()
