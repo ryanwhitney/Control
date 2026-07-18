@@ -254,7 +254,7 @@ struct KeyPadEditorContent: View {
     /// concatenated inline so it can't drift from the words around it; its
     /// accessibility label makes VoiceOver read it as "More".
     private var enablementHint: some View {
-        Text("These send key presses to whatever window is foregrounded on your Mac.")
+        Text("This updates the layout for all connections with Keyboard controls enabled.")
             .font(.body)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,6 +263,7 @@ struct KeyPadEditorContent: View {
                 RoundedRectangle(cornerRadius: 14)
                     .foregroundStyle(.thinMaterial)
             }
+            .padding(.bottom, 10)
     }
 
     /// Only visible while a cap is lifted — but always laid out, so revealing

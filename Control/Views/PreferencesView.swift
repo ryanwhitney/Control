@@ -29,6 +29,12 @@ struct PreferencesView: View {
                         color: .green
                     )
                     PreferencesRow(
+                        destination: KeyPadEditorContent(showsEnablementHint: true),
+                        customIconName: "custom.arrowtriangles.up.right.down.left",
+                        title: "Customize Keyboard Controls",
+                        color: .black.opacity(0.35)
+                    )
+                    PreferencesRow(
                         destination: ExperimentalPlatformsView(),
                         iconName: "flask.fill",
                         title: "Experimental App Controls",
@@ -71,18 +77,43 @@ struct PreferencesView: View {
 
 struct PreferencesRow<Destination: View>: View {
     let destination: Destination
-    let iconName: String
+    let icon: Image
     let title: String
     let color: Color
+    /// Per-symbol stroke weight; nil leaves the symbol's natural weight.
+    /// Works for custom catalog symbols too — the template's
+    /// Ultralight/Regular/Black sources interpolate the rest.
+    let weight: Font.Weight?
+
+    /// A system SF Symbol.
+    init(destination: Destination, iconName: String, title: String, color: Color, weight: Font.Weight? = nil) {
+        self.destination = destination
+        self.icon = Image(systemName: iconName)
+        self.title = title
+        self.color = color
+        self.weight = weight
+    }
+
+    /// A custom symbol from the asset catalog (an SF Symbols app export
+    /// dropped into Assets.xcassets) — those load by asset name, not
+    /// `systemName`.
+    init(destination: Destination, customIconName: String, title: String, color: Color, weight: Font.Weight? = nil) {
+        self.destination = destination
+        self.icon = Image(customIconName)
+        self.title = title
+        self.color = color
+        self.weight = weight
+    }
 
     var body: some View {
         NavigationLink {
             destination
         } label: {
             HStack {
-                Image(systemName: iconName)
+                icon
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+                    .fontWeight(weight)
                     .foregroundStyle(.primary)
                     .frame(width: 20, height: 20)
                     .padding(4)
