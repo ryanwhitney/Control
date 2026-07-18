@@ -1,6 +1,28 @@
 import SwiftUI
 import UIKit
 
+/// The editor as the control screen's gear presents it: wrapped in its own
+/// stack with a Done button. Preferences pushes `KeyPadEditorContent`
+/// directly instead — a pushed page takes its chrome from the parent stack.
+struct KeyPadEditorView: View {
+    var store: KeyPadLayoutStore = .shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            KeyPadEditorContent(store: store)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
+                            dismiss()
+                        }
+                        .fontWeight(.semibold)
+                    }
+                }
+        }
+    }
+}
+
 /// Edits the generic key pad's layout: the same grid the pad shows, at a more
 /// deliberate size — filled cells captioned, empty cells drawn as sockets.
 /// Tapping a cell chooses what goes there. Holding a cap lifts the real thing
@@ -14,11 +36,15 @@ import UIKit
 /// source cell, and won't register drops on transparent (empty) cells. Here
 /// the lifted cap is an overlay in the editor's coordinate space, and
 /// targeting is plain rect hit-testing against measured cell frames.
-struct KeyPadEditorView: View {
+struct KeyPadEditorContent: View {
     /// Injectable so previews can edit a throwaway layout; defaults to the
     /// persisted store.
     @ObservedObject var store: KeyPadLayoutStore = .shared
-    @Environment(\.dismiss) private var dismiss
+    /// Preferences turns this on: reached from there, the Keyboard app may
+    /// not be enabled anywhere yet, so the page explains what these controls
+    /// are and where they're switched on. From the control screen's gear the
+    /// user is already standing on the pad, and the hint would be noise.
+    var showsEnablementHint = false
     @State private var editingCell: EditingCell?
     @State private var confirmingReset = false
 
@@ -47,6 +73,18 @@ struct KeyPadEditorView: View {
         let command: PadCommand
     }
 
+    /// Reduce Motion swaps the settle flights for instant commits: the drag
+    /// itself is direct manipulation (the cap tracks the finger 1:1), but the
+    /// autonomous flying-home/swap animations are exactly what the setting
+    /// asks to avoid.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Restores VoiceOver to the cell that was being edited when the picker
+    /// pops; the cell's own label and value then speak the outcome ("M, Row 3,
+    /// column 2") — confirmation and position in one, with no announcement to
+    /// get clipped by focus speech.
+    @AccessibilityFocusState private var focusedCellIndex: Int?
+
     @State private var drag: DragState?
     @State private var displaced: DisplacedCap?
     @State private var liftedCenter: CGPoint = .zero
@@ -66,47 +104,61 @@ struct KeyPadEditorView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                ZStack {
-                    VStack(spacing: 16) {
-                        cellGrid
-                        removeDropZone
+        ScrollView {
+            ZStack {
+                VStack(spacing: 16) {
+                    if showsEnablementHint {
+                        enablementHint
                     }
-                    liftedOverlays
+                    cellGrid
+                    removeDropZone
                 }
-                .coordinateSpace(name: Self.editorSpace)
-                .padding(20)
+                liftedOverlays
             }
-            .scrollDisabled(drag != nil)
-            .navigationTitle("Edit Keys")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Reset") {
-                        confirmingReset = true
-                    }
+            .coordinateSpace(name: Self.editorSpace)
+            .padding(20)
+        }
+        .scrollDisabled(drag != nil)
+        .onChange(of: editingCell) { previous, current in
+            // Back from the picker (chosen, removed, or backed out): the
+            // picker is a sheet *because* of VoiceOver — a pushed screen's
+            // pop posts a screen-change whose focus pass starts from the
+            // top-left and beats anything we set, while a sheet leaves
+            // this screen's tree intact and VO restores focus to the cell
+            // that opened it. This deferred set is the backstop for when
+            // that restoration doesn't happen, timed past the dismissal
+            // animation.
+            if current == nil, let previous {
+                Task {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    focusedCellIndex = previous.index
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
-            .confirmationDialog(
-                "Reset to the standard layout?",
-                isPresented: $confirmingReset,
-                titleVisibility: .visible
-            ) {
-                Button("Reset", role: .destructive) {
-                    store.reset()
-                }
-            }
-            .navigationDestination(item: $editingCell) { cell in
-                KeyPickerView(store: store, cellIndex: cell.index)
             }
         }
+        .navigationTitle("Customize Keyboard Controls")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Trailing, not leading: pushed from Preferences this page keeps
+            // its back button; in the sheet, Done sits alongside.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Reset") {
+                    confirmingReset = true
+                }
+            }
+        }
+        .confirmationDialog(
+            "Reset to the standard layout?",
+            isPresented: $confirmingReset,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                store.reset()
+            }
+        }
+        .sheet(item: $editingCell) { cell in
+            KeyPickerView(store: store, cellIndex: cell.index)
+        }
+        // Sheet presentation only; inert when this page is pushed.
         .interactiveDismissDisabled(drag != nil)
     }
 
@@ -153,9 +205,24 @@ struct KeyPadEditorView: View {
             // sighted users get from the layout.
             .accessibilityValue("Row \(index / KeyPadLayout.columnCount + 1), column \(index % KeyPadLayout.columnCount + 1)")
             .accessibilityHint("Chooses the key for this space")
+            // Voice Control names, matching the live pad's ("Tap Up arrow").
+            .accessibilityInputLabels(command?.inputLabels ?? ["Empty space"])
             .accessibilityAction {
                 editingCell = EditingCell(index: index)
             }
+            .accessibilityActions {
+                // One-step removal from the rotor/Switch Control menu — parity
+                // with drag-to-remove, which assistive tech can't perform.
+                if command != nil {
+                    Button("Remove Key") {
+                        store.layout.cells[index] = nil
+                        // Rotor actions give no feedback of their own, and
+                        // focus stays put rather than re-reading the cell.
+                        AccessibilityNotification.Announcement("Key removed").post()
+                    }
+                }
+            }
+            .accessibilityFocused($focusedCellIndex, equals: index)
     }
 
     /// The caps in flight, drawn in the editor's coordinate space above the
@@ -171,13 +238,31 @@ struct KeyPadEditorView: View {
                 .shadow(color: .black.opacity(0.25), radius: 14, y: 8)
                 .position(liftedCenter)
                 .allowsHitTesting(false)
+                // Transient drag chrome; never a focusable element.
+                .accessibilityHidden(true)
         }
         if let displaced {
             KeyCapCell(command: displaced.command)
                 .frame(width: cellFrames[displaced.index]?.width)
                 .position(displacedCenter)
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
+    }
+
+    /// The ellipsis is the real glyph of the control screen's More menu,
+    /// concatenated inline so it can't drift from the words around it; its
+    /// accessibility label makes VoiceOver read it as "More".
+    private var enablementHint: some View {
+        Text("These send key presses to whatever window is foregrounded on your Mac.")
+            .font(.body)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background{
+                RoundedRectangle(cornerRadius: 14)
+                    .foregroundStyle(.thinMaterial)
+            }
     }
 
     /// Only visible while a cap is lifted — but always laid out, so revealing
@@ -242,10 +327,16 @@ struct KeyPadEditorView: View {
               let frame = cellFrames[index] else { return }
         drag = DragState(sourceIndex: index, command: command)
         liftedCenter = frame.center
-        liftedScale = 1
         liftedOpacity = 1
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        if reduceMotion {
+            // Still lifted-looking (the scale is state, not motion) — just no
+            // spring getting there.
             liftedScale = 1.08
+        } else {
+            liftedScale = 1
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                liftedScale = 1.08
+            }
         }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
@@ -290,6 +381,14 @@ struct KeyPadEditorView: View {
         switch drag.target {
         case .cell(let targetIndex):
             let sourceIndex = drag.sourceIndex
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // Reduce Motion: no flight — commit in place and let the grid
+            // redraw where everything already is.
+            if reduceMotion {
+                store.layout.cells.swapAt(sourceIndex, targetIndex)
+                finishDrag()
+                return
+            }
             if let displacedCommand = store.layout.cells[targetIndex],
                let targetFrame = cellFrames[targetIndex],
                let sourceFrame = cellFrames[sourceIndex] {
@@ -299,7 +398,6 @@ struct KeyPadEditorView: View {
                     displacedCenter = sourceFrame.center
                 }
             }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(Self.settleSpring, completionCriteria: .logicallyComplete) {
                 if let targetFrame = cellFrames[targetIndex] {
                     liftedCenter = targetFrame.center
@@ -314,6 +412,11 @@ struct KeyPadEditorView: View {
         case .remove:
             let sourceIndex = drag.sourceIndex
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            if reduceMotion {
+                store.layout.cells[sourceIndex] = nil
+                finishDrag()
+                return
+            }
             withAnimation(.easeOut(duration: 0.18), completionCriteria: .logicallyComplete) {
                 liftedScale = 0.3
                 liftedOpacity = 0
@@ -332,6 +435,10 @@ struct KeyPadEditorView: View {
         guard var drag else { return }
         drag.isSettling = true
         self.drag = drag
+        if reduceMotion {
+            finishDrag()
+            return
+        }
         withAnimation(Self.settleSpring, completionCriteria: .logicallyComplete) {
             if let frame = cellFrames[drag.sourceIndex] {
                 liftedCenter = frame.center
@@ -357,8 +464,10 @@ private extension CGRect {
 }
 
 /// Chooses the key for one pad cell: the full unmodified keyboard, grouped
-/// into sections and drawn as key caps. Selecting pops back to the grid;
-/// Remove empties the cell.
+/// into sections and drawn as key caps. A sheet rather than a push — a pop's
+/// screen-change resets VoiceOver focus to the top-left, while dismissing a
+/// sheet returns it to the cell being edited. The medium detent keeps the
+/// grid visible behind it. Selecting dismisses; Remove empties the cell.
 private struct KeyPickerView: View {
     @ObservedObject var store: KeyPadLayoutStore
     let cellIndex: Int
@@ -368,38 +477,49 @@ private struct KeyPickerView: View {
         store.layout.cells[cellIndex]
     }
 
+    private var positionDescription: String {
+        "row \(cellIndex / KeyPadLayout.columnCount + 1), column \(cellIndex % KeyPadLayout.columnCount + 1)"
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                ForEach(RemoteKey.sections) { section in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(section.title)
-                            .font(.headline)
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
-                            ForEach(section.keys) { key in
-                                keyButton(key)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    ForEach(RemoteKey.sections) { section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.title)
+                                .font(.headline)
+                                // Rotor heading navigation: ~70 keys is too
+                                // many to swipe through without section jumps.
+                                .accessibilityAddTraits(.isHeader)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
+                                ForEach(section.keys) { key in
+                                    keyButton(key)
+                                }
                             }
                         }
                     }
                 }
+                .padding(20)
             }
-            .padding(20)
-        }
-        .navigationTitle("Choose Key")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if current != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Remove", role: .destructive) {
-                        store.layout.cells[cellIndex] = nil
-                        dismiss()
+            .navigationTitle("Choose Key")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if current != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Remove", role: .destructive) {
+                            store.layout.cells[cellIndex] = nil
+                            dismiss()
+                        }
+                        // The app's theme tint colors toolbar items; removal
+                        // must read as destructive regardless of theme.
+                        .tint(.red)
                     }
-                    // The app's theme tint colors toolbar items; removal must
-                    // read as destructive regardless of theme.
-                    .tint(.red)
                 }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     private func keyButton(_ key: RemoteKey) -> some View {
@@ -412,6 +532,9 @@ private struct KeyPickerView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(key.label)
+        // Nothing on screen says what selecting does, so the hint carries it —
+        // spoken after a pause, suppressible in VoiceOver settings.
+        .accessibilityHint("Assigns this key to \(positionDescription)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
@@ -476,6 +599,13 @@ private struct KeyCapCell: View {
 #Preview("Editor — every cap shape") {
     KeyPadEditorView(store: .preview(.glyphSampler))
         .preferredColorScheme(.dark)
+}
+
+#Preview("Editor — from Preferences") {
+    NavigationStack {
+        KeyPadEditorContent(store: .preview(), showsEnablementHint: true)
+    }
+    .preferredColorScheme(.dark)
 }
 
 /// Each visual state of an editor tile side by side — the place to iterate on
