@@ -20,9 +20,11 @@ struct ChooseAppsView: View, SSHConnectedView {
     @State private var showAppList: Bool = false
     
     private var availablePlatforms: [any AppPlatform] {
+        // Registry order, which leads with Keyboard — the pager shows the
+        // same order, so this list previews it.
         let nonExperimental = platformRegistry.nonExperimentalPlatforms
-        let enabledExperimental = platformRegistry.experimentalPlatforms.filter { 
-            platformRegistry.enabledExperimentalPlatforms.contains($0.id) 
+        let enabledExperimental = platformRegistry.experimentalPlatforms.filter {
+            platformRegistry.enabledExperimentalPlatforms.contains($0.id)
         }
         return nonExperimental + enabledExperimental
     }
