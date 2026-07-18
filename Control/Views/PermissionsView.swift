@@ -40,6 +40,9 @@ struct PermissionsView: View, SSHConnectedView {
     @State private var _showingConnectionLostAlert = false
     @State private var _showingError = false
     @State private var _connectionError: (title: String, message: String)?
+    @State private var showingPermissionsNameExplanation = false
+    /// Non-nil once the success choreography has started; it runs exactly once.
+    @State private var successSequenceTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     
@@ -92,30 +95,54 @@ struct PermissionsView: View, SSHConnectedView {
         }
         .alert(isPresented: showingError) { connectionErrorAlert() }
         .onChange(of: allPermissionsGranted) {
+            guard allPermissionsGranted else { return }
             // The success state is otherwise conveyed by a visual crossfade only.
-            if allPermissionsGranted {
-                AccessibilityNotification.Announcement("All permissions granted. You're all set.").post()
+            AccessibilityNotification.Announcement("All permissions granted. You're all set.").post()
+            startSuccessSequence()
+        }
+        .onChange(of: showingPermissionsNameExplanation) { _, isOpen in
+            // A grant that landed while the "why sshd-keygen-wrapper" sheet
+            // was up has been holding for it — pick the sequence up on close.
+            if !isOpen {
+                startSuccessSequence()
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                withAnimation(.spring()) {
-                    permissionsGranted = true
-                }
+        }
+    }
+
+    /// The granted → success → onComplete choreography (same beats as the old
+    /// dispatch chain: crossfade at 1 s, success card at 1.5 s, out at 3.5 s,
+    /// complete at 4 s), rebuilt as one awaitable sequence so it can hold
+    /// between beats while the explanation sheet is open. The rows keep
+    /// spinning and turning green behind the sheet — only *moving on* waits.
+    private func startSuccessSequence() {
+        guard allPermissionsGranted, successSequenceTask == nil else { return }
+        successSequenceTask = Task { @MainActor in
+            await paceSuccessBeat(.seconds(1))
+            withAnimation(.spring()) {
+                permissionsGranted = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation(.spring()) {
-                    showSuccess = true
-                }
+            await paceSuccessBeat(.milliseconds(500))
+            withAnimation(.spring()) {
+                showSuccess = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-                withAnimation(.spring()) {
-                    showSuccess = false
-                }
+            await paceSuccessBeat(.seconds(2))
+            withAnimation(.spring()) {
+                showSuccess = false
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                withAnimation(.spring()) {
-                    onComplete()
-                }
+            await paceSuccessBeat(.milliseconds(500))
+            withAnimation(.spring()) {
+                onComplete()
             }
+        }
+    }
+
+    /// One beat of the sequence: the interval, then a hold for as long as the
+    /// explanation sheet is open, so no step ever fires underneath it.
+    @MainActor
+    private func paceSuccessBeat(_ interval: Duration) async {
+        try? await Task.sleep(for: interval)
+        while showingPermissionsNameExplanation {
+            try? await Task.sleep(for: .milliseconds(250))
         }
     }
 
@@ -186,16 +213,13 @@ struct PermissionsView: View, SSHConnectedView {
                         .padding(0)
                         .foregroundStyle(.primary, .tint)
                         .padding(.bottom, -20)
+                        .multiblur([(10, 0.85), (25, 0.5), (50, 0.5)])
                         .accessibilityHidden(true)
                     Text("Accept Permissions On Your Mac")
                         .font(.title2)
                         .bold()
                         .padding(.horizontal)
                         .padding(.top)
-                    Text("Control can only access apps you approve.")
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal)
                 }
                 // One heading element instead of a header trait on each fragment.
                 .accessibilityElement(children: .combine)
@@ -296,12 +320,30 @@ struct PermissionsView: View, SSHConnectedView {
             .disabled(isChecking || allPermissionsGranted || connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
-
-            Text("This may open Permissions Dialogs on \(host).")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+            // One button so "Learn why" isn't a sliver of a tap target; only
+            // the link phrase is tinted. macOS attributes these dialogs to
+            // sshd-keygen-wrapper (each Remote Login session's launcher), so
+            // that's the name people will actually see — the alert explains
+            // why it isn't "Control".
+            Button {
+                showingPermissionsNameExplanation = true
+            } label: {
+                (Text("This may open permission dialogs for “sshd-keygen-wrapper” on your Mac. ")
+                    .foregroundStyle(.secondary)
+                    + Text("Learn why")
+                    .foregroundStyle(.tint))
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .accessibilityHint("Explains why the dialogs name sshd-keygen-wrapper instead of Control")
+            // A sheet, not an alert: alerts can't carry the screenshot of the
+            // real macOS dialog, which is what makes the name recognizable
+            // when it appears.
+            .sheet(isPresented: $showingPermissionsNameExplanation) {
+                PermissionsNameExplanationSheet()
+            }
         }
         .toolbarBackground(.hidden, for: .navigationBar)
     }
@@ -467,6 +509,84 @@ struct PermissionsView: View, SSHConnectedView {
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
+}
+
+/// Why macOS's permission dialogs say "sshd-keygen-wrapper" and not
+/// "Control". Led by a screenshot of the real dialog so the name is
+/// recognizable when it appears; a sheet in CompatibilityFallbackNotice's
+/// style, since alerts can't carry images.
+private struct PermissionsNameExplanationSheet: View {
+    @ObservedObject private var preferences = UserPreferences.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    VStack(spacing: 8) {
+                        Image("sshd-keygen-wrapper-dialog-cropped")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 220)
+                            .accessibilityLabel("A macOS dialog showing: “sshd-keygen-wrapper” wants access to control “Music”, with Don’t Allow and Allow buttons")
+                        Text("Example dialog.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 40)
+                    .padding(.bottom, 10)
+                    .accessibilityElement(children: .combine)
+
+                    Text("Why “sshd-keygen-wrapper”?")
+                        .font(.title2.bold())
+                        .multilineTextAlignment(.leading)
+                        .accessibilityAddTraits(.isHeader)
+                    VStack(alignment: .leading, spacing: 16){
+                        Group{
+                            Text("Control lives on your phone. It never runs on your Mac, though it does send *commands* to it.")
+                            Text("Those commands are sent via macOS's built-in Remote Login, and sshd-keygen-wrapper is the system process that delivers them.")
+                            Text("Note: if you ever want to manage these permissions later, they're found under System Settings > Privacy & Security > Automation > sshd-keygen-wrapper.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+            Button {
+                dismiss()
+            } label: {
+                HStack {
+                    Text("OK")
+                        .multiblur([(10,0.25), (50,0.35)])
+                }
+                .padding(.vertical, 11)
+                .frame(maxWidth: .infinity)
+                .glassPillLabel()
+                .fontWeight(.bold)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 8)
+        .background(.ultraThickMaterial)
+        .tint(preferences.tintColorValue)
+        .presentationDetents([.fraction(0.9), .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+#Preview("Why sshd-keygen-wrapper sheet") {
+    Color.clear
+        .sheet(isPresented: .constant(true)) {
+            PermissionsNameExplanationSheet()
+        }
 }
 
 #Preview {
