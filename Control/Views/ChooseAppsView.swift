@@ -127,7 +127,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .bold()
                     .padding(.horizontal)
                     .padding(.top)
-                Text("You can change these anytime.")
+                Text("You can change these later, too.")
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
