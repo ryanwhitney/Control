@@ -120,6 +120,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .padding(0)
                     .foregroundStyle(.tint, .quaternary)
                     .padding(.bottom, -20)
+                    .multiblur([(10, 0.85), (25, 0.5), (50, 0.5)])
                     .accessibilityHidden(true)
                 Text("Choose apps to control")
                     .font(.title2)
