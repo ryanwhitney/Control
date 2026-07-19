@@ -1,9 +1,11 @@
 import SwiftUI
 import UIKit
+import MultiBlur
 
 /// The editor as the control screen's gear presents it: wrapped in its own
-/// stack with a Done button. Preferences pushes `KeyPadEditorContent`
-/// directly instead — a pushed page takes its chrome from the parent stack.
+/// stack with a Done button — leading, since the content's More menu owns the
+/// trailing slot. Preferences pushes `KeyPadEditorContent` directly instead —
+/// a pushed page takes its chrome from the parent stack.
 struct KeyPadEditorView: View {
     var store: KeyPadLayoutStore = .shared
     @Environment(\.dismiss) private var dismiss
@@ -12,7 +14,7 @@ struct KeyPadEditorView: View {
         NavigationStack {
             KeyPadEditorContent(store: store)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .topBarLeading) {
                         Button("Done") {
                             dismiss()
                         }
@@ -138,21 +140,26 @@ struct KeyPadEditorContent: View {
         .navigationTitle("Customize Keyboard Controls")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Trailing, not leading: pushed from Preferences this page keeps
-            // its back button; in the sheet, Done sits alongside.
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Reset") {
-                    confirmingReset = true
+                Menu {
+                    Button("Restore Default Layout", role: .destructive) {
+                        confirmingReset = true
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis")
                 }
-            }
-        }
-        .confirmationDialog(
-            "Reset to the standard layout?",
-            isPresented: $confirmingReset,
-            titleVisibility: .visible
-        ) {
-            Button("Reset", role: .destructive) {
-                store.reset()
+                // Attached to the menu, not the screen: the dialog anchors to
+                // what raised it — from the outer scroll view it presents
+                // detached (and as a mis-anchored popover on iPad).
+                .confirmationDialog(
+                    "Restore the default layout?",
+                    isPresented: $confirmingReset,
+                    titleVisibility: .visible
+                ) {
+                    Button("Restore", role: .destructive) {
+                        store.reset()
+                    }
+                }
             }
         }
         .sheet(item: $editingCell) { cell in
