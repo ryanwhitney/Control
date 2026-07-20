@@ -154,7 +154,12 @@ struct ControlView: View, SSHConnectedView {
         ZStack {
             VStack() {
                 VStack {
-                    Spacer()
+                    // Landscape spends its centring whitespace on the pages
+                    // instead: the pager fills top-to-volume and each page
+                    // rations its own points (see PlatformControl).
+                    if !isPhoneLandscape {
+                        Spacer()
+                    }
                     TabView(selection: $selectedPlatformIndex) {
                         ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
                             PlatformControl(
@@ -202,9 +207,19 @@ struct ControlView: View, SSHConnectedView {
                         // screen so nearby tabs fill first. No-op on Compatibility.
                         appController.prefetchBackgroundTabs(around: platform.id)
                     }
-                    Spacer()
+                    // The native dots ride a fixed inset above the pager's
+                    // bottom edge, so lowering them means lowering the edge:
+                    // in landscape the pager extends below its slot (the
+                    // pages carry matching extra bottom clearance so caps
+                    // stay clear of the dots — see PlatformControl).
+                    .padding(.bottom, isPhoneLandscape ? -14 : 0)
+                    if !isPhoneLandscape {
+                        Spacer()
+                    }
                 }
-                Spacer(minLength: 40)
+                // Portrait deliberately has no spacer here: the pager fills
+                // down to the volume row, so its dots sit lower — only the
+                // in-pager spacers above/below the TabView centre the pages.
                 VStack(alignment: .center) {
                     HStack(spacing: 0){
                         Button{
@@ -255,7 +270,8 @@ struct ControlView: View, SSHConnectedView {
                         .disabled(!volumeInitialized)
                     }
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.vertical, isPhoneLandscape ? 0 : 16)
                 .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
                 if !isPhoneLandscape {
                     Spacer(minLength: 40)
@@ -272,7 +288,9 @@ struct ControlView: View, SSHConnectedView {
                 .animation(.spring(), value: connectionManager.connectionState)
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
-        .padding(.vertical)
+        // Landscape gives its vertical margins to the pad; the pages place
+        // their own 10pt from the top instead.
+        .padding(.vertical, isPhoneLandscape ? 0 : 16)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
