@@ -111,13 +111,23 @@ struct KeyboardApp: AppPlatform {
 
     /// A complete, self-contained script (like TV's key actions, not the injected
     /// fragment QuickTime/mpv return) — a key press sends exactly this and nothing
-    /// else. It's a single System Events statement, ~0.4 ms of work, which is the
-    /// whole point: see `AppController.executeActionWithoutStatus`.
+    /// else. A plain key is a single System Events statement, ~0.4 ms of work,
+    /// which is the whole point: see `AppController.executeActionWithoutStatus`.
+    /// A shortcut is one statement per press (a single-chord shortcut is still
+    /// one), all inside the same tell.
     func executeAction(_ action: AppAction) -> String {
-        guard case .key(let key) = action else { return "" }
+        let statements: [String]
+        switch action {
+        case .key(let key):
+            statements = [pressStatement(for: key, modifiers: [])]
+        case .shortcut(let shortcut):
+            statements = shortcut.presses.map { pressStatement(for: $0.key, modifiers: $0.modifiers) }
+        default:
+            return ""
+        }
         return """
         tell application "System Events"
-            \(pressStatement(for: key))
+            \(statements.joined(separator: "\n    "))
         end tell
         """
     }
@@ -125,13 +135,17 @@ struct KeyboardApp: AppPlatform {
     /// `key code` for the named keys; `keystroke` for character keys, so the
     /// Mac's own layout resolves the press — "a" types a on AZERTY too, where
     /// `key code 0` would type q. Backslash is the one catalog character an
-    /// AppleScript string literal needs escaped.
-    private func pressStatement(for key: RemoteKey) -> String {
+    /// AppleScript string literal needs escaped. Modifiers ride along as a
+    /// System Events `using {…}` list either way.
+    private func pressStatement(for key: RemoteKey, modifiers: [KeyModifier]) -> String {
+        let using = modifiers.isEmpty
+            ? ""
+            : " using {\(modifiers.map(\.appleScriptFlag).joined(separator: ", "))}"
         switch key.press {
         case .keyCode(let code):
-            return "key code \(code) -- \(key.label.lowercased())"
+            return "key code \(code)\(using) -- \(key.label.lowercased())"
         case .character(let character):
-            return "keystroke \"\(character.replacingOccurrences(of: "\\", with: "\\\\"))\""
+            return "keystroke \"\(character.replacingOccurrences(of: "\\", with: "\\\\"))\"\(using)"
         }
     }
 

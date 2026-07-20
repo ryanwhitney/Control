@@ -40,13 +40,17 @@ struct PlatformControl: View {
     // pad's bottom row would land under the volume slider.
     private var isKeyPad: Bool { platform.controlStyle == .keyPad }
 
+    // Phone landscape rations every vertical point: title 10pt from the top,
+    // then 4pt gaps hugging the readout (the frontmost-app name sits high,
+    // close under the title), and the controls take everything left — the
+    // key pad sizes its caps from that grant.
     private var titleBottomPadding: CGFloat {
-        if isPhoneLandscape { return 10 }
+        if isPhoneLandscape { return 4 }
         return isKeyPad ? 20 : 50
     }
 
     private var readoutBottomPadding: CGFloat {
-        if isPhoneLandscape { return 20 }
+        if isPhoneLandscape { return 4 }
         return isKeyPad ? 24 : 60
     }
 
@@ -158,7 +162,9 @@ struct PlatformControl: View {
                 .accessibilityElement(children: .combine)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 40)
+                // No reserved two-line height in landscape — the fixed 40
+                // was invisible slack under the app name there.
+                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape ? 0 : 40)
                 .padding(.horizontal, isPhoneLandscape ? 64 : 10)
                 .padding(.bottom, readoutBottomPadding)
                 .transition(.opacity)
@@ -174,8 +180,21 @@ struct PlatformControl: View {
                     KeyPadControl(platform: platform, isCompact: isPhoneLandscape)
                 }
             }
+            // Landscape: the controls own all remaining height. The key pad
+            // hugs the readout (top alignment — centring left its slack
+            // above and below); the other apps' transport rows stay centred
+            // in the leftover space.
+            .frame(
+                maxHeight: isPhoneLandscape ? .infinity : nil,
+                alignment: isKeyPad && isPhoneLandscape ? .top : .center
+            )
+            // The native dots draw as an overlay inside the pager, whose
+            // bottom edge extends 14pt below its slot in landscape (see
+            // ControlView) — this clearance is the original dot band (26)
+            // plus that extension, keeping caps out from under the dots.
             .padding(.bottom, isPhoneLandscape ? 40 : 60)
         }
+        .padding(.top, isPhoneLandscape ? 4 : 0)
         .onAppear {
             Task {
                 // Wait until the initial batch update has completed

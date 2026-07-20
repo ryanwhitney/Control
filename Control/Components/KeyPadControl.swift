@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// The generic key pad, rendered from the user's `KeyPadLayout`: a fixed grid
-/// whose filled cells send their key to whatever app is frontmost on the Mac
-/// (see `KeyboardApp`) and whose empty cells hold their place, so the pad's
-/// shape always matches its editor's.
+/// The generic key pad, rendered from the user's `KeyPadLayout` zones: the
+/// utility strip and the pad proper, whose filled cells send their key to
+/// whatever app is frontmost on the Mac (see `KeyboardApp`) and whose empty
+/// cells hold their place, so the shapes always match the editor's.
 struct KeyPadControl: View {
     let platform: any AppPlatform
-    /// Phone landscape: the same grid, drawn tighter — four full-size rows
-    /// don't fit under the title and readout there. (A separately arranged
-    /// landscape layout is a possible follow-up; for now the grid is uniform.)
+    /// Phone landscape: the utility strip pivots to a column beside the pad
+    /// — three rows tall instead of four — while the pad keeps its
+    /// directionally-meaningful shape untouched.
     let isCompact: Bool
     @EnvironmentObject var controller: AppController
     /// Injectable so previews can render arbitrary layouts; defaults to the
@@ -16,30 +16,81 @@ struct KeyPadControl: View {
     @ObservedObject var layoutStore: KeyPadLayoutStore = .shared
 
     private var spacing: CGFloat { isCompact ? 6 : 8 }
-    private var buttonSize: CGFloat { isCompact ? 44 : 60 }
-    private var fontSize: CGFloat { isCompact ? 26 : 36 }
+    /// Breathing room between the zones, so they read as grouped without a
+    /// divider.
+    private let zoneGap: CGFloat = 14
 
     var body: some View {
+        if isCompact {
+            // Landscape fills whatever the page grants and sizes the caps
+            // from it — as big a pad as the space allows, not a fixed 44pt.
+            GeometryReader { proxy in
+                let capSize = compactCapSize(in: proxy.size)
+                HStack(spacing: zoneGap + 4) {
+                    utilityColumn(capSize: capSize)
+                    zoneGrid(layoutStore.layout.pad, capSize: capSize)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+        } else {
+            VStack(spacing: zoneGap) {
+                zoneGrid(layoutStore.layout.utility, capSize: 60)
+                zoneGrid(layoutStore.layout.pad, capSize: 60)
+            }
+        }
+    }
+
+    /// The largest cap the granted space can hold: height against the taller
+    /// zone's rows, width against strip + gap + pad columns, floored at the
+    /// 44pt tap-target minimum and capped before comedy sizes.
+    private func compactCapSize(in available: CGSize) -> CGFloat {
+        let pad = layoutStore.layout.pad
+        let utilityCount = layoutStore.layout.utility.cells.count
+        let rows = CGFloat(max(pad.rowCount, utilityCount, 1))
+        let heightDriven = (available.height - (rows - 1) * spacing) / rows
+        let columns = CGFloat(pad.columns)
+        let widthDriven = (available.width - (zoneGap + 4) - (columns - 1) * spacing) / (columns + 1)
+        return min(max(44, min(heightDriven, widthDriven)), 100)
+    }
+
+    /// A zone at its stored dimensions — the views never assume a shape, so
+    /// stored data from a version with wider zones still renders.
+    private func zoneGrid(_ grid: CellGrid, capSize: CGFloat) -> some View {
         Grid(horizontalSpacing: spacing, verticalSpacing: spacing) {
-            ForEach(0..<KeyPadLayout.rowCount, id: \.self) { row in
+            ForEach(0..<grid.rowCount, id: \.self) { row in
                 GridRow {
-                    ForEach(0..<KeyPadLayout.columnCount, id: \.self) { column in
-                        if let command = layoutStore.layout[row: row, column: column] {
-                            commandButton(command)
-                        } else {
-                            // Sized, not `gridCellUnsizedAxes`: a fully empty
-                            // row or column must keep its footprint so key
-                            // positions stay where the editor shows them.
-                            Color.clear.frame(width: buttonSize, height: buttonSize)
-                        }
+                    ForEach(0..<grid.columns, id: \.self) { column in
+                        cellView(grid[row, column], capSize: capSize)
                     }
                 }
             }
         }
     }
 
-    private func commandButton(_ command: PadCommand) -> some View {
-        PadKeyButton(command: command, size: buttonSize, fontSize: fontSize) {
+    /// The utility strip pivoted for landscape: same cells, top-to-bottom.
+    private func utilityColumn(capSize: CGFloat) -> some View {
+        VStack(spacing: spacing) {
+            ForEach(Array(layoutStore.layout.utility.cells.enumerated()), id: \.offset) { _, command in
+                cellView(command, capSize: capSize)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cellView(_ command: PadCommand?, capSize: CGFloat) -> some View {
+        if let command {
+            commandButton(command, capSize: capSize)
+        } else {
+            // Sized, not `gridCellUnsizedAxes`: a fully empty row or column
+            // must keep its footprint so key positions stay where the editor
+            // shows them.
+            Color.clear.frame(width: capSize, height: capSize)
+        }
+    }
+
+    private func commandButton(_ command: PadCommand, capSize: CGFloat) -> some View {
+        // Font tracks the cap at the portrait ratio (36pt glyph in a 60pt cap).
+        PadKeyButton(command: command, size: capSize, fontSize: capSize * 0.6) {
             // Two independent tasks on purpose. The key goes out as a bare
             // System Events statement so a run of presses drains at the speed of
             // the link rather than of a status read, and the readout refresh is

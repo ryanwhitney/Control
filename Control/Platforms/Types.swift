@@ -16,6 +16,7 @@ enum AppAction: Identifiable, Equatable {
     case playPauseToggle
     case closeApp(String)
     case key(RemoteKey)
+    case shortcut(KeyShortcut)
 
     var id: String {
         switch self {
@@ -26,6 +27,7 @@ enum AppAction: Identifiable, Equatable {
         case .playPauseToggle: return "playPauseToggle"
         case .closeApp: return "closeApp"
         case .key(let key): return "key_\(key.id)"
+        case .shortcut(let shortcut): return "shortcut_\(shortcut.contentID)"
         }
     }
 
@@ -45,6 +47,8 @@ enum AppAction: Identifiable, Equatable {
             return "Close \(appName)"
         case .key(let key):
             return key.label
+        case .shortcut(let shortcut):
+            return shortcut.spokenText
         }
     }
 
@@ -68,6 +72,8 @@ enum AppAction: Identifiable, Equatable {
             // Curated per-key in the RemoteKey catalog, alongside the rest of
             // each key's identity.
             return key.inputLabels
+        case .shortcut(let shortcut):
+            return [shortcut.spokenText]
         }
     }
 }

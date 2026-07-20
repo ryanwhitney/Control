@@ -110,8 +110,31 @@ extension RemoteKey {
     static let all: [RemoteKey] = sections.flatMap(\.keys)
 
     /// Catalog lookup for decoding a stored layout; nil for ids this version
-    /// doesn't know (a key from a newer one).
+    /// doesn't know (a key from a newer one). Ids in stored data are forever:
+    /// if a key is ever renamed, the old id joins `idAliases` rather than
+    /// dying — a removed id silently empties every cell that used it.
     static func withID(_ id: String) -> RemoteKey? {
-        all.first { $0.id == id }
+        let resolved = idAliases[id] ?? id
+        return all.first { $0.id == resolved }
     }
+
+    /// Old id → current id, for keys renamed after data holding them shipped.
+    private static let idAliases: [String: String] = [:]
+
+    /// The key's text form for chord caps, where SF Symbols can't compose
+    /// ("⌘Z" needs a Z; "⇧↑" needs an arrow). Character keys are their own
+    /// cap; the named keys use the standard keyboard glyphs.
+    var chordCap: String {
+        switch glyph {
+        case .character(let cap):
+            return cap
+        case .symbol:
+            return Self.symbolChordCaps[id] ?? label
+        }
+    }
+
+    private static let symbolChordCaps: [String: String] = [
+        "up": "↑", "down": "↓", "left": "←", "right": "→",
+        "space": "␣", "escape": "⎋", "return": "↩", "tab": "⇥", "delete": "⌫",
+    ]
 }
