@@ -155,8 +155,8 @@ struct ControlView: View, SSHConnectedView {
             VStack() {
                 VStack {
                     // Landscape gives its centring whitespace to the pages: the
-                    // pager fills top-to-volume and each page rations its own
-                    // space (see PlatformControl).
+                    // pager fills from the top to the volume row and each page
+                    // sets its own spacing (see PlatformControl).
                     if !isPhoneLandscape {
                         Spacer()
                     }

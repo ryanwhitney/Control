@@ -20,36 +20,51 @@ struct PlatformControl: View {
     @State private var showingExperimentalAlert = false
     @State private var showingKeyPadEditor = false
     @Environment(\.verticalSizeClass) var verticalSizeClass
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
-    // Transport icons stay fixed-size on purpose: platforms with five actions
-    // (VLC/IINA/mpv) already fill a small phone's width at these sizes, so any
-    // Dynamic Type growth pushes the outer buttons off screen with no way to
-    // reach them. The buttons are 60pt targets — comfortably above minimums.
-    private let primaryIconWidth: CGFloat = 40
-    private let primaryIconHeight: CGFloat = 45
-    private let trackIconWidth: CGFloat = 25
-    private let trackIconHeight: CGFloat = 28
+    // Transport icons ignore Dynamic Type on purpose: platforms with five actions
+    // (VLC/IINA/mpv) already fill a small phone's width, so any per-glyph growth
+    // pushes the outer buttons off screen with no way to reach them. iPad has the
+    // room, so there they grow by controlScale instead (the base 60pt button is
+    // already comfortably above tap-target minimums).
+    private var primaryIconWidth: CGFloat { 40 * controlScale }
+    private var primaryIconHeight: CGFloat { 45 * controlScale }
+    private var trackIconWidth: CGFloat { 25 * controlScale }
+    private var trackIconHeight: CGFloat { 28 * controlScale }
 
     private var isPhoneLandscape: Bool {
         verticalSizeClass == .compact
     }
+
+    /// iPad in a roomy (regular width *and* height) layout. Deliberately false for
+    /// every iPhone — including Plus/Max phones, which report regular *width* in
+    /// landscape but compact height — so phone portrait and landscape sizing are
+    /// untouched. Narrow iPad multitasking (compact width) also falls back to phone
+    /// sizing, where the scaled-up controls wouldn't fit.
+    private var isPad: Bool {
+        horizontalSizeClass == .regular && verticalSizeClass == .regular
+    }
+
+    /// How much larger the non-volume controls and their labels grow on iPad. Stays
+    /// 1 on phones, so every phone code path below renders exactly as before.
+    private var controlScale: CGFloat { isPad ? 1.4 : 1 }
 
     // The key pad is four rows to the transport row's one, so it takes less of
     // the portrait whitespace above it — otherwise its bottom row lands under the
     // volume slider on a small phone.
     private var isKeyPad: Bool { platform.controlStyle == .keyPad }
 
-    // Phone landscape rations vertical space: tight 4pt gaps hug the readout and
-    // the controls take everything left, so the key pad can size its caps from it.
+    // Phone landscape uses tight 4pt gaps around the readout so the controls get
+    // the remaining vertical space, which the key pad sizes its caps from.
     private var titleBottomPadding: CGFloat {
         if isPhoneLandscape { return 4 }
-        return isKeyPad ? 20 : 50
+        return (isKeyPad ? 20 : 50) * controlScale
     }
 
     private var readoutBottomPadding: CGFloat {
         if isPhoneLandscape { return 4 }
-        return isKeyPad ? 24 : 60
+        return (isKeyPad ? 24 : 60) * controlScale
     }
 
     /// "app 3 of 7" while resting on this page; after an adjustment it becomes
@@ -61,7 +76,7 @@ struct PlatformControl: View {
     }
 
     private var transportRow: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 16 * controlScale) {
             ForEach(platform.supportedActions) { appAction in
                 Button {
                     Task {
@@ -90,17 +105,22 @@ struct PlatformControl: View {
                         }
                     }
                 }
-                .buttonStyle(IconButtonStyle())
+                .buttonStyle(IconButtonStyle(
+                    width: 60 * controlScale,
+                    height: 60 * controlScale,
+                    fontSize: 36 * controlScale
+                ))
                 .accessibilityInputLabels(appAction.action.inputLabels)
             }
         }
     }
 
     var body: some View {
-        VStack(spacing: isPhoneLandscape ? 0 : 16) {
+        VStack(spacing: isPhoneLandscape ? 0 : 16 * controlScale) {
             VStack(spacing: isKeyPad ? 0 : 4) {
                 HStack {
                     Text(platform.name)
+                        .font(isPad ? .title : .body)
                         .fontWeight(.bold)
                         .fontWidth(.expanded)
                         .id(platform.name)
@@ -158,9 +178,9 @@ struct PlatformControl: View {
                     }
                 }
                 .accessibilityElement(children: .combine)
-                .font(.callout)
+                .font(isPad ? .title2 : .callout)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape || isKeyPad ? 0 : 40)
+                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape || isKeyPad ? 0 : 40 * controlScale)
                 .padding(.horizontal, isPhoneLandscape || isKeyPad ? 64 : 10)
                 .padding(.bottom, readoutBottomPadding)
                 .transition(.opacity)
@@ -173,11 +193,11 @@ struct PlatformControl: View {
                 case .transport:
                     transportRow
                 case .keyPad:
-                    KeyPadControl(platform: platform, isCompact: isPhoneLandscape)
+                    KeyPadControl(platform: platform, isCompact: isPhoneLandscape, sizeScale: controlScale)
                 }
             }
-            // Landscape: the controls own the remaining height. The key pad hugs
-            // the readout with top alignment; transport rows stay centred.
+            // Landscape: the controls take the remaining height. The key pad uses
+            // top alignment (close under the readout); transport rows stay centred.
             .frame(
                 maxHeight: isPhoneLandscape ? .infinity : nil,
                 alignment: isKeyPad && isPhoneLandscape ? .top : .center
@@ -185,7 +205,7 @@ struct PlatformControl: View {
             // The pager's dots overlay its bottom edge, which extends 14pt below
             // its slot in landscape (see ControlView); this clearance keeps caps
             // from under the dots.
-            .padding(.bottom, isPhoneLandscape ? 40 : 60)
+            .padding(.bottom, isPhoneLandscape ? 40 : 60 * controlScale)
         }
         .padding(.top, isPhoneLandscape ? 4 : 0)
         .onAppear {
