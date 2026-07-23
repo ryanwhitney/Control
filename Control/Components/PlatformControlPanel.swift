@@ -100,7 +100,7 @@ struct PlatformControl: View {
 
     var body: some View {
         VStack(spacing: isPhoneLandscape ? 0 : 16) {
-            VStack(spacing: 4) {
+            VStack(spacing: isKeyPad ? 0 : 4) {
                 HStack {
                     Text(platform.name)
                         .fontWeight(.bold)
@@ -151,21 +151,19 @@ struct PlatformControl: View {
                         .multilineTextAlignment(.center)
                         .id("\(platform.name)_title")
                         .frame(maxWidth: .infinity)
-                    Text(state.subtitle)
-                        .fontWeight(.semibold)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .id("\(platform.name)_subtitle")
-                        .frame(maxWidth: .infinity)
+                    if !isKeyPad { Text(state.subtitle)
+                            .fontWeight(.semibold)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .id("\(platform.name)_subtitle")
+                            .frame(maxWidth: .infinity)
+                    }
                 }
-                // One swipe stop for the whole now-playing readout.
                 .accessibilityElement(children: .combine)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                // No reserved two-line height in landscape — the fixed 40
-                // was invisible slack under the app name there.
-                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape ? 0 : 40)
-                .padding(.horizontal, isPhoneLandscape ? 64 : 10)
+                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape || isKeyPad ? 0 : 40)
+                .padding(.horizontal, isPhoneLandscape || isKeyPad ? 64 : 10)
                 .padding(.bottom, readoutBottomPadding)
                 .transition(.opacity)
                 .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.title)
