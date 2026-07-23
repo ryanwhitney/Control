@@ -154,9 +154,9 @@ struct ControlView: View, SSHConnectedView {
         ZStack {
             VStack() {
                 VStack {
-                    // Landscape spends its centring whitespace on the pages
-                    // instead: the pager fills top-to-volume and each page
-                    // rations its own points (see PlatformControl).
+                    // Landscape gives its centring whitespace to the pages: the
+                    // pager fills top-to-volume and each page rations its own
+                    // space (see PlatformControl).
                     if !isPhoneLandscape {
                         Spacer()
                     }
@@ -207,19 +207,17 @@ struct ControlView: View, SSHConnectedView {
                         // screen so nearby tabs fill first. No-op on Compatibility.
                         appController.prefetchBackgroundTabs(around: platform.id)
                     }
-                    // The native dots ride a fixed inset above the pager's
-                    // bottom edge, so lowering them means lowering the edge:
-                    // in landscape the pager extends below its slot (the
-                    // pages carry matching extra bottom clearance so caps
-                    // stay clear of the dots — see PlatformControl).
+                    // The dots ride a fixed inset above the pager's bottom edge,
+                    // so lowering them means extending the edge below its slot in
+                    // landscape (the pages carry matching clearance — see
+                    // PlatformControl).
                     .padding(.bottom, isPhoneLandscape ? -14 : 0)
                     if !isPhoneLandscape {
                         Spacer()
                     }
                 }
-                // Portrait deliberately has no spacer here: the pager fills
-                // down to the volume row, so its dots sit lower — only the
-                // in-pager spacers above/below the TabView centre the pages.
+                // Portrait has no spacer here: the pager fills down to the volume
+                // row, and the in-pager spacers centre the pages.
                 VStack(alignment: .center) {
                     HStack(spacing: 0){
                         Button{
@@ -288,8 +286,7 @@ struct ControlView: View, SSHConnectedView {
                 .animation(.spring(), value: connectionManager.connectionState)
                 .allowsHitTesting(connectionManager.connectionState == .connected)
         }
-        // Landscape gives its vertical margins to the pad; the pages place
-        // their own 10pt from the top instead.
+        // Landscape gives its vertical margins to the pages, which place their own.
         .padding(.vertical, isPhoneLandscape ? 0 : 16)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)

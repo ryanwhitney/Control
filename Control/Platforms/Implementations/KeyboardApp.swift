@@ -4,22 +4,14 @@ import Foundation
 /// pick, nothing brought forward.
 ///
 /// System Events delivers `key code` to the frontmost application regardless of
-/// any enclosing `tell process`, which every other key-driven platform here has
-/// to work around by activating its app first (TVApp/IINAApp/MPVApp). This
-/// platform leans on that behaviour instead of fighting it: someone who started
-/// something on the Mac and walked away left the app they care about in front,
-/// so "frontmost" *is* the target. That also means no focus to capture, settle
-/// or restore, so the script stays a single System Events tell.
+/// any enclosing `tell process`, so unlike the other key-driven platforms
+/// (TVApp/IINAApp/MPVApp) this one never activates an app first: "frontmost" is
+/// the target, so there's no focus to capture or restore and the script stays a
+/// single System Events tell.
 ///
-/// The trade is that it's blind: there's no dictionary to read playback from.
-/// Status is the frontmost app's *name* instead, so the readout answers the only
-/// question this page raises — where are my key presses about to land.
-///
-/// No subtitle for now. The front window's title used to ride along there (and on
-/// macOS that's already the active browser tab's name, so it needed no per-browser
-/// scripting) — but reading it costs a ~42 ms `name of front window` AX call
-/// against the ~13 ms the rest of this takes, and it was pulled while the page's
-/// responsiveness is being tuned.
+/// It's blind — no dictionary to read playback from — so status is the frontmost
+/// app's name, answering the only question the page raises: where key presses
+/// will land. No subtitle.
 struct KeyboardApp: AppPlatform {
     let id = "keyboard"
     let name = "Keyboard"
@@ -27,12 +19,10 @@ struct KeyboardApp: AppPlatform {
     let listDescription: String? = "Works with whatever app is foregrounded on your Mac."
     let defaultEnabled = true
     let controlStyle: ControlStyle = .keyPad
-    // Deliberately NOT `checksStatusOnlyWhenVisible`: that flag exists for pages
-    // whose status read foregrounds a Mac app, and this one never does. Opting in
-    // only bought the page ControlView's 350 ms settle delay and exclusion from
-    // background prefetch, so it alone started cold and showed "Loading…" on every
-    // visit while every other tab was pre-filled. The read is no more expensive
-    // than the process-existence check every other platform's status already runs.
+    // Deliberately NOT `checksStatusOnlyWhenVisible`: that flag is for pages whose
+    // status read foregrounds a Mac app, which this one never does. Its read is no
+    // more expensive than the process-existence check every platform already runs,
+    // so it stays eligible for background prefetch and needs no settle delay.
 
     /// Empty on purpose: an action list only feeds the transport row, which
     /// the keyPad style never renders. The pad is positional and draws from
@@ -48,32 +38,24 @@ struct KeyboardApp: AppPlatform {
     /// `combinedStatusScript()`'s wrapper to find, so it has to skip it.
     var fetchStateIsSelfGuarding: Bool { true }
 
-    /// Reads the frontmost process's name and its front window's title. Neither
-    /// read brings anything forward, and every risky step is wrapped in `try`:
-    /// an app with no windows, or one whose window has no title, must degrade to
-    /// a blank subtitle rather than fail the command (the streaming parser fails
-    /// the whole command on any mid-script error).
+    /// Reads the frontmost app's name from its bundle path. Every risky step is
+    /// wrapped in `try` so a mid-script error degrades to a blank field rather
+    /// than failing the command (the streaming parser fails on any mid-script
+    /// error).
     ///
-    /// Every step here was chosen by measurement (~55 ms, down from ~231 ms for
-    /// the obvious version). Findings worth not re-deriving:
+    /// Chosen by measurement (~55 ms vs ~231 ms for the obvious version):
     ///
-    ///  * `first application process whose frontmost is true` costs ~157 ms, and a
-    ///    reference it returns re-runs that filter on *every* property access
-    ///    (~50 ms a touch) — so the natural "save the process, read three
-    ///    properties off it" shape pays for the search four times over. Asking for
-    ///    the frontmost app's bundle path costs ~13 ms instead.
+    ///  * `first application process whose frontmost is true` costs ~157 ms, and
+    ///    the reference it returns re-runs that filter on every property access
+    ///    (~50 ms each). The frontmost app's bundle path costs ~13 ms, so it's the
+    ///    primary path and the System Events search is only a fallback.
     ///  * `path to frontmost application` reports the console session's real
-    ///    frontmost app over SSH — verified from an SSH shell with Safari front.
-    ///    Coerce it `as text` and parse; **never** `as alias`, which errors on
-    ///    Cryptex-resident apps (Safari lives at `Preboot:Cryptexes:App:…`).
+    ///    frontmost app over SSH. Coerce `as text` and parse; **never** `as alias`,
+    ///    which errors on Cryptex-resident apps (Safari lives at
+    ///    `Preboot:Cryptexes:App:…`).
     ///
-    /// Kept to one top-level tell: the remote `osascript -i` evaluates line by
-    /// line, and every risky step is wrapped so a mid-script error can't fail the
-    /// whole command. The System Events search remains as a fallback — it's the
-    /// slow path, but it's the one that's been proven longest.
-    ///
-    /// The middle field is the (now unused) subtitle: the shared parse needs three
-    /// fields to read the third, so it stays empty rather than absent.
+    /// The empty middle field stands in for the absent subtitle: the shared parse
+    /// needs three fields before it reads the third.
     private func statusScript() -> String {
         let sep = ScriptTokens.fieldSeparator
         return """
@@ -110,11 +92,10 @@ struct KeyboardApp: AppPlatform {
     func fetchState() -> String { statusScript() }
 
     /// A complete, self-contained script (like TV's key actions, not the injected
-    /// fragment QuickTime/mpv return) — a key press sends exactly this and nothing
-    /// else. A plain key is a single System Events statement, ~0.4 ms of work,
-    /// which is the whole point: see `AppController.executeActionWithoutStatus`.
-    /// A shortcut is one statement per press (a single-chord shortcut is still
-    /// one), all inside the same tell.
+    /// fragment QuickTime/mpv return): a key press sends exactly this. A plain key
+    /// is a single System Events statement (~0.4 ms — see
+    /// `AppController.executeActionWithoutStatus`); a shortcut is one statement per
+    /// press, all inside the same tell.
     func executeAction(_ action: AppAction) -> String {
         let statements: [String]
         switch action {
@@ -150,8 +131,8 @@ struct KeyboardApp: AppPlatform {
     }
 
     /// Only used if something routes a key through the status-bundling path; the
-    /// pad itself doesn't. Concatenated rather than injected, since
-    /// `executeAction` is now its own tell block.
+    /// pad itself doesn't. Concatenated rather than injected, since `executeAction`
+    /// is a standalone tell block.
     func actionWithStatus(_ action: AppAction) -> String {
         executeAction(action) + "\n" + statusScript()
     }

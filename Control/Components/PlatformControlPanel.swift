@@ -35,15 +35,13 @@ struct PlatformControl: View {
         verticalSizeClass == .compact
     }
 
-    // The key pad is four rows where the transport row is one, so it can't
-    // afford the generous portrait whitespace above it — on a small phone the
-    // pad's bottom row would land under the volume slider.
+    // The key pad is four rows to the transport row's one, so it takes less of
+    // the portrait whitespace above it — otherwise its bottom row lands under the
+    // volume slider on a small phone.
     private var isKeyPad: Bool { platform.controlStyle == .keyPad }
 
-    // Phone landscape rations every vertical point: title 10pt from the top,
-    // then 4pt gaps hugging the readout (the frontmost-app name sits high,
-    // close under the title), and the controls take everything left — the
-    // key pad sizes its caps from that grant.
+    // Phone landscape rations vertical space: tight 4pt gaps hug the readout and
+    // the controls take everything left, so the key pad can size its caps from it.
     private var titleBottomPadding: CGFloat {
         if isPhoneLandscape { return 4 }
         return isKeyPad ? 20 : 50
@@ -178,18 +176,15 @@ struct PlatformControl: View {
                     KeyPadControl(platform: platform, isCompact: isPhoneLandscape)
                 }
             }
-            // Landscape: the controls own all remaining height. The key pad
-            // hugs the readout (top alignment — centring left its slack
-            // above and below); the other apps' transport rows stay centred
-            // in the leftover space.
+            // Landscape: the controls own the remaining height. The key pad hugs
+            // the readout with top alignment; transport rows stay centred.
             .frame(
                 maxHeight: isPhoneLandscape ? .infinity : nil,
                 alignment: isKeyPad && isPhoneLandscape ? .top : .center
             )
-            // The native dots draw as an overlay inside the pager, whose
-            // bottom edge extends 14pt below its slot in landscape (see
-            // ControlView) — this clearance is the original dot band (26)
-            // plus that extension, keeping caps out from under the dots.
+            // The pager's dots overlay its bottom edge, which extends 14pt below
+            // its slot in landscape (see ControlView); this clearance keeps caps
+            // from under the dots.
             .padding(.bottom, isPhoneLandscape ? 40 : 60)
         }
         .padding(.top, isPhoneLandscape ? 4 : 0)
