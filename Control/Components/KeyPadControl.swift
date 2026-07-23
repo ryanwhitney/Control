@@ -33,12 +33,22 @@ struct KeyPadControl: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
         } else {
+            // Portrait keeps the pad at its natural height so the pager's
+            // spacers centre it in the page (a fill-the-space pass collapsed
+            // those spacers and left it sitting low). Caps are just bigger than
+            // the old 60pt — Apple-keypad-ish, and small-phone safe at four rows.
             VStack(spacing: zoneGap) {
-                zoneGrid(layoutStore.layout.utility, capSize: 60)
-                zoneGrid(layoutStore.layout.pad, capSize: 60)
+                zoneGrid(layoutStore.layout.utility, capSize: portraitCapSize)
+                zoneGrid(layoutStore.layout.pad, capSize: portraitCapSize)
             }
         }
     }
+
+    /// Fixed rather than space-filling: portrait relies on the pager's spacers
+    /// to centre a natural-height pad, so the pad must report a real height. 84
+    /// is a comfortable bump from 60 that still clears the volume row on the
+    /// smallest phones' four-row layout.
+    private var portraitCapSize: CGFloat { 84 }
 
     /// The largest cap the granted space can hold: height against the taller
     /// zone's rows, width against strip + gap + pad columns, floored at the
@@ -123,7 +133,7 @@ struct PadKeyButton: View {
             // ratio — the arrows are square, space/escape/return are wide and
             // short — so a uniform box would render space as a sliver. Font
             // sizing gives them Apple's optical balance instead.
-            KeyCapGlyph(glyph: command.glyph)
+            KeyCapGlyph(glyph: command.glyph, wrapsLongText: true)
                 .accessibilityLabel(command.label)
         }
         .padding(4)
@@ -138,17 +148,35 @@ struct PadKeyButton: View {
 /// rather than clip their fixed frame.
 struct KeyCapGlyph: View {
     let glyph: RemoteKey.Glyph
+    /// The live pad wraps a long chord ("⌃⌥⇧⌘Z") onto a second line after the
+    /// second glyph, so it reads at a legible size in the square cap rather than
+    /// shrinking to a sliver on one line. The editor and picker keep one line —
+    /// they caption the chord in full beneath the cap.
+    var wrapsLongText = false
 
     var body: some View {
         switch glyph {
         case .symbol(let name):
             Image(systemName: name)
         case .character(let text):
-            Text(text)
+            Text(wrapsLongText ? Self.wrapped(text) : text)
                 .fontWeight(.medium)
-                .lineLimit(1)
-                .minimumScaleFactor(0.4)
+                .multilineTextAlignment(.center)
+                .lineLimit(wrapsLongText ? 2 : 1)
+                .minimumScaleFactor(0.25)
         }
+    }
+
+    /// Splits a 4-or-more-glyph chord as evenly as possible across two lines,
+    /// the shorter half first (4 → 2+2, 5 → 2+3, 7 → 3+4). Shorter caps
+    /// ("A", "⌘V", "⌃⌘F") stay on one line. This is a plain character split: a
+    /// multi-character key name ("F12") usually rides one side intact (⌃⌥⇧⌘F12 →
+    /// ⌃⌥⇧ / ⌘F12), but the shortcut's modifier/key structure isn't visible here
+    /// to guarantee it, so a short chord like ⌘F12 can divide it (⌘F / 12).
+    private static func wrapped(_ text: String) -> String {
+        guard text.count >= 4 else { return text }
+        let split = text.index(text.startIndex, offsetBy: text.count / 2)
+        return String(text[..<split]) + "\n" + String(text[split...])
     }
 }
 

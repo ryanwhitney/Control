@@ -95,6 +95,9 @@ struct KeyPadEditorContent: View {
     @State private var liftedOpacity: Double = 1
     @State private var cellFrames: [CellAddress: CGRect] = [:]
     @State private var removeZoneFrame: CGRect = .zero
+    /// The empty socket currently under a finger — drives its button-like press
+    /// wash. `@GestureState`, so it clears itself the moment the touch ends.
+    @GestureState private var pressedCell: CellAddress?
 
     private static let editorSpace = "keyPadEditor"
     private static let settleSpring = Animation.spring(response: 0.35, dampingFraction: 0.75)
@@ -188,11 +191,34 @@ struct KeyPadEditorContent: View {
 
     private func cell(at address: CellAddress) -> some View {
         let command = store.layout[address]
-        // The lifted cap's cell and a mid-swap target both show the empty
-        // socket: their caps are rendered by the overlays instead.
-        let capIsAirborne = drag?.source == address || displaced?.address == address
-        let isHovered = drag?.target == .cell(address)
-        return KeyCapCell(command: capIsAirborne ? nil : command, isSelected: isHovered, capIsAirborne: capIsAirborne)
+        // A cap is "airborne" for this cell when the real thing is an overlay
+        // in flight rather than sitting here: the lift source, a mid-swap
+        // displaced cap, or — once released — the target the lifted cap is
+        // settling onto. Those render with no cap glyph (the overlay carries
+        // it); whether the emptied socket also shows its plus is decided
+        // separately, by `hidesPlus`.
+        let isSettling = drag?.isSettling ?? false
+        let isSource = drag?.source == address
+        let isDropTarget = drag?.target == .cell(address)
+        let capIsAirborne = isSource
+            || displaced?.address == address
+            || (isDropTarget && isSettling)
+        // Hide the socket's plus only while a chip is actively settling into
+        // this cell, so it can't flash under the landing chip: the drop target
+        // catches the lifted cap; in a swap the source catches the displaced
+        // cap; flying home the source catches the lifted cap back. A freshly
+        // lifted source — drag underway, nothing landing yet — shows its plus
+        // right away.
+        let hidesPlus = isSettling && (
+            isDropTarget || (isSource && (displaced != nil || drag?.target == nil))
+        )
+        // Tint marks the live drop target only; it clears the instant the cap
+        // is released so the landing chip is the only glass in the cell.
+        let isHovered = isDropTarget && !isSettling
+        // Interactive glass reacts to touches at the compositing level, even
+        // through a presented sheet — so drop the interactivity while the picker
+        // is open, or pressing its caps lights up the editor caps beneath.
+        return KeyCapCell(command: capIsAirborne ? nil : command, isSelected: isHovered, hidesPlus: hidesPlus, isInteractive: editingCell == nil, isPressed: pressedCell == address)
             // Explicit shape so taps and drop targeting work on empty cells,
             // whose transparent fill isn't hit-testable on its own.
             .contentShape(.rect(cornerRadius: 14))
@@ -206,6 +232,16 @@ struct KeyPadEditorContent: View {
                 editingCell = address
             }
             .gesture(cellDragGesture(for: address))
+            // Button-like press feedback for empty sockets (filled caps get it
+            // from their interactive glass). A 0-distance drag just flags the
+            // touch-down; it runs alongside the tap and lift without claiming
+            // them, and only empty cells record it.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($pressedCell) { _, state, _ in
+                        if command == nil { state = address }
+                    }
+            )
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(command?.label ?? "Empty space")
@@ -285,14 +321,7 @@ struct KeyPadEditorContent: View {
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(.red.opacity(isTargeted ? 0.15 : 0))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(
-                        isTargeted ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary),
-                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                    )
+                    .fill(isTargeted ? AnyShapeStyle(Color.red.opacity(0.15)) : AnyShapeStyle(.ultraThinMaterial))
             )
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .named(Self.editorSpace))
@@ -547,13 +576,21 @@ private struct KeyPickerView: View {
                 }
             }
         }
+        .presentationBackground(.thickMaterial)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 
     private func assign(_ command: PadCommand) {
         store.layout[address] = command
-        dismiss()
+        // Let the tapped key flip to its selected (inverse) state before the
+        // sheet leaves — assigning and dismissing in the same instant hides the
+        // confirmation until the picker is reopened, which reads as a jarring
+        // no-op.
+        Task {
+            try? await Task.sleep(for: .milliseconds(180))
+            dismiss()
+        }
     }
 
     // MARK: Shortcuts row
@@ -581,9 +618,9 @@ private struct KeyPickerView: View {
         return Button {
             assign(command)
         } label: {
-            KeyCapCell(command: command, isSelected: isSelected)
+            KeyCapCell(command: command, isSelected: isSelected, usesGlass: false)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PickerKeyStyle())
         .contextMenu {
             // Only the user's own creations are deletable; presets are part
             // of the catalog. Cells keep their copies either way. (Context
@@ -599,6 +636,9 @@ private struct KeyPickerView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// A glass "+ Add" tile — the shortcuts row's create action. Same rounded
+    /// shape as the key tiles but Liquid Glass rather than material, so it reads
+    /// as an action rather than another cap.
     private var newShortcutButton: some View {
         Button {
             showingShortcutBuilder = true
@@ -608,20 +648,28 @@ private struct KeyPickerView: View {
                     .foregroundStyle(.tint)
                     .font(.system(size: 28))
                     .frame(height: 34)
-                Text("New")
+                Text("Add")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, minHeight: 76)
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(.tertiary, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-            )
+            .glassRect()
             .contentShape(.rect(cornerRadius: 14))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("New Shortcut")
         .accessibilityHint("Builds a key combination to assign")
+    }
+}
+
+/// Press feedback for the picker's chooser tiles. The wash itself is drawn
+/// inside the tile (`KeyCapCell`), matching the editor's empty-cell feedback;
+/// this style just surfaces the pressed flag to it via the environment. No
+/// dim/scale on the label — those read as sluggish on a tap-to-assign grid.
+private struct PickerKeyStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .environment(\.keyTilePressed, configuration.isPressed)
     }
 }
 
@@ -646,9 +694,9 @@ private struct KeyCatalogGrid: View {
                             Button {
                                 onTap(key)
                             } label: {
-                                KeyCapCell(command: .key(key), isSelected: isSelected(key))
+                                KeyCapCell(command: .key(key), isSelected: isSelected(key), usesGlass: false)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PickerKeyStyle())
                             .accessibilityLabel(key.label)
                             .accessibilityHint(accessibilityHint)
                             .accessibilityAddTraits(isSelected(key) ? .isSelected : [])
@@ -679,21 +727,25 @@ private struct ShortcutBuilderView: View {
         return KeyShortcut(name: nil, presses: [KeyPress(key: selectedKey, modifiers: Array(modifiers))])
     }
 
+    /// Modifiers in canonical ⌃⌥⇧⌘ order, for a stable preview and spoken label.
+    private var orderedModifiers: [KeyModifier] {
+        KeyModifier.allCases.filter(modifiers.contains)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                KeyCapCell(command: builtShortcut.map(PadCommand.shortcut))
-                    .frame(width: 132)
-                    .accessibilityLabel(builtShortcut?.spokenText ?? "No key chosen yet")
-                    .accessibilityAddTraits(.updatesFrequently)
+                chordPreview
 
                 modifierChips
 
                 KeyCatalogGrid(
                     isSelected: { selectedKey?.id == $0.id },
-                    accessibilityHint: "Sets the shortcut's key"
+                    accessibilityHint: "Selects this key for the shortcut"
                 ) { key in
-                    selectedKey = key
+                    // Toggle, like the modifier chips: tapping the chosen key
+                    // again clears it (which disables Add until one's re-picked).
+                    selectedKey = selectedKey?.id == key.id ? nil : key
                 }
             }
             .padding(20)
@@ -714,6 +766,55 @@ private struct ShortcutBuilderView: View {
         }
     }
 
+    /// The chord as assembled so far: the armed modifiers show at once (⌘) and
+    /// the key joins when picked (⌘C). Display-only — the real cap is built on
+    /// Add, which stays disabled until a key is chosen. Drawn directly rather
+    /// than through `KeyCapCell` because a modifiers-only chord isn't yet a
+    /// `PadCommand`.
+    private var chordPreview: some View {
+        VStack(spacing: 4) {
+            KeyCapGlyph(glyph: .character(previewCapText))
+                .foregroundStyle(.tint)
+                .font(.system(size: 28))
+                .frame(height: 34)
+            if !previewCaption.isEmpty {
+                Text(previewCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .frame(width: 132, height: 76)
+        .capSurface(usesGlass: true, isVisible: true, interactive: false, selected: false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(previewSpoken)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+
+    /// The cap glyph text, mirroring `KeyPress.capText`: modifier symbols, then
+    /// the key's chord cap once one is chosen ("⌘", then "⌘C").
+    private var previewCapText: String {
+        orderedModifiers.map(\.symbol).joined() + (selectedKey?.chordCap ?? "")
+    }
+
+    /// The caption, mirroring `KeyPress.captionText` ("Cmd", then "Cmd + C").
+    private var previewCaption: String {
+        (orderedModifiers.map(\.shortName) + (selectedKey.map { [$0.label] } ?? []))
+            .joined(separator: " + ")
+    }
+
+    /// The spoken form for the preview, naming what's chosen and flagging when a
+    /// key is still needed.
+    private var previewSpoken: String {
+        let mods = orderedModifiers.map(\.spokenName)
+        if let selectedKey {
+            return (mods + [selectedKey.label]).joined(separator: " ")
+        }
+        return mods.isEmpty ? "No key chosen yet"
+                            : mods.joined(separator: " ") + ", no key chosen yet"
+    }
+
     private var modifierChips: some View {
         HStack(spacing: 8) {
             ForEach(KeyModifier.allCases, id: \.self) { modifier in
@@ -732,16 +833,10 @@ private struct ShortcutBuilderView: View {
                             .font(.caption2)
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
-                    .foregroundStyle(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(.ultraThinMaterial)
-                            .opacity(isOn ? 1 : 0.5)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .strokeBorder(.tint, lineWidth: 2)
-                            .opacity(isOn ? 1 : 0)
+                            .fill(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.ultraThinMaterial))
                     )
                     .contentShape(.rect(cornerRadius: 12))
                 }
@@ -754,23 +849,79 @@ private struct ShortcutBuilderView: View {
 }
 
 /// One key cap tile: glyph centred, captioned beneath when the cap doesn't
-/// name itself (an arrow glyph or a "⌘Z" chord; "A" does), a dashed socket
-/// when empty. `isSelected` draws the tint ring — the picker's current
-/// command, or the cell a drag is hovering.
+/// name itself (an arrow glyph or a "⌘Z" chord; "A" does), a plus-marked
+/// material socket when empty. `isSelected` highlights either the picker's
+/// current command (an accent-filled inverse tile) or the editor cell a drag
+/// is hovering (an accent tint on the glass).
 private struct KeyCapCell: View {
     let command: PadCommand?
     var isSelected: Bool = false
-    var capIsAirborne: Bool = false
+    /// Suppresses the empty socket's plus — set while a dragged cap is settling
+    /// into this cell, so the plus can't flash under the landing chip.
+    var hidesPlus: Bool = false
+    /// Adds `.interactive()` to the glass so a cap flexes and brightens under
+    /// the finger — the editor caps use it as a "this is draggable" affordance.
+    /// Only meaningful for glass caps.
+    var isInteractive: Bool = false
+    /// Editor caps are Liquid Glass; the picker's chooser tiles opt out (a dense
+    /// grid of glass renders with an odd/even shimmer, and they're a selection
+    /// list rather than the live pad — so they get a plain material tile).
+    var usesGlass: Bool = true
+    /// Touch-down feedback for an empty socket (filled caps get theirs from the
+    /// interactive glass): washes the socket with a slight accent tint.
+    var isPressed: Bool = false
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Set by `PickerKeyStyle` while a chooser tile is pressed; folded in with
+    /// the editor's gesture-driven `isPressed` so both draw the same wash.
+    @Environment(\.keyTilePressed) private var tilePressed
+
+    private var pressed: Bool { isPressed || tilePressed }
 
     var body: some View {
+        capContent
+            .frame(maxWidth: .infinity, minHeight: 76)
+            // Empty cells read as a faint material socket; a filled cap's socket
+            // is transparent (its glass surface is the fill). While pressed — an
+            // empty editor socket or any picker tile — a slight accent wash gives
+            // button-like feedback (filled editor caps get theirs from the
+            // interactive glass instead).
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.black)
+                        .opacity(command == nil ? 0.25 : 0)
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(.tint)
+                        .opacity(pressed ? 0.25 : 0)
+                }
+            )
+            // A filled cap always sits on glass; an empty socket takes it only
+            // while it's the hover target. Applied to the content — not a pane
+            // in front of it — so the glyph and caption ride on the glass
+            // rather than being refracted through it.
+            .capSurface(usesGlass: usesGlass, isVisible: command != nil || isSelected, interactive: isInteractive, selected: isSelected)
+            // The press/selection washes ramp in quickly; Reduce Motion snaps.
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.1), value: isSelected)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: pressed)
+    }
+
+    /// A selected picker tile inverts — accent-filled — so its glyph and caption
+    /// switch to the prominent (primary) foreground for contrast.
+    private var prominent: Bool { !usesGlass && isSelected }
+
+    private var capContent: some View {
         VStack(spacing: 4) {
             Group {
                 if let command {
                     KeyCapGlyph(glyph: command.glyph)
-                        .foregroundStyle(.tint)
-                } else {
+                        .foregroundStyle(prominent ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+                } else if !hidesPlus {
+                    // The plus invites a tap and marks an emptied cell — shown
+                    // the moment a cap lifts. It's hidden only while a cap is
+                    // settling in, so it can't flash under the landing chip.
                     Image(systemName: "plus")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.tint.opacity(1))
                 }
             }
             .font(.system(size: 28))
@@ -779,29 +930,65 @@ private struct KeyCapCell: View {
             if let caption = command?.caption {
                 Text(caption)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(prominent ? AnyShapeStyle(.primary.opacity(0.8)) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 76)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(command == nil ? AnyShapeStyle(.clear) : AnyShapeStyle(.ultraThinMaterial))
-                
-                
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(
-                    isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary),
-                    style: StrokeStyle(
-                        lineWidth: isSelected ? 2 : 1,
-                        dash: command == nil ? [5, 4] : []
-                    )
+    }
+}
+
+private extension EnvironmentValues {
+    /// Set by `PickerKeyStyle` while a chooser tile is pressed, so the tile can
+    /// draw its own accent wash (matching the editor's empty-cell feedback)
+    /// rather than the button style dimming the whole label.
+    @Entry var keyTilePressed: Bool = false
+}
+
+private extension View {
+    /// The cap's surface, applied to the content so the glyph rides on it rather
+    /// than being refracted through a pane in front. Glass caps (the editor pad)
+    /// get Liquid Glass — plus `.interactive()` when tappable — tinted while a
+    /// drag hovers. Non-glass caps (the picker's chooser tiles) get a material
+    /// tile that flips to an accent-filled inverse when selected, since a dense
+    /// grid of glass renders with an odd/even shimmer and the chooser is a
+    /// selection list, not the live pad. Their press feedback comes from
+    /// `PickerKeyStyle`. `isVisible` gates the glass so an empty, un-hovered
+    /// editor socket shows only its recess.
+    @ViewBuilder
+    func capSurface(usesGlass: Bool, isVisible: Bool, interactive: Bool, selected: Bool) -> some View {
+        if usesGlass, #available(iOS 26.0, *) {
+            if isVisible {
+                let tint: Color = selected ? .accentColor.opacity(0.15) : .clear
+                glassEffect(
+                    interactive ? .regular.tint(tint).interactive() : .regular.tint(tint),
+                    in: .rect(cornerRadius: 14)
                 )
-                .opacity(command == nil || isSelected ? 1 : 0)
-        )
+            } else {
+                self
+            }
+        } else if usesGlass {
+            // Pre-iOS 26 fallback for glass caps: a plain tint fill.
+            background(RoundedRectangle(cornerRadius: 14).fill(selected ? Color.accentColor.opacity(0.15) : .clear))
+        } else {
+            // Picker chooser tile: material normally; an accent-filled inverse
+            // when selected.
+            background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.ultraThinMaterial))
+            )
+        }
+    }
+
+    /// A rounded-rect Liquid Glass surface (interactive) on iOS 26; a material
+    /// tile on earlier systems — for the shortcuts row's glass "Add" action.
+    @ViewBuilder
+    func glassRect() -> some View {
+        if #available(iOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+        } else {
+            background(RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial))
+        }
     }
 }
 
