@@ -10,23 +10,26 @@ struct KeyPadControl: View {
     /// — three rows tall instead of four — while the pad keeps its
     /// directionally-meaningful shape untouched.
     let isCompact: Bool
+    /// Multiplies the portrait cap (and its glyph) so the pad grows on iPad, where
+    /// there's the room. 1 on phones. Landscape sizes caps to the granted height
+    /// instead, so this only affects the portrait path.
+    var sizeScale: CGFloat = 1
     @EnvironmentObject var controller: AppController
     /// Injectable so previews can render arbitrary layouts; defaults to the
     /// persisted store.
     @ObservedObject var layoutStore: KeyPadLayoutStore = .shared
 
+    /// The gap between caps — uniform within a zone and between the utility strip
+    /// and the pad, so the live pad reads as one grid. (The editor adds its own
+    /// extra separation between the two zones; the pad itself doesn't.)
     private var spacing: CGFloat { isCompact ? 6 : 8 }
-    /// Breathing room between the zones, so they read as grouped without a
-    /// divider.
-    private let zoneGap: CGFloat = 14
 
     var body: some View {
         if isCompact {
-            // Landscape sizes the caps from whatever the page grants — as big a
-            // pad as the space allows.
+            // Landscape sizes the caps to fill the height the page grants.
             GeometryReader { proxy in
                 let capSize = compactCapSize(in: proxy.size)
-                HStack(spacing: zoneGap + 4) {
+                HStack(spacing: spacing) {
                     utilityColumn(capSize: capSize)
                     zoneGrid(layoutStore.layout.pad, capSize: capSize)
                 }
@@ -35,7 +38,7 @@ struct KeyPadControl: View {
         } else {
             // Portrait keeps the pad at its natural height so the pager's spacers
             // can centre it in the page.
-            VStack(spacing: zoneGap) {
+            VStack(spacing: spacing) {
                 zoneGrid(layoutStore.layout.utility, capSize: portraitCapSize)
                 zoneGrid(layoutStore.layout.pad, capSize: portraitCapSize)
             }
@@ -44,19 +47,22 @@ struct KeyPadControl: View {
 
     /// Fixed rather than space-filling: portrait centres a natural-height pad via
     /// the pager's spacers, so the pad must report a real height. 84pt clears the
-    /// volume row on the smallest phones' four-row layout.
-    private var portraitCapSize: CGFloat { 84 }
+    /// volume row on the smallest phones' four-row layout; iPad scales it up via
+    /// `sizeScale`, where there's room to spare.
+    private var portraitCapSize: CGFloat { 84 * sizeScale }
 
-    /// The largest cap the granted space can hold: height against the taller
-    /// zone's rows, width against strip + gap + pad columns, floored at the
-    /// 44pt tap-target minimum and capped before comedy sizes.
+    /// The largest cap the granted space can hold, clamped to 44–100pt (44 is the
+    /// tap-target minimum). Landscape lays out one utility column beside the pad's
+    /// columns, so both axes are `count` caps with `count - 1` gaps: height against
+    /// the taller zone's rows, width against the utility column plus the pad's
+    /// columns.
     private func compactCapSize(in available: CGSize) -> CGFloat {
         let pad = layoutStore.layout.pad
         let utilityCount = layoutStore.layout.utility.cells.count
         let rows = CGFloat(max(pad.rowCount, utilityCount, 1))
         let heightDriven = (available.height - (rows - 1) * spacing) / rows
-        let columns = CGFloat(pad.columns)
-        let widthDriven = (available.width - (zoneGap + 4) - (columns - 1) * spacing) / (columns + 1)
+        let columns = CGFloat(pad.columns + 1)
+        let widthDriven = (available.width - (columns - 1) * spacing) / columns
         return min(max(44, min(heightDriven, widthDriven)), 100)
     }
 
@@ -87,6 +93,7 @@ struct KeyPadControl: View {
     private func cellView(_ command: PadCommand?, capSize: CGFloat) -> some View {
         if let command {
             commandButton(command, capSize: capSize)
+                .clipShape(RoundedRectangle(cornerRadius: 20.0))
         } else {
             // Sized, not `gridCellUnsizedAxes`: a fully empty row or column
             // must keep its footprint so key positions stay where the editor
@@ -95,13 +102,23 @@ struct KeyPadControl: View {
         }
     }
 
+    /// The glyph point size for a cap: 60% of the cap, capped at 50pt so the widest
+    /// symbols (space, return — sized by point size, not fit to the cap) stay
+    /// bounded at the largest landscape caps. The cap scales with `sizeScale` so an
+    /// iPad's larger caps keep their glyphs in proportion. The one control for
+    /// live-cap glyph size; `PadKeyButton`'s `fontSize` default applies only to
+    /// previews.
+    private func glyphFontSize(for capSize: CGFloat) -> CGFloat {
+        min(capSize * 0.6, 50 * sizeScale)
+    }
+
     private func commandButton(_ command: PadCommand, capSize: CGFloat) -> some View {
-        // Font tracks the cap at the portrait ratio (36pt glyph in a 60pt cap).
-        PadKeyButton(command: command, size: capSize, fontSize: capSize * 0.6) {
-            // Two independent tasks: the key press drains at link speed with no
-            // status read behind it, and the readout refresh fires alongside it
-            // rather than chained after. `updateState`'s 2 s dedupe keeps a burst
-            // from queueing a refresh per press.
+        PadKeyButton(command: command, size: capSize, fontSize: glyphFontSize(for: capSize)) {
+            // Two independent tasks: the key press sends with no status read
+            // behind it, so a run of presses is limited only by the connection,
+            // and the readout refresh runs alongside it rather than after.
+            // `updateState`'s 2 s dedupe keeps a burst from queueing a refresh
+            // per press.
             Task {
                 await controller.executeActionWithoutStatus(platform: platform, action: command.action)
             }
@@ -125,7 +142,8 @@ struct PadKeyButton: View {
         Button(action: action) {
             // Sized by font rather than a resizable frame: these glyphs don't
             // share an aspect ratio (arrows are square, space/return are wide and
-            // short), so a uniform box would render space as a sliver.
+            // short), so forcing them into a uniform square would render the wide
+            // ones (space) very small.
             KeyCapGlyph(glyph: command.glyph, wrapsLongText: true)
                 .accessibilityLabel(command.label)
         }
@@ -142,9 +160,9 @@ struct PadKeyButton: View {
 struct KeyCapGlyph: View {
     let glyph: RemoteKey.Glyph
     /// The live pad wraps a long chord ("⌃⌥⇧⌘Z") onto a second line after the
-    /// second glyph, so it reads at a legible size in the square cap rather than
-    /// shrinking to a sliver on one line. The editor and picker keep one line —
-    /// they caption the chord in full beneath the cap.
+    /// second glyph, so it stays legible in the square cap rather than shrinking
+    /// too small on one line. The editor and picker keep one line — they caption
+    /// the chord in full beneath the cap.
     var wrapsLongText = false
 
     var body: some View {
