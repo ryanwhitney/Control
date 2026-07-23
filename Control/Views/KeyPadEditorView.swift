@@ -288,7 +288,7 @@ struct KeyPadEditorContent: View {
     /// Notes that the pad layout is global: one arrangement serves every
     /// connection with Keyboard controls enabled, so an edit here changes them all.
     private var enablementHint: some View {
-        Text("This updates the layout for all connections with Keyboard controls enabled.")
+        Text("This updates your controls for all connections with Keyboard controls enabled.")
             .font(.body)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -853,7 +853,6 @@ private struct ShortcutBuilderView: View {
                             
                                 
                         )
-                        
                         .contentShape(.rect(cornerRadius: 12))
                         
                     }
@@ -870,8 +869,8 @@ private struct ShortcutBuilderView: View {
 /// One key cap tile: glyph centred, captioned beneath when the cap doesn't
 /// name itself (an arrow glyph or a "⌘Z" chord; "A" does), a plus-marked
 /// material socket when empty. `isSelected` highlights either the picker's
-/// current command (an accent-filled inverse tile) or the editor cell a drag
-/// is hovering (an accent tint on the glass).
+/// current command (a tint border on the material tile) or the editor cell a
+/// drag is hovering (an accent tint on the glass).
 private struct KeyCapCell: View {
     let command: PadCommand?
     var isSelected: Bool = false
@@ -925,16 +924,12 @@ private struct KeyCapCell: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: pressed)
     }
     
-    /// A selected picker tile inverts — accent-filled — so its glyph and caption
-    /// switch to the prominent (primary) foreground for contrast.
-    private var prominent: Bool { !usesGlass && isSelected }
-    
     private var capContent: some View {
         VStack(spacing: 4) {
             Group {
                 if let command {
                     KeyCapGlyph(glyph: command.glyph)
-                        .foregroundStyle(prominent ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
+                        .foregroundStyle(.tint)
                 } else if !hidesPlus {
                     // The plus invites a tap and marks an emptied cell — shown
                     // the moment a cap lifts. It's hidden only while a cap is
@@ -949,7 +944,7 @@ private struct KeyCapCell: View {
             if let caption = command?.caption {
                 Text(caption)
                     .font(.caption)
-                    .foregroundStyle(prominent ? AnyShapeStyle(.primary.opacity(0.8)) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -969,11 +964,10 @@ private extension View {
     /// than being refracted through a pane in front. Glass caps (the editor pad)
     /// get Liquid Glass — plus `.interactive()` when tappable — tinted while a
     /// drag hovers. Non-glass caps (the picker's chooser tiles) get a material
-    /// tile that flips to an accent-filled inverse when selected, since a dense
-    /// grid of glass renders with an odd/even shimmer and the chooser is a
-    /// selection list, not the live pad. Their press feedback comes from
-    /// `PickerKeyStyle`. `isVisible` gates the glass so an empty, un-hovered
-    /// editor socket shows only its recess.
+    /// tile that gains a tint border when selected, since a dense grid of glass
+    /// renders with an odd/even shimmer and the chooser is a selection list, not
+    /// the live pad. Their press feedback comes from `PickerKeyStyle`. `isVisible`
+    /// gates the glass so an empty, un-hovered editor socket shows only its recess.
     @ViewBuilder
     func capSurface(usesGlass: Bool, isVisible: Bool, interactive: Bool, selected: Bool) -> some View {
         if usesGlass, #available(iOS 26.0, *) {
@@ -990,11 +984,13 @@ private extension View {
             // Pre-iOS 26 fallback for glass caps: a plain tint fill.
             background(RoundedRectangle(cornerRadius: 14).fill(selected ? Color.accentColor.opacity(0.15) : .clear))
         } else {
-            // Picker chooser tile: material normally; an accent-filled inverse
-            // when selected.
+            // Picker chooser tile: material fill, gaining a tint border when
+            // selected — matching the modifier chips.
             background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.ultraThinMaterial))
+                    .strokeBorder(.tint, lineWidth: selected ? 4 : 0)
+                    .fill(AnyShapeStyle(.ultraThinMaterial))
+                    .strokeBorder(.tint, lineWidth: selected ? 2 : 0)
             )
         }
     }
