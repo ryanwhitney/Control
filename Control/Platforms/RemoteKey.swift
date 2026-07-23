@@ -110,9 +110,9 @@ extension RemoteKey {
     static let all: [RemoteKey] = sections.flatMap(\.keys)
 
     /// Catalog lookup for decoding a stored layout; nil for ids this version
-    /// doesn't know (a key from a newer one). Ids in stored data are forever:
-    /// if a key is ever renamed, the old id joins `idAliases` rather than
-    /// dying — a removed id silently empties every cell that used it.
+    /// doesn't know (a key from a newer one). Stored ids are permanent: a renamed
+    /// key's old id joins `idAliases` rather than being dropped, since a missing
+    /// id silently empties every cell that used it.
     static func withID(_ id: String) -> RemoteKey? {
         let resolved = idAliases[id] ?? id
         return all.first { $0.id == resolved }

@@ -193,7 +193,7 @@ extension CellGrid: Codable {
 
 /// Which zone of the pad a cell lives in; `allCases` order is layout order,
 /// top to bottom. A future bottom strip is one more case plus an optional
-/// stored field — additive, like everything in this file.
+/// stored field.
 enum PadZone: String, CaseIterable {
     case utility, pad
 }
@@ -212,10 +212,9 @@ struct CellAddress: Hashable, Identifiable {
 /// moves around it (beside it in landscape). Empty cells hold their places,
 /// so the pad and its editor always agree on positions.
 struct KeyPadLayout: Equatable {
-    /// The wire-format generation. Bump only together with a migration step
-    /// in the decoder. Pre-versioning test blobs (the flat 12-cell shape)
-    /// deliberately fail decode and start fresh from `standard` — nothing
-    /// shipped in that shape.
+    /// The wire-format generation. Bump only together with a migration step in
+    /// the decoder. A shape without these zones fails decode, and the store
+    /// starts fresh from `standard`.
     static let currentVersion = 1
 
     var utility: CellGrid
@@ -278,9 +277,8 @@ extension KeyPadLayout: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // v1 has no older siblings to migrate; the version is read so a
-        // future v2 decoder can branch on it, and written so v1 data is
-        // identifiable forever.
+        // v1 has nothing to migrate; the version is read so a future decoder
+        // can branch on it, and written so v1 data stays identifiable.
         _ = try container.decodeIfPresent(Int.self, forKey: .version)
         utility = try container.decode(CellGrid.self, forKey: .utility)
         pad = try container.decode(CellGrid.self, forKey: .pad)
@@ -294,6 +292,17 @@ extension KeyPadLayout: Codable {
     }
 }
 
+/// Decodes each stored custom shortcut behind a never-failing wrapper, so an
+/// entry this version can't read costs only itself, not the whole library —
+/// matching `CellGrid`'s lossy cells.
+private struct LossyShortcut: Decodable {
+    let shortcut: KeyShortcut?
+
+    init(from decoder: Decoder) {
+        shortcut = try? KeyShortcut(from: decoder)
+    }
+}
+
 /// Persists the pad layout and publishes edits. The pad and its editor share
 /// this one instance, so an edit shows on the pad behind the sheet as it's
 /// made.
@@ -303,6 +312,7 @@ final class KeyPadLayoutStore: ObservableObject {
 
     private static let defaultsKey = "KeyPadLayout"
     private static let shortcutsKey = "KeyPadCustomShortcuts"
+    private static let hiddenPresetsKey = "KeyPadHiddenPresetShortcuts"
 
     /// False only for preview stores: interacting with a preview must never
     /// overwrite the saved pad.
@@ -311,10 +321,9 @@ final class KeyPadLayoutStore: ObservableObject {
     @Published var layout: KeyPadLayout {
         didSet {
             guard persists else { return }
-            // Landing exactly on `standard` — Restore, or editing back by
-            // hand — clears the entry rather than freezing a copy of it:
-            // users on the default keep *tracking* the default, so a future
-            // version's improved standard layout reaches them.
+            // Landing exactly on `standard` clears the entry rather than storing
+            // a copy, so users on the default keep tracking it — and reach a
+            // future version's improved standard layout.
             if layout == .standard {
                 UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
             } else if let data = try? JSONEncoder().encode(layout) {
@@ -333,6 +342,16 @@ final class KeyPadLayoutStore: ObservableObject {
         }
     }
 
+    /// Preset shortcuts the user has deleted from the picker's Shortcuts row,
+    /// by `contentID`. The presets are a fixed catalog, so "deleting" one is
+    /// hiding it here; rebuilding the same chord brings it back.
+    @Published var hiddenPresetIDs: Set<String> {
+        didSet {
+            guard persists else { return }
+            UserDefaults.standard.set(Array(hiddenPresetIDs), forKey: Self.hiddenPresetsKey)
+        }
+    }
+
     private init() {
         persists = true
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
@@ -342,30 +361,52 @@ final class KeyPadLayoutStore: ObservableObject {
             layout = .standard
         }
         if let data = UserDefaults.standard.data(forKey: Self.shortcutsKey),
-           let saved = try? JSONDecoder().decode([KeyShortcut].self, from: data) {
-            customShortcuts = saved
+           let saved = try? JSONDecoder().decode([LossyShortcut].self, from: data) {
+            customShortcuts = saved.compactMap(\.shortcut)
         } else {
             customShortcuts = []
         }
+        hiddenPresetIDs = Set(UserDefaults.standard.array(forKey: Self.hiddenPresetsKey) as? [String] ?? [])
     }
 
     private init(previewLayout: KeyPadLayout) {
         persists = false
         layout = previewLayout
         customShortcuts = []
+        hiddenPresetIDs = []
     }
 
-    /// Adds to the library unless an identical chord is already offered (as a
-    /// preset or earlier creation) — the assignment itself still happens
-    /// either way.
+    /// The picker's Shortcuts row: presets the user hasn't deleted, then their
+    /// own creations, de-duplicated by content so the row can key on `contentID`
+    /// safely even if a future preset ever ships a chord a user already saved.
+    var availableShortcuts: [KeyShortcut] {
+        var seen = Set<String>()
+        let visiblePresets = KeyShortcut.presets.filter { !hiddenPresetIDs.contains($0.contentID) }
+        return (visiblePresets + customShortcuts).filter { seen.insert($0.contentID).inserted }
+    }
+
+    /// Files a built chord in the library for reuse. A chord matching a preset
+    /// isn't duplicated — it just un-hides that preset if it had been deleted;
+    /// a genuinely new chord is appended. (The cell assignment happens either
+    /// way, at the call site.)
     func rememberShortcut(_ shortcut: KeyShortcut) {
-        let known = (KeyShortcut.presets + customShortcuts).map(\.contentID)
-        guard !known.contains(shortcut.contentID) else { return }
+        if KeyShortcut.presets.contains(where: { $0.contentID == shortcut.contentID }) {
+            hiddenPresetIDs.remove(shortcut.contentID)
+            return
+        }
+        guard !customShortcuts.contains(where: { $0.contentID == shortcut.contentID }) else { return }
         customShortcuts.append(shortcut)
     }
 
-    func removeCustomShortcut(_ shortcut: KeyShortcut) {
-        customShortcuts.removeAll { $0.contentID == shortcut.contentID }
+    /// Removes a shortcut from the row: a preset is hidden (the catalog is
+    /// fixed, and rebuilding the chord restores it), a user creation is dropped.
+    /// Cells keep their own copy either way, so a placed cap is never broken.
+    func deleteShortcut(_ shortcut: KeyShortcut) {
+        if KeyShortcut.presets.contains(where: { $0.contentID == shortcut.contentID }) {
+            hiddenPresetIDs.insert(shortcut.contentID)
+        } else {
+            customShortcuts.removeAll { $0.contentID == shortcut.contentID }
+        }
     }
 
     /// A throwaway store so previews can render (and interact with) any

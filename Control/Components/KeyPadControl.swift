@@ -22,8 +22,8 @@ struct KeyPadControl: View {
 
     var body: some View {
         if isCompact {
-            // Landscape fills whatever the page grants and sizes the caps
-            // from it — as big a pad as the space allows, not a fixed 44pt.
+            // Landscape sizes the caps from whatever the page grants — as big a
+            // pad as the space allows.
             GeometryReader { proxy in
                 let capSize = compactCapSize(in: proxy.size)
                 HStack(spacing: zoneGap + 4) {
@@ -33,10 +33,8 @@ struct KeyPadControl: View {
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
         } else {
-            // Portrait keeps the pad at its natural height so the pager's
-            // spacers centre it in the page (a fill-the-space pass collapsed
-            // those spacers and left it sitting low). Caps are just bigger than
-            // the old 60pt — Apple-keypad-ish, and small-phone safe at four rows.
+            // Portrait keeps the pad at its natural height so the pager's spacers
+            // can centre it in the page.
             VStack(spacing: zoneGap) {
                 zoneGrid(layoutStore.layout.utility, capSize: portraitCapSize)
                 zoneGrid(layoutStore.layout.pad, capSize: portraitCapSize)
@@ -44,10 +42,9 @@ struct KeyPadControl: View {
         }
     }
 
-    /// Fixed rather than space-filling: portrait relies on the pager's spacers
-    /// to centre a natural-height pad, so the pad must report a real height. 84
-    /// is a comfortable bump from 60 that still clears the volume row on the
-    /// smallest phones' four-row layout.
+    /// Fixed rather than space-filling: portrait centres a natural-height pad via
+    /// the pager's spacers, so the pad must report a real height. 84pt clears the
+    /// volume row on the smallest phones' four-row layout.
     private var portraitCapSize: CGFloat { 84 }
 
     /// The largest cap the granted space can hold: height against the taller
@@ -101,12 +98,10 @@ struct KeyPadControl: View {
     private func commandButton(_ command: PadCommand, capSize: CGFloat) -> some View {
         // Font tracks the cap at the portrait ratio (36pt glyph in a 60pt cap).
         PadKeyButton(command: command, size: capSize, fontSize: capSize * 0.6) {
-            // Two independent tasks on purpose. The key goes out as a bare
-            // System Events statement so a run of presses drains at the speed of
-            // the link rather than of a status read, and the readout refresh is
-            // fired alongside it rather than chained behind it — nothing waits
-            // for the key command to come back. `updateState`'s own 2 s dedupe
-            // keeps a burst from queueing a refresh per press.
+            // Two independent tasks: the key press drains at link speed with no
+            // status read behind it, and the readout refresh fires alongside it
+            // rather than chained after. `updateState`'s 2 s dedupe keeps a burst
+            // from queueing a refresh per press.
             Task {
                 await controller.executeActionWithoutStatus(platform: platform, action: command.action)
             }
@@ -128,11 +123,9 @@ struct PadKeyButton: View {
 
     var body: some View {
         Button(action: action) {
-            // Sized by IconButtonStyle's font rather than a resizable frame (the
-            // transport row's approach): these glyphs don't share an aspect
-            // ratio — the arrows are square, space/escape/return are wide and
-            // short — so a uniform box would render space as a sliver. Font
-            // sizing gives them Apple's optical balance instead.
+            // Sized by font rather than a resizable frame: these glyphs don't
+            // share an aspect ratio (arrows are square, space/return are wide and
+            // short), so a uniform box would render space as a sliver.
             KeyCapGlyph(glyph: command.glyph, wrapsLongText: true)
                 .accessibilityLabel(command.label)
         }
@@ -167,12 +160,10 @@ struct KeyCapGlyph: View {
         }
     }
 
-    /// Splits a 4-or-more-glyph chord as evenly as possible across two lines,
-    /// the shorter half first (4 → 2+2, 5 → 2+3, 7 → 3+4). Shorter caps
-    /// ("A", "⌘V", "⌃⌘F") stay on one line. This is a plain character split: a
-    /// multi-character key name ("F12") usually rides one side intact (⌃⌥⇧⌘F12 →
-    /// ⌃⌥⇧ / ⌘F12), but the shortcut's modifier/key structure isn't visible here
-    /// to guarantee it, so a short chord like ⌘F12 can divide it (⌘F / 12).
+    /// Splits a 4-or-more-glyph chord across two lines, shorter half first
+    /// (4 → 2+2, 5 → 2+3); shorter caps stay on one line. A plain character split,
+    /// so a multi-character key name can land across the break (⌘F12 → ⌘F / 12) —
+    /// acceptable, since the modifier/key structure to split on isn't visible here.
     private static func wrapped(_ text: String) -> String {
         guard text.count >= 4 else { return text }
         let split = text.index(text.startIndex, offsetBy: text.count / 2)

@@ -101,19 +101,18 @@ struct PermissionsView: View, SSHConnectedView {
             startSuccessSequence()
         }
         .onChange(of: showingPermissionsNameExplanation) { _, isOpen in
-            // A grant that landed while the "why sshd-keygen-wrapper" sheet
-            // was up has been holding for it — pick the sequence up on close.
+            // A grant that landed while the explanation sheet was open is held;
+            // resume the sequence on close.
             if !isOpen {
                 startSuccessSequence()
             }
         }
     }
 
-    /// The granted → success → onComplete choreography (same beats as the old
-    /// dispatch chain: crossfade at 1 s, success card at 1.5 s, out at 3.5 s,
-    /// complete at 4 s), rebuilt as one awaitable sequence so it can hold
-    /// between beats while the explanation sheet is open. The rows keep
-    /// spinning and turning green behind the sheet — only *moving on* waits.
+    /// The granted → success → onComplete choreography (crossfade at 1 s, success
+    /// card at +0.5 s, out at +2 s, complete at +0.5 s) as one awaitable sequence,
+    /// so it can hold between beats while the explanation sheet is open — only
+    /// moving on waits; the rows keep animating behind the sheet.
     private func startSuccessSequence() {
         guard allPermissionsGranted, successSequenceTask == nil else { return }
         successSequenceTask = Task { @MainActor in
@@ -320,11 +319,10 @@ struct PermissionsView: View, SSHConnectedView {
             .disabled(isChecking || allPermissionsGranted || connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
-            // One button so "Learn why" isn't a sliver of a tap target; only
-            // the link phrase is tinted. macOS attributes these dialogs to
-            // sshd-keygen-wrapper (each Remote Login session's launcher), so
-            // that's the name people will actually see — the alert explains
-            // why it isn't "Control".
+            // One button so "Learn why" isn't a sliver of a tap target; only the
+            // link phrase is tinted. macOS attributes these dialogs to
+            // sshd-keygen-wrapper (each Remote Login session's launcher), so that's
+            // the name people see; the sheet explains why it isn't "Control".
             Button {
                 showingPermissionsNameExplanation = true
             } label: {
