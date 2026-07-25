@@ -1,16 +1,15 @@
 import SwiftUI
+import MultiBlur
 
 struct PlatformControl: View {
     let platform: any AppPlatform
     @Binding var state: AppState
-    /// Position of this page in the pager plus a way to move it, so VoiceOver can
-    /// switch apps from the title (swipe up/down) instead of hunting for the page
-    /// indicator and losing focus on every page change.
+    /// Lets VoiceOver switch apps from the title, rather than hunting for the
+    /// page indicator and losing focus on every change.
     let pageIndex: Int
     let pageCount: Int
-    /// The *currently selected* page and its app name — not this page's own. The
-    /// adjustable announcement comes from the focused (old) title's value, so the
-    /// value must track the selection or VoiceOver reads a stale position.
+    /// The *selected* page, not this one's: the adjustable announcement comes
+    /// from the old title's value, which must track the selection or it's stale.
     let selectedIndex: Int
     let selectedName: String
     let onSelectPage: (Int) -> Void
@@ -19,15 +18,15 @@ struct PlatformControl: View {
     @StateObject private var preferences = UserPreferences.shared
     @State private var showingExperimentalAlert = false
     @State private var showingKeyPadEditor = false
+    @State private var permissionHelpKind: PermissionKind?
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // Transport icons ignore Dynamic Type on purpose: platforms with five actions
-    // (VLC/IINA/mpv) already fill a small phone's width, so any per-glyph growth
-    // pushes the outer buttons off screen with no way to reach them. iPad has the
-    // room, so there they grow by controlScale instead (the base 60pt button is
-    // already comfortably above tap-target minimums).
+    // Ignore Dynamic Type on purpose: a five-action row already fills a small
+    // phone's width, so growth pushes the outer buttons off screen. iPad has the
+    // room, so it grows by controlScale instead.
     private var primaryIconWidth: CGFloat { 40 * controlScale }
     private var primaryIconHeight: CGFloat { 45 * controlScale }
     private var trackIconWidth: CGFloat { 25 * controlScale }
@@ -37,34 +36,40 @@ struct PlatformControl: View {
         verticalSizeClass == .compact
     }
 
-    /// iPad in a roomy (regular width *and* height) layout. Deliberately false for
-    /// every iPhone — including Plus/Max phones, which report regular *width* in
-    /// landscape but compact height — so phone portrait and landscape sizing are
-    /// untouched. Narrow iPad multitasking (compact width) also falls back to phone
-    /// sizing, where the scaled-up controls wouldn't fit.
+    /// Regular width *and* height, so it's false for Plus/Max phones in landscape
+    /// (regular width, compact height) and for narrow iPad multitasking, where the
+    /// scaled-up controls wouldn't fit.
     private var isPad: Bool {
         horizontalSizeClass == .regular && verticalSizeClass == .regular
     }
 
-    /// How much larger the non-volume controls and their labels grow on iPad. Stays
-    /// 1 on phones, so every phone code path below renders exactly as before.
+    /// 1 on phones, so no phone path below is affected.
     private var controlScale: CGFloat { isPad ? 1.4 : 1 }
 
-    // The key pad is four rows to the transport row's one, so it takes less of
-    // the portrait whitespace above it — otherwise its bottom row lands under the
-    // volume slider on a small phone.
+    // Four rows to the transport row's one, so it gets less of the portrait
+    // whitespace or its bottom row lands under the volume slider.
     private var isKeyPad: Bool { platform.controlStyle == .keyPad }
 
-    // Phone landscape uses tight 4pt gaps around the readout so the controls get
-    // the remaining vertical space, which the key pad sizes its caps from.
+    // Landscape keeps these tight so the controls get the remaining height,
+    // which the key pad sizes its caps from.
     private var titleBottomPadding: CGFloat {
         if isPhoneLandscape { return 4 }
         return (isKeyPad ? 20 : 50) * controlScale
     }
 
+    /// Sits the fix-it button clear of the readout rather than tucked under it.
+    private static let permissionButtonGap: CGFloat = 16
+    /// The gap plus roughly the rendered button.
+    private static let permissionButtonAllowance: CGFloat = 50
+
+    /// The fix-it button sits in this gap, so the gap gives up its own height
+    /// rather than the page growing — the key pad's portrait height is fixed and
+    /// anything taller clips off the top.
     private var readoutBottomPadding: CGFloat {
         if isPhoneLandscape { return 4 }
-        return (isKeyPad ? 24 : 60) * controlScale
+        let base = (isKeyPad ? 24 : 60) * controlScale
+        guard state.permissionKind != nil else { return base }
+        return max(8, base - Self.permissionButtonAllowance)
     }
 
     /// "app 3 of 7" while resting on this page; after an adjustment it becomes
@@ -126,10 +131,9 @@ struct PlatformControl: View {
                         .id(platform.name)
                         .accessibilityValue(pagerAccessibilityValue)
                         .accessibilityAdjustableAction { direction in
-                            // Step from the live selection, not this page's own
-                            // index: focus stays on the old page's title briefly
-                            // after a switch, and stepping from pageIndex there
-                            // drops repeat swipes or jumps the wrong way.
+                            // From the live selection, not this page's index:
+                            // focus lingers on the old title after a switch, and
+                            // stepping from pageIndex drops repeat swipes.
                             switch direction {
                             case .increment:
                                 onSelectPage(selectedIndex + 1)
@@ -163,29 +167,52 @@ struct PlatformControl: View {
                     }
                 }
                 .padding(.bottom, titleBottomPadding)
-                VStack(alignment: .center) {
-                    Text(state.title)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                        .multilineTextAlignment(.center)
-                        .id("\(platform.name)_title")
-                        .frame(maxWidth: .infinity)
-                    if !isKeyPad { Text(state.subtitle)
-                            .fontWeight(.semibold)
-                            .lineLimit(2)
+                VStack(spacing: Self.permissionButtonGap) {
+                    VStack(alignment: .center) {
+                        Text(state.title)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                             .multilineTextAlignment(.center)
-                            .id("\(platform.name)_subtitle")
+                            .id("\(platform.name)_title")
                             .frame(maxWidth: .infinity)
+                        if !isKeyPad { Text(state.subtitle)
+                                .fontWeight(.semibold)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.center)
+                                .id("\(platform.name)_subtitle")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .font(isPad ? .title2 : .callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: isPhoneLandscape || isKeyPad ? 0 : 40 * controlScale)
+                    .padding(.horizontal, isPhoneLandscape || isKeyPad ? 64 : 10)
+                    .transition(.opacity)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.title)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.subtitle)
+
+                    // Outside the readout, which combines its children — a
+                    // button folded into that can't be activated.
+                    if let kind = state.permissionKind {
+                        Button {
+                            permissionHelpKind = kind
+                        } label: {
+                            Text("How to fix this")
+                                .font(.footnote)
+                                .padding(.vertical, 2)
+                                .padding(.horizontal, 5)
+                                .glassPillLabel()
+                                .fontWeight(.bold)
+                                .multiblur([(10, 0.25), (50, 0.35)])
+                        }
+                        .glassPillButtonStyle(tint: .accentColor)
+                        .accessibilityHint("Explains which permission to grant on your Mac")
+                        .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
                     }
                 }
-                .accessibilityElement(children: .combine)
-                .font(isPad ? .title2 : .callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: isPhoneLandscape || isKeyPad ? 0 : 40 * controlScale)
-                .padding(.horizontal, isPhoneLandscape || isKeyPad ? 64 : 10)
                 .padding(.bottom, readoutBottomPadding)
-                .transition(.opacity)
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.title)
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: state.subtitle)
+                // Carries the padding change too, so the controls slide.
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: state.permissionKind)
             }
 
             Group {
@@ -196,25 +223,26 @@ struct PlatformControl: View {
                     KeyPadControl(platform: platform, isCompact: isPhoneLandscape, sizeScale: controlScale)
                 }
             }
-            // Landscape: the controls take the remaining height. The key pad uses
-            // top alignment (close under the readout); transport rows stay centred.
+            // Landscape: the controls take the remaining height, the key pad
+            // top-aligned under the readout and transport rows centred.
             .frame(
                 maxHeight: isPhoneLandscape ? .infinity : nil,
                 alignment: isKeyPad && isPhoneLandscape ? .top : .center
             )
-            // The pager's dots overlay its bottom edge, which extends 14pt below
-            // its slot in landscape (see ControlView); this clearance keeps caps
-            // from under the dots.
-            .padding(.bottom, isPhoneLandscape ? 40 : 60 * controlScale)
+            // Puts back what the clearance below gave up, so transport rows keep
+            // their position while the dots stay lower. The key pad keeps the
+            // space: its portrait height is fixed.
+            .padding(.top, isPhoneLandscape || isKeyPad ? 0 : 20 * controlScale)
+            // Keeps the controls clear of the dots, which overlay the pager's
+            // bottom edge 14pt below its slot (see ControlView).
+            .padding(.bottom, isPhoneLandscape ? 40 : 40 * controlScale)
         }
         .padding(.top, isPhoneLandscape ? 4 : 0)
         .onAppear {
             Task {
-                // Wait until the initial batch update has completed
                 guard controller.hasCompletedInitialUpdate else { return }
-                // Foreground-only apps (IINA/mpv) are refreshed by ControlView when
-                // their tab is the active selection — not here, since a paged
-                // TabView pre-renders adjacent panels and would foreground them.
+                // ControlView refreshes these when their tab is selected: a paged
+                // TabView pre-renders neighbours and would foreground them here.
                 guard platform.checksStatusOnlyWhenVisible == false else { return }
                 await controller.updateState(for: platform)
             }
@@ -226,6 +254,9 @@ struct PlatformControl: View {
         }
         .sheet(isPresented: $showingKeyPadEditor) {
             KeyPadEditorView()
+        }
+        .sheet(item: $permissionHelpKind) { kind in
+            PermissionsHelpSheet(kind: kind)
         }
     }
 }
