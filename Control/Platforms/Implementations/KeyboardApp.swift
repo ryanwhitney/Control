@@ -42,10 +42,15 @@ struct KeyboardApp: AppPlatform {
     /// frontmost — so the permission check must not try to activate one.
     var targetsFrontmostApp: Bool { true }
 
+    /// `errAEEventNotPermitted` — the error a denied Automation prompt raises.
+    private static let notAuthorizedErrorNumber = -1743
+
     /// Reads the frontmost app's name from its bundle path. Every risky step is
     /// wrapped in `try` so a mid-script error degrades to a blank field rather
     /// than failing the command (the streaming parser fails on any mid-script
-    /// error).
+    /// error) — except a denied Automation permission, re-raised to reach the
+    /// shared "Not authorized to send Apple events" check. It's the pad's only
+    /// permission signal: `targetsFrontmostApp` skips the activate step.
     ///
     /// Chosen by measurement (~55 ms vs ~231 ms for the obvious version):
     ///
@@ -79,10 +84,14 @@ struct KeyboardApp: AppPlatform {
                         exit repeat
                     end if
                 end repeat
+            on error errorMessage number errorNumber
+                if errorNumber is \(Self.notAuthorizedErrorNumber) then error errorMessage number errorNumber
             end try
             if frontApp is "" then
                 try
                     set frontApp to name of first application process whose frontmost is true
+                on error errorMessage number errorNumber
+                    if errorNumber is \(Self.notAuthorizedErrorNumber) then error errorMessage number errorNumber
                 end try
             end if
             if frontApp is "" then
