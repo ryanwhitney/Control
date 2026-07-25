@@ -21,8 +21,7 @@ struct ChooseAppsView: View, SSHConnectedView {
     @State private var showAppList: Bool = false
     
     private var availablePlatforms: [any AppPlatform] {
-        // Registry order, which leads with Keyboard — the pager shows the
-        // same order, so this list previews it.
+        // Registry order, which the pager shows too, so this list previews it.
         let nonExperimental = platformRegistry.nonExperimentalPlatforms
         let enabledExperimental = platformRegistry.experimentalPlatforms.filter {
             platformRegistry.enabledExperimentalPlatforms.contains($0.id)
@@ -44,11 +43,9 @@ struct ChooseAppsView: View, SSHConnectedView {
     
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
-        // Connection successful - no specific action needed
     }
     
     func onSSHConnectionFailed(_ error: Error) {
-        // Error handling is done automatically by the mixin
     }
 
     var body: some View {
@@ -77,11 +74,8 @@ struct ChooseAppsView: View, SSHConnectedView {
                                                 .font(.caption)
                                                 .accessibilityLabel("Experimental")
                                         }
-                                        // Last step of the Keyboard discovery hint:
-                                        // a dot on the Keyboard row when an existing
-                                        // connection is being reconfigured and it
-                                        // isn't enabled yet. Clears on leaving the
-                                        // screen (see onDisappear).
+                                        // Last step of the Keyboard discovery
+                                        // hint; clears in onDisappear.
                                         if platform.id == "keyboard"
                                             && isReconfiguration
                                             && !selectedPlatforms.contains(platform.id)
@@ -148,13 +142,11 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
-            // One heading element instead of a header trait on each fragment.
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
-            // The header sits after the list in the ZStack; read it first, with
-            // a running summary of the selection. Count only visible platforms:
-            // a saved selection can hold ids no longer listed (e.g. a disabled
-            // experimental app), which would announce "8 of 7 apps selected".
+            // It sits after the list in the ZStack; read it first. Counting only
+            // visible platforms avoids "8 of 7 apps selected" when a saved
+            // selection holds ids no longer listed.
             .accessibilitySortPriority(1)
             .accessibilityValue("\(visibleSelectionCount) of \(availablePlatforms.count) apps selected")
             .frame(maxWidth:.infinity)
@@ -222,7 +214,6 @@ struct ChooseAppsView: View, SSHConnectedView {
     }
 
     private func updateSelectedPlatforms() {
-        // Initialize selected platforms based on initialSelection or defaultEnabled property
         if let initialSelection = initialSelection {
             selectedPlatforms = initialSelection
         } else {

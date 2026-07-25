@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Which SSH transport the app uses. `streaming` is the default (fast: a
-/// persistent `osascript -i` over a PTY); `compatibility` is the fallback for
-/// Macs where streaming misbehaves (one `osascript` per command, no PTY).
+/// `streaming` is a persistent `osascript -i` over a PTY; `compatibility` is
+/// one `osascript` per command, for Macs where streaming falters or PTY is disabled.
 enum ConnectionMethod: String, CaseIterable, Identifiable {
     case streaming
     case compatibility
@@ -63,8 +62,7 @@ class UserPreferences: ObservableObject {
         self.hasSeenKeyboardHintChooseApps = UserDefaults.standard.bool(forKey: "hasSeenKeyboardHintChooseApps")
     }
     
-    /// Theme palette (display name, persisted key, color) — the single source
-    /// for the theme pickers and `tintColorValue`.
+    /// The single source for the theme pickers and `tintColorValue`.
     static let themeColors: [(name: String, key: String, color: Color)] = [
         ("Blue", "blue", .blue),
         ("Indigo", "indigo", .indigo),
@@ -82,8 +80,8 @@ class UserPreferences: ObservableObject {
         Self.themeColors.first { $0.key == tintColor }?.color ?? .green
     }
     
-    // Update to show the what's new screen
-    private let whatsNewContentVersion = "2.0.2"
+    /// Bump to show the What's New screen again.
+    private let whatsNewContentVersion = "2.1.0"
 
     var shouldShowWhatsNew: Bool {
         return lastSeenWhatsNewVersion != whatsNewContentVersion

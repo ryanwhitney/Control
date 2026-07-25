@@ -1,13 +1,10 @@
 import Foundation
 
-/// A modifier that can join a key in a shortcut. Fn/Globe is absent because
-/// System Events can't synthesize it. Case order is ⌃⌥⇧⌘ — Apple's canonical
-/// display order — and everything derived (caps, captions, spoken names,
-/// scripts) lists modifiers in this order.
+/// Fn/Globe is absent because System Events can't synthesize it. Case order is
+/// Apple's canonical ⌃⌥⇧⌘, and everything derived below follows it.
 enum KeyModifier: String, Codable, CaseIterable, Equatable {
     case control, option, shift, command
 
-    /// The cap glyph: "⌃⌥⇧⌘".
     var symbol: String {
         switch self {
         case .control: return "⌃"
@@ -17,7 +14,7 @@ enum KeyModifier: String, Codable, CaseIterable, Equatable {
         }
     }
 
-    /// The caption name ("Ctrl + C") — abbreviated to fit a tile's caption.
+    /// Abbreviated to fit a tile's caption.
     var shortName: String {
         switch self {
         case .control: return "Ctrl"
@@ -27,7 +24,6 @@ enum KeyModifier: String, Codable, CaseIterable, Equatable {
         }
     }
 
-    /// The spoken name for VoiceOver and Voice Control ("Command Z").
     var spokenName: String {
         switch self {
         case .control: return "Control"
@@ -43,7 +39,6 @@ enum KeyModifier: String, Codable, CaseIterable, Equatable {
     }
 }
 
-/// One keystroke of a shortcut: a key plus the modifiers held with it.
 struct KeyPress: Equatable {
     let key: RemoteKey
     /// Always kept in canonical (`KeyModifier.allCases`) order.
@@ -54,17 +49,14 @@ struct KeyPress: Equatable {
         self.modifiers = KeyModifier.allCases.filter(modifiers.contains)
     }
 
-    /// The cap fragment: "⌘Z", "⌃⌘F", "⇧↑".
     var capText: String {
         modifiers.map(\.symbol).joined() + key.chordCap
     }
 
-    /// The caption fragment: "Cmd + Z".
     var captionText: String {
         (modifiers.map(\.shortName) + [key.label]).joined(separator: " + ")
     }
 
-    /// The spoken fragment: "Command Z".
     var spokenText: String {
         (modifiers.map(\.spokenName) + [key.label]).joined(separator: " ")
     }
@@ -81,9 +73,8 @@ extension KeyPress: Codable {
         guard let key = RemoteKey.withID(id) else {
             throw DecodingError.dataCorruptedError(forKey: .key, in: container, debugDescription: "Unknown key id \(id)")
         }
-        // An unknown modifier string fails the whole press (KeyModifier's
-        // rawValue decode throws): sending a chord with a silently dropped
-        // modifier would press something the user never configured.
+        // Throws on an unknown modifier: a chord with one silently dropped
+        // would press something the user never configured.
         let modifiers = try container.decodeIfPresent([KeyModifier].self, forKey: .modifiers) ?? []
         self.init(key: key, modifiers: modifiers)
     }
@@ -95,20 +86,17 @@ extension KeyPress: Codable {
     }
 }
 
-/// A shortcut the pad can send: one or more modified presses. The first UI
-/// only builds single chords (⌘Z); the array is the seam for later sequences
-/// (⌘K ⌘S) without a stored-data migration. `name` is reserved for future
-/// custom naming ("Undo"); nothing reads it today.
+/// One or more modified presses. The array is the seam for later sequences
+/// (⌘K ⌘S) without a stored-data migration; the UI only builds single chords.
+/// `name` is reserved for future custom naming; nothing reads it today.
 struct KeyShortcut: Equatable, Codable {
     var name: String?
     var presses: [KeyPress]
 
-    /// The cap: presses joined ("⌘Z"; a future sequence reads "⌘K ⌘S").
     var capText: String {
         presses.map(\.capText).joined(separator: " ")
     }
 
-    /// The caption under the cap: "Cmd + Z"; sequences join with commas.
     var captionText: String {
         presses.map(\.captionText).joined(separator: ", ")
     }
@@ -129,12 +117,10 @@ struct KeyShortcut: Equatable, Codable {
 
 extension KeyShortcut {
     private static func chord(_ name: String, _ modifiers: [KeyModifier], _ keyID: String) -> KeyShortcut {
-        // Catalog constants under test; a bad id is a programmer error.
         KeyShortcut(name: name, presses: [KeyPress(key: RemoteKey.withID(keyID)!, modifiers: modifiers)])
     }
 
-    /// The preconfigured shortcuts the picker ships with. Names are carried for
-    /// the future naming UI.
+    /// Names are carried for the future naming UI.
     static let presets: [KeyShortcut] = [
         chord("Undo", [.command], "z"),
         chord("Redo", [.shift, .command], "z"),

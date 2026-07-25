@@ -26,9 +26,8 @@ struct PermissionsView: View, SSHConnectedView {
     let displayName: String
     let username: String
     let password: String
-    /// The apps to check and display on this screen — the ones being granted in
-    /// this pass, which may be just the newly added subset of a connection's full
-    /// app list (callers grant only what's new, not already-set-up apps).
+    /// Only the apps being granted in this pass, which may be a subset of the
+    /// connection's full list — callers don't re-check what's already set up.
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
 
@@ -56,27 +55,22 @@ struct PermissionsView: View, SSHConnectedView {
     
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
-        // Connection successful - no specific action needed
     }
     
     func onSSHConnectionFailed(_ error: Error) {
-        // Error handling is done automatically by the mixin
     }
 
     var body: some View {
         ZStack {
-            // SUCCESS VIEW
             successView
                 .opacity(showSuccess ? 1 : 0)
                 .accessibilityHidden(!showSuccess)
 
-            // MAIN PERMISSIONS VIEW
             mainPermissionsView
                 .opacity(permissionsGranted ? 0 : 1)
                 .accessibilityHidden(permissionsGranted)
         }
         .onAppear {
-            // Initialize permission states
             for platformId in enabledPlatforms {
                 if permissionStates[platformId] == nil {
                     permissionStates[platformId] = .initial
@@ -85,7 +79,6 @@ struct PermissionsView: View, SSHConnectedView {
 
             setupSSHConnection()
 
-            // If permissions are already granted, show success right away
             if allPermissionsGranted {
                 permissionsGranted = true
             }
@@ -103,29 +96,24 @@ struct PermissionsView: View, SSHConnectedView {
         .alert(isPresented: showingError) { connectionErrorAlert() }
         .onChange(of: allPermissionsGranted) {
             guard allPermissionsGranted else { return }
-            // The success state is otherwise conveyed by a visual crossfade only.
+            // Otherwise conveyed by a visual crossfade only.
             AccessibilityNotification.Announcement("All permissions granted. You're all set.").post()
             startSuccessSequence()
         }
         .onChange(of: showingPermissionsNameExplanation) { _, isOpen in
-            // A grant that landed while the explanation sheet was open is held;
-            // resume the sequence on close.
             if !isOpen {
                 startSuccessSequence()
             }
         }
     }
 
-    /// The granted → success → onComplete choreography (crossfade at 1 s, success
-    /// card at +0.5 s, out at +2 s, complete at +0.5 s) as one awaitable sequence,
-    /// so it can hold between beats while the explanation sheet is open — only
-    /// moving on waits; the rows keep animating behind the sheet.
+    /// The granted → success → onComplete choreography as one awaitable sequence,
+    /// so it can hold between beats while the explanation sheet is open.
     private func startSuccessSequence() {
         guard allPermissionsGranted, successSequenceTask == nil else { return }
         successSequenceTask = Task { @MainActor in
-            // A beat throws only on cancellation, which stops the sequence where
-            // it stands: `onComplete()` drives navigation and must not fire from
-            // a screen the user has left.
+            // A beat throws only on cancellation: `onComplete()` drives
+            // navigation and must not fire from a screen the user has left.
             do {
                 try await paceSuccessBeat(.seconds(1))
                 withAnimation(.spring()) {
@@ -147,9 +135,8 @@ struct PermissionsView: View, SSHConnectedView {
         }
     }
 
-    /// One beat of the sequence: the interval, then a hold for as long as the
-    /// explanation sheet is open, so no step ever fires underneath it. Throws on
-    /// cancellation — the hold has no other exit.
+    /// The interval, then a hold while the explanation sheet is open so no step
+    /// fires underneath it. Throws on cancellation — the hold has no other exit.
     @MainActor
     private func paceSuccessBeat(_ interval: Duration) async throws {
         try await Task.sleep(for: interval)
@@ -174,7 +161,6 @@ struct PermissionsView: View, SSHConnectedView {
         .padding()
     }
 
-    /// The "Main Permissions" UI that appears until the user grants permissions
     private var mainPermissionsView: some View {
         VStack(spacing: 20) {
             ZStack(alignment: .top){
@@ -192,9 +178,8 @@ struct PermissionsView: View, SSHConnectedView {
                             .cornerRadius(12)
                             .opacity(permissionStates[platform.id] != .initial ? 1 : 0.5)
                             .animation(.spring(), value: permissionStates[platform.id])
-                            // One element per row with an explicit status, so the
-                            // unchecked state reads "not checked yet" instead of a
-                            // bare app name.
+                            // So an unchecked row reads "not checked yet" rather
+                            // than a bare app name.
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(platform.name)
                             .accessibilityValue(statusDescription(for: platform.id))
@@ -233,12 +218,9 @@ struct PermissionsView: View, SSHConnectedView {
                         .padding(.horizontal)
                         .padding(.top)
                 }
-                // One heading element instead of a header trait on each fragment.
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
-                // The header sits after the list in the ZStack; read it first,
-                // with the app list. (Neutral wording — this string is static,
-                // so it must stay true after checks have run.)
+                // It sits after the list in the ZStack; read it first.
                 .accessibilitySortPriority(1)
                 .accessibilityValue("Apps: \(enabledPlatformNames.joined(separator: ", "))")
                 .frame(maxWidth:.infinity)
@@ -269,7 +251,6 @@ struct PermissionsView: View, SSHConnectedView {
             .map { $0.name }
     }
 
-    /// Spoken status for a row's accessibility value.
     private func statusDescription(for platformId: String) -> String {
         switch permissionStates[platformId] ?? .initial {
         case .initial:
@@ -283,9 +264,8 @@ struct PermissionsView: View, SSHConnectedView {
         }
     }
 
-    /// Purely visual: the row is one accessibility element (children ignored)
-    /// whose spoken status comes from `statusDescription(for:)` — don't add
-    /// accessibility labels here, they can never be read.
+    /// Purely visual — the row ignores its children, so a label added here could
+    /// never be read. Spoken status comes from `statusDescription(for:)`.
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
@@ -332,10 +312,7 @@ struct PermissionsView: View, SSHConnectedView {
             .disabled(isChecking || allPermissionsGranted || connectionManager.connectionState != .connected)
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.5)
             .accessibilityHint(isChecking ? "Currently checking permissions" : allPermissionsGranted ? "All permissions already granted" : "Check app permissions on your Mac")
-            // One button so "Learn why" isn't a sliver of a tap target; only the
-            // link phrase is tinted. macOS attributes these dialogs to
-            // sshd-keygen-wrapper (each Remote Login session's launcher), so that's
-            // the name people see; the sheet explains why it isn't "Control".
+            // One button, so "Learn why" isn't a sliver of a tap target.
             Button {
                 showingPermissionsNameExplanation = true
             } label: {
@@ -349,9 +326,7 @@ struct PermissionsView: View, SSHConnectedView {
             .buttonStyle(.plain)
             .padding(.horizontal)
             .accessibilityHint("Explains why the dialogs name sshd-keygen-wrapper instead of Control")
-            // A sheet, not an alert: alerts can't carry the screenshot of the
-            // real macOS dialog, which is what makes the name recognizable
-            // when it appears.
+            // A sheet, not an alert: alerts can't carry the screenshot.
             .sheet(isPresented: $showingPermissionsNameExplanation) {
                 PermissionsNameExplanationSheet()
             }
@@ -380,7 +355,6 @@ struct PermissionsView: View, SSHConnectedView {
         viewLog("PermissionsView: Starting permission check for all platforms", view: "PermissionsView")
         viewLog("Enabled platforms: \(enabledPlatforms)", view: "PermissionsView")
 
-        // Reset failed states to initial
         for platformId in enabledPlatforms {
             if case .failed = permissionStates[platformId] ?? .initial {
                 viewLog("Resetting failed state for \(platformId)", view: "PermissionsView")
@@ -388,7 +362,6 @@ struct PermissionsView: View, SSHConnectedView {
             }
         }
 
-        // Check each platform
         await withTaskGroup(of: Void.self) { group in
             for platformId in enabledPlatforms {
                 if permissionStates[platformId] != .granted {
@@ -404,8 +377,7 @@ struct PermissionsView: View, SSHConnectedView {
             viewLog("  \(platformId): \(permissionStates[platformId] ?? .initial)", view: "PermissionsView")
         }
 
-        // Summarize the sweep for VoiceOver; the all-granted case is announced
-        // by the success transition instead.
+        // The all-granted case is announced by the success transition instead.
         if !allPermissionsGranted {
             let grantedCount = enabledPlatforms.filter { permissionStates[$0] == .granted }.count
             let failedNames = PlatformRegistry.allPlatforms
@@ -429,11 +401,9 @@ struct PermissionsView: View, SSHConnectedView {
         viewLog("Starting permission check for \(platform.name)", view: "PermissionsView")
         permissionStates[platformId] = .checking
 
-        // First activate the app — but only for platforms that have an app of
-        // their own to bring forward. Frontmost-targeting platforms (KeyboardApp)
-        // have no such app: `tell application "Keyboard"` would fail to resolve,
-        // and activating anything would change what's frontmost. Their
-        // `fetchState()` triggers the System Events prompt on its own.
+        // Frontmost-targeting platforms have no app to resolve, and activating
+        // anything would change what's frontmost. Their `fetchState()` triggers
+        // the prompt on its own.
         if !platform.targetsFrontmostApp {
             let activateScript = """
             tell application "\(platform.name)"
@@ -455,11 +425,9 @@ struct PermissionsView: View, SSHConnectedView {
                 viewLog("⚠️ \(platform.name) activation failed: \(error)", view: "PermissionsView")
             }
 
-            // Add a small delay to allow the app to fully activate
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
 
-        // Then check permissions by fetching state
         let stateScript = platform.fetchState()
 
         viewLog("Checking permissions for \(platform.name) by fetching state...", view: "PermissionsView")
@@ -474,7 +442,10 @@ struct PermissionsView: View, SSHConnectedView {
             viewLog("Permission check result for \(platform.name):", view: "PermissionsView")
             viewLog("Output: \(output)", view: "PermissionsView")
             
-            if output.contains("Not authorized to send Apple events") {
+            if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.accessibilityRequired {
+                viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
+                permissionStates[platformId] = .failed("Accessibility needed")
+            } else if output.contains("Not authorized to send Apple events") {
                 viewLog("❌ \(platform.name): Permission denied", view: "PermissionsView")
                 permissionStates[platformId] = .failed("Permission needed")
             } else {
@@ -483,16 +454,15 @@ struct PermissionsView: View, SSHConnectedView {
             }
         case .failure(let error):
             viewLog("Initial permission check failed for \(platform.name): \(error)", view: "PermissionsView")
-            // Keep checking - no response likely means waiting for user to accept
-            // permissions. Bounded by wall clock, not attempts: each attempt can
-            // block ~6s in the command watchdog, so an attempt count is a wildly
-            // variable bound (60 attempts was accidentally ~6 minutes).
+            // No response usually means the prompt is still up. Bounded by wall
+            // clock, not attempts: each can block ~6s in the command watchdog, so
+            // a count is a wildly variable bound.
             let deadline = Date().addingTimeInterval(60)
             var attempts = 0
             while Date() < deadline {
 
-                // 1s between retries: after a timeout the shell channel is being
-                // rebuilt, and retrying sooner just lands on a cold interpreter.
+                // After a timeout the shell channel is being rebuilt; retrying
+                // sooner lands on a cold interpreter.
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                 viewLog("Retry attempt \(attempts + 1) for \(platform.name)", view: "PermissionsView")
@@ -507,7 +477,10 @@ struct PermissionsView: View, SSHConnectedView {
                     viewLog("Retry successful for \(platform.name)", view: "PermissionsView")
                     viewLog("Output: \(output)", view: "PermissionsView")
                     
-                    if output.contains("Not authorized to send Apple events") {
+                    if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.accessibilityRequired {
+                viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
+                permissionStates[platformId] = .failed("Accessibility needed")
+            } else if output.contains("Not authorized to send Apple events") {
                         viewLog("❌ \(platform.name): Permission still denied after retry", view: "PermissionsView")
                         permissionStates[platformId] = .failed("Permission needed")
                     } else {
@@ -521,17 +494,14 @@ struct PermissionsView: View, SSHConnectedView {
                 }
             }
 
-            // If we get here, we've timed out waiting for a response
             viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts (60s)", view: "PermissionsView")
             permissionStates[platformId] = .failed("Permission dialog timed out")
         }
     }
 }
 
-/// Why macOS's permission dialogs say "sshd-keygen-wrapper" and not
-/// "Control". Led by a screenshot of the real dialog so the name is
-/// recognizable when it appears; a sheet in CompatibilityFallbackNotice's
-/// style, since alerts can't carry images.
+/// Why macOS's permission dialogs say "sshd-keygen-wrapper" and not "Control",
+/// led by a screenshot so the name is recognizable when it appears.
 private struct PermissionsNameExplanationSheet: View {
     @ObservedObject private var preferences = UserPreferences.shared
     @Environment(\.dismiss) private var dismiss
