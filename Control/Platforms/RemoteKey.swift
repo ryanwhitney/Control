@@ -1,38 +1,29 @@
 import Foundation
 
-/// One key the generic pad can send. The catalog is the full unmodified Mac
-/// keyboard — everything a key cap shows without holding anything, so ` but
-/// not ~, letters but no ⌘. Modified presses (⌘Z…) are the planned shortcut
-/// type layered on top in `PadCommand`, not extra keys here.
+/// One key the pad can send. The catalog is the full *unmodified* keyboard —
+/// ` but not ~, letters but no ⌘. Modified presses live in `PadCommand`.
 struct RemoteKey: Equatable, Identifiable {
-    /// How the key cap draws.
     enum Glyph: Equatable {
-        /// An SF Symbol. These keys also caption themselves with `label` in
-        /// the editor — an arrow glyph alone doesn't name itself.
+        /// Also captioned with `label`, since a glyph alone doesn't name itself.
         case symbol(String)
-        /// The character itself as text — the cap *is* the label ("A"), so no
-        /// caption.
+        /// The cap *is* the label ("A"), so no caption.
         case character(String)
     }
 
-    /// What the Mac presses.
     enum Press: Equatable {
-        /// A virtual key code, for the named keys no character reaches
-        /// (arrows, escape…). Positional, but these sit in the same place on
-        /// every layout.
+        /// For named keys no character reaches. Positional, but these sit in
+        /// the same place on every layout.
         case keyCode(Int)
-        /// A character for System Events' `keystroke`, which resolves the
-        /// press against the Mac's own layout — "a" types a on AZERTY too,
-        /// where `key code 0` would type q.
+        /// Resolved against the Mac's own layout by `keystroke`, so "a" types a
+        /// on AZERTY too, where `key code 0` would type q.
         case character(String)
     }
 
     let id: String
-    /// Spoken/caption name: "Up", "A", "Comma".
     let label: String
     let glyph: Glyph
     let press: Press
-    /// Alternative spoken names for Voice Control ("Tap up arrow").
+    /// Voice Control alternatives ("Tap up arrow").
     let inputLabels: [String]
 
     init(id: String, label: String, glyph: Glyph, press: Press, inputLabels: [String]? = nil) {
@@ -51,16 +42,15 @@ extension RemoteKey {
     static let down = RemoteKey(id: "down", label: "Down", glyph: .symbol("arrowtriangle.down.fill"), press: .keyCode(125), inputLabels: ["Down", "Down arrow"])
     static let left = RemoteKey(id: "left", label: "Left", glyph: .symbol("arrowtriangle.left.fill"), press: .keyCode(123), inputLabels: ["Left", "Left arrow"])
     static let right = RemoteKey(id: "right", label: "Right", glyph: .symbol("arrowtriangle.right.fill"), press: .keyCode(124), inputLabels: ["Right", "Right arrow"])
-    // Space is play/pause in most players, so Voice Control accepts those too —
-    // it's what people will reach for on this page.
+    // Space is play/pause in most players, so Voice Control accepts those too.
     static let space = RemoteKey(id: "space", label: "Space", glyph: .symbol("space"), press: .keyCode(49), inputLabels: ["Space", "Spacebar", "Play", "Pause"])
     static let escape = RemoteKey(id: "escape", label: "Escape", glyph: .symbol("escape"), press: .keyCode(53), inputLabels: ["Escape", "Esc"])
     static let `return` = RemoteKey(id: "return", label: "Return", glyph: .symbol("return"), press: .keyCode(36), inputLabels: ["Return", "Enter"])
     static let tab = RemoteKey(id: "tab", label: "Tab", glyph: .symbol("arrow.right.to.line"), press: .keyCode(48))
     static let delete = RemoteKey(id: "delete", label: "Delete", glyph: .symbol("delete.left"), press: .keyCode(51), inputLabels: ["Delete", "Backspace"])
 
-    /// Lowercase press so the synthesized event carries no shift; uppercase
-    /// cap because that's what a keyboard shows.
+    /// Lowercase press so the event carries no shift; uppercase cap because
+    /// that's what a keyboard shows.
     private static func letter(_ character: Character) -> RemoteKey {
         let lower = String(character)
         let upper = lower.uppercased()
@@ -74,8 +64,7 @@ extension RemoteKey {
         return RemoteKey(id: cap, label: cap, glyph: .character(cap), press: .character(cap))
     }
 
-    /// The unshifted punctuation caps, keyboard order; labels are the spoken
-    /// names since the caps don't read aloud.
+    /// Labels are the spoken names, since the caps don't read aloud.
     static let symbols: [RemoteKey] = [
         ("`", "Grave"), ("-", "Minus"), ("=", "Equals"),
         ("[", "Left bracket"), ("]", "Right bracket"), ("\\", "Backslash"),
@@ -109,10 +98,9 @@ extension RemoteKey {
 
     static let all: [RemoteKey] = sections.flatMap(\.keys)
 
-    /// Catalog lookup for decoding a stored layout; nil for ids this version
-    /// doesn't know (a key from a newer one). Stored ids are permanent: a renamed
-    /// key's old id joins `idAliases` rather than being dropped, since a missing
-    /// id silently empties every cell that used it.
+    /// nil for ids this version doesn't know. Stored ids are permanent: a
+    /// renamed key's old id joins `idAliases` rather than being dropped, since a
+    /// missing id silently empties every cell that used it.
     static func withID(_ id: String) -> RemoteKey? {
         let resolved = idAliases[id] ?? id
         return all.first { $0.id == resolved }
@@ -121,9 +109,8 @@ extension RemoteKey {
     /// Old id → current id, for keys renamed after data holding them shipped.
     private static let idAliases: [String: String] = [:]
 
-    /// The key's text form for chord caps, where SF Symbols can't compose
-    /// ("⌘Z" needs a Z; "⇧↑" needs an arrow). Character keys are their own
-    /// cap; the named keys use the standard keyboard glyphs.
+    /// Chord caps can't compose SF Symbols, so named keys fall back to the
+    /// standard keyboard glyphs here.
     var chordCap: String {
         switch glyph {
         case .character(let cap):

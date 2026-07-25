@@ -1,17 +1,12 @@
 import Foundation
 
-/// Sends plain key presses to whatever app is frontmost on the Mac — nothing to
-/// pick, nothing brought forward.
+/// Sends key presses to whatever app is frontmost on the Mac. System Events
+/// delivers `key code` there regardless of any enclosing `tell process`, so
+/// unlike TVApp/IINAApp/MPVApp this one never activates an app first — there's
+/// no focus to capture or restore.
 ///
-/// System Events delivers `key code` to the frontmost application regardless of
-/// any enclosing `tell process`, so unlike the other key-driven platforms
-/// (TVApp/IINAApp/MPVApp) this one never activates an app first: "frontmost" is
-/// the target, so there's no focus to capture or restore and the script stays a
-/// single System Events tell.
-///
-/// It's blind — no dictionary to read playback from — so status is the frontmost
-/// app's name, answering the only question the page raises: where key presses
-/// will land. No subtitle.
+/// It has no dictionary to read playback from, so status is the frontmost app's
+/// name: where the next key press will land.
 struct KeyboardApp: AppPlatform {
     let id = "keyboard"
     let name = "Keyboard"
@@ -19,49 +14,40 @@ struct KeyboardApp: AppPlatform {
     let listDescription: String? = "Works with whatever app is foregrounded on your Mac."
     let defaultEnabled = true
     let controlStyle: ControlStyle = .keyPad
-    // Deliberately NOT `checksStatusOnlyWhenVisible`: that flag is for pages whose
-    // status read foregrounds a Mac app, which this one never does. Its read is no
-    // more expensive than the process-existence check every platform already runs,
-    // so it stays eligible for background prefetch and needs no settle delay.
+    // Deliberately NOT `checksStatusOnlyWhenVisible`: that's for reads that
+    // foreground a Mac app, which this one never does.
 
-    /// Empty on purpose: an action list only feeds the transport row, which
-    /// the keyPad style never renders. The pad is positional and draws from
-    /// the user's `KeyPadLayout` instead — a flat list can't say which key
-    /// belongs in which cell.
+    /// Empty on purpose: an action list feeds the transport row, which the
+    /// keyPad style never renders. A flat list can't say which key goes where.
     var supportedActions: [ActionConfig] { [] }
 
-    /// No app of our own to quit — the inherited "Close Keyboard" item would be
-    /// nonsense.
+    /// No app of our own to quit.
     var menuActions: [ActionConfig] { [] }
 
-    /// `fetchState()` guards itself, and there's no "Keyboard" process for
-    /// `combinedStatusScript()`'s wrapper to find, so it has to skip it.
+    /// There's no "Keyboard" process for the wrapper to find.
     var fetchStateIsSelfGuarding: Bool { true }
 
-    /// There's no "Keyboard" app to bring forward — key presses go to whatever's
-    /// frontmost — so the permission check must not try to activate one.
+    /// No app to bring forward, so the permission check must not activate one.
     var targetsFrontmostApp: Bool { true }
 
     /// `errAEEventNotPermitted` — the error a denied Automation prompt raises.
     private static let notAuthorizedErrorNumber = -1743
 
     /// Reads the frontmost app's name from its bundle path. Every risky step is
-    /// wrapped in `try` so a mid-script error degrades to a blank field rather
-    /// than failing the command (the streaming parser fails on any mid-script
-    /// error) — except a denied Automation permission, re-raised to reach the
-    /// shared "Not authorized to send Apple events" check. It's the pad's only
-    /// permission signal: `targetsFrontmostApp` skips the activate step.
+    /// wrapped in `try` so a mid-script error degrades to a blank field instead of
+    /// failing the command — except a denied Automation permission, re-raised to
+    /// reach the shared "Not authorized to send Apple events" check.
     ///
-    /// Chosen by measurement (~55 ms vs ~231 ms for the obvious version):
+    /// Chosen by measurement (~55 ms vs ~231 ms):
     ///
-    ///  * `first application process whose frontmost is true` costs ~157 ms, and
-    ///    the reference it returns re-runs that filter on every property access
-    ///    (~50 ms each). The frontmost app's bundle path costs ~13 ms, so it's the
-    ///    primary path and the System Events search is only a fallback.
-    ///  * `path to frontmost application` reports the console session's real
-    ///    frontmost app over SSH. Coerce `as text` and parse; **never** `as alias`,
-    ///    which errors on Cryptex-resident apps (Safari lives at
-    ///    `Preboot:Cryptexes:App:…`).
+    ///  * `first application process whose frontmost is true` costs ~157 ms and
+    ///    re-runs that filter on every property access, so it's only a fallback.
+    ///  * `path to frontmost application` costs ~13 ms. Coerce `as text`;
+    ///    **never** `as alias`, which errors on Cryptex-resident apps (Safari
+    ///    lives at `Preboot:Cryptexes:App:…`).
+    ///
+    /// `UI elements enabled` is the assistive-access check the pad needs and this
+    /// read doesn't — here so the readout and a key press can't disagree.
     ///
     /// The empty middle field stands in for the absent subtitle: the shared parse
     /// needs three fields before it reads the third.
@@ -69,6 +55,7 @@ struct KeyboardApp: AppPlatform {
         let sep = ScriptTokens.fieldSeparator
         return """
         tell application "System Events"
+            if not (UI elements enabled) then return "\(ScriptTokens.accessibilityRequired)"
             set frontApp to ""
             try
                 set appPath to path to frontmost application as text
@@ -104,11 +91,8 @@ struct KeyboardApp: AppPlatform {
 
     func fetchState() -> String { statusScript() }
 
-    /// A complete, self-contained script (like TV's key actions, not the injected
-    /// fragment QuickTime/mpv return): a key press sends exactly this. A plain key
-    /// is a single System Events statement (~0.4 ms — see
-    /// `AppController.executeActionWithoutStatus`); a shortcut is one statement per
-    /// press, all inside the same tell.
+    /// Self-contained, not an injected fragment: a key press sends exactly this.
+    /// One System Events statement per press, all inside the same tell.
     func executeAction(_ action: AppAction) -> String {
         let statements: [String]
         switch action {
@@ -126,11 +110,9 @@ struct KeyboardApp: AppPlatform {
         """
     }
 
-    /// `key code` for the named keys; `keystroke` for character keys, so the
-    /// Mac's own layout resolves the press — "a" types a on AZERTY too, where
-    /// `key code 0` would type q. Backslash is the one catalog character an
-    /// AppleScript string literal needs escaped. Modifiers ride along as a
-    /// System Events `using {…}` list either way.
+    /// `keystroke` for character keys so the Mac's own layout resolves them —
+    /// "a" types a on AZERTY too, where `key code 0` would type q. Backslash is
+    /// the one catalog character an AppleScript literal needs escaped.
     private func pressStatement(for key: RemoteKey, modifiers: [KeyModifier]) -> String {
         let using = modifiers.isEmpty
             ? ""
@@ -143,15 +125,13 @@ struct KeyboardApp: AppPlatform {
         }
     }
 
-    /// Only used if something routes a key through the status-bundling path; the
-    /// pad itself doesn't. Concatenated rather than injected, since `executeAction`
-    /// is a standalone tell block.
+    /// Unused by the pad. Concatenated rather than injected, since
+    /// `executeAction` is a standalone tell block.
     func actionWithStatus(_ action: AppAction) -> String {
         executeAction(action) + "\n" + statusScript()
     }
 
-    /// Nothing here plays, so drop the boolean the shared parse always fills in
-    /// rather than let it read downstream as "paused".
+    /// Nothing here plays; the shared parse's boolean would read as "paused".
     func parseState(_ output: String) -> AppState {
         guard var state = parseSeparatedState(output) else {
             return AppState(title: "", subtitle: "", error: "Unable to parse status")

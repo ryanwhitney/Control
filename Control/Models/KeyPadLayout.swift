@@ -1,14 +1,12 @@
 import Foundation
 
-/// What one pad cell sends: a single key, or a shortcut (modified presses,
-/// e.g. ⌘Z). Views render commands through the computed properties below
+/// What one pad cell sends. Views render through the computed properties below
 /// rather than unwrapping cases, so a new command kind lands here plus
 /// `AppAction`, not across the view layer.
 enum PadCommand: Equatable {
     case key(RemoteKey)
     case shortcut(KeyShortcut)
 
-    /// The runtime action a press of this cell fires.
     var action: AppAction {
         switch self {
         case .key(let key): return .key(key)
@@ -30,10 +28,8 @@ enum PadCommand: Equatable {
         }
     }
 
-    /// The caption under the cap in the editor and picker: symbol-glyph keys
-    /// name themselves ("Escape" — an arrow glyph alone doesn't), character
-    /// keys don't ("A" is its own label), and shortcuts spell their chord
-    /// ("Cmd + Z").
+    /// Under the cap in the editor and picker. nil for character keys, which
+    /// are their own label; an arrow glyph alone isn't.
     var caption: String? {
         switch self {
         case .key(let key):
@@ -44,7 +40,6 @@ enum PadCommand: Equatable {
         }
     }
 
-    /// Alternative spoken names for Voice Control.
     var inputLabels: [String] {
         switch self {
         case .key(let key): return key.inputLabels
@@ -95,12 +90,9 @@ extension PadCommand: Codable {
     }
 }
 
-/// One rectangular zone of the pad: a column count plus row-major cells,
-/// always padded to whole rows so grid indexing can't trap. Zones render
-/// from their *stored* dimensions, so a future version that widens a zone
-/// doesn't strand older data — and `reflowed(toColumns:)` migrates by
-/// coordinate when a shape change does ship (flat reflow would scramble:
-/// index 3 of a 3-wide grid is a different place in a 4-wide one).
+/// One zone of the pad: a column count plus row-major cells, always padded to
+/// whole rows so grid indexing can't trap. Rendered at its *stored* dimensions,
+/// so a version that widens a zone doesn't strand older data.
 struct CellGrid: Equatable {
     var columns: Int
     var cells: [PadCommand?]
@@ -117,8 +109,8 @@ struct CellGrid: Equatable {
         set { cells[row * columns + column] = newValue }
     }
 
-    /// Coordinate-true reshape: (row, column) keeps its meaning, columns
-    /// beyond the new width drop, new columns arrive empty.
+    /// Coordinate-true: (row, column) keeps its meaning. A flat reflow would
+    /// scramble — index 3 of a 3-wide grid is elsewhere in a 4-wide one.
     func reflowed(toColumns newColumns: Int) -> CellGrid {
         let newColumns = max(1, newColumns)
         guard newColumns != columns else { return self }
@@ -149,10 +141,8 @@ extension CellGrid: Codable {
         case columns, cells
     }
 
-    /// Decodes each cell inside its own never-failing wrapper: an entry this
-    /// version can't read (a key id or command type from a newer version)
-    /// becomes an empty cell instead of failing the whole layout back to
-    /// `standard`.
+    /// An entry this version can't read becomes an empty cell, rather than
+    /// failing the whole layout back to `standard`.
     private struct LossyCell: Codable {
         let command: PadCommand?
 
@@ -191,14 +181,11 @@ extension CellGrid: Codable {
     }
 }
 
-/// Which zone of the pad a cell lives in; `allCases` order is layout order,
-/// top to bottom. A future bottom strip is one more case plus an optional
-/// stored field.
+/// `allCases` order is layout order, top to bottom.
 enum PadZone: String, CaseIterable {
     case utility, pad
 }
 
-/// A cell's coordinates: zone plus row-major index within it.
 struct CellAddress: Hashable, Identifiable {
     let zone: PadZone
     let index: Int
@@ -206,15 +193,10 @@ struct CellAddress: Hashable, Identifiable {
     var id: String { "\(zone.rawValue)-\(index)" }
 }
 
-/// The user's arrangement of the generic key pad, in two zones: the utility
-/// strip (escape/return — a plain row) and the pad proper, whose 3×3 D-pad
-/// shape is the page's point — it survives reflows intact while the strip
-/// moves around it (beside it in landscape). Empty cells hold their places,
-/// so the pad and its editor always agree on positions.
+/// The user's arrangement, in two zones: the utility strip, and the pad proper
+/// whose D-pad shape survives reflows intact while the strip moves around it.
 struct KeyPadLayout: Equatable {
-    /// The wire-format generation. Bump only together with a migration step in
-    /// the decoder. A shape without these zones fails decode, and the store
-    /// starts fresh from `standard`.
+    /// Bump only together with a migration step in the decoder.
     static let currentVersion = 1
 
     var utility: CellGrid
@@ -229,9 +211,7 @@ struct KeyPadLayout: Equatable {
         ])
     )
 
-    /// One of every cap shape — letters, digits, punctuation, F-keys, arrows,
-    /// captioned symbols, chords — for previews to iterate styling against.
-    /// (Force-unwraps are safe: the ids are catalog constants under test.)
+    /// One of every cap shape, for previews to iterate styling against.
     static let glyphSampler = KeyPadLayout(
         utility: CellGrid(columns: 3, cells: [
             .key(.escape), .shortcut(KeyShortcut.presets[0]), .key(.delete),
@@ -277,8 +257,7 @@ extension KeyPadLayout: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // v1 has nothing to migrate; the version is read so a future decoder
-        // can branch on it, and written so v1 data stays identifiable.
+        // Read so a future decoder can branch on it; v1 has nothing to migrate.
         _ = try container.decodeIfPresent(Int.self, forKey: .version)
         utility = try container.decode(CellGrid.self, forKey: .utility)
         pad = try container.decode(CellGrid.self, forKey: .pad)
@@ -292,9 +271,7 @@ extension KeyPadLayout: Codable {
     }
 }
 
-/// Decodes each stored custom shortcut behind a never-failing wrapper, so an
-/// entry this version can't read costs only itself, not the whole library —
-/// matching `CellGrid`'s lossy cells.
+/// An unreadable entry costs only itself, not the whole library.
 private struct LossyShortcut: Decodable {
     let shortcut: KeyShortcut?
 
@@ -303,9 +280,8 @@ private struct LossyShortcut: Decodable {
     }
 }
 
-/// Persists the pad layout and publishes edits. The pad and its editor share
-/// this one instance, so an edit shows on the pad behind the sheet as it's
-/// made.
+/// Persists the layout and publishes edits. The pad and its editor share one
+/// instance, so an edit shows on the pad behind the sheet as it's made.
 @MainActor
 final class KeyPadLayoutStore: ObservableObject {
     static let shared = KeyPadLayoutStore()
@@ -314,16 +290,14 @@ final class KeyPadLayoutStore: ObservableObject {
     private static let shortcutsKey = "KeyPadCustomShortcuts"
     private static let hiddenPresetsKey = "KeyPadHiddenPresetShortcuts"
 
-    /// False only for preview stores: interacting with a preview must never
-    /// overwrite the saved pad.
+    /// False for preview stores, which must never overwrite the saved pad.
     private let persists: Bool
 
     @Published var layout: KeyPadLayout {
         didSet {
             guard persists else { return }
-            // Landing exactly on `standard` clears the entry rather than storing
-            // a copy, so users on the default keep tracking it — and reach a
-            // future version's improved standard layout.
+            // Clearing rather than storing a copy keeps users on the default
+            // tracking it, so they reach a future version's standard layout.
             if layout == .standard {
                 UserDefaults.standard.removeObject(forKey: Self.defaultsKey)
             } else if let data = try? JSONEncoder().encode(layout) {
@@ -332,9 +306,7 @@ final class KeyPadLayoutStore: ObservableObject {
         }
     }
 
-    /// Shortcuts the user has built, shown in the picker's Shortcuts row
-    /// after the presets. Cells hold their own copy of a shortcut, so
-    /// deleting one here never breaks a placed cap.
+    /// Cells hold their own copy, so deleting one here never breaks a placed cap.
     @Published var customShortcuts: [KeyShortcut] {
         didSet {
             guard persists, let data = try? JSONEncoder().encode(customShortcuts) else { return }
@@ -342,9 +314,8 @@ final class KeyPadLayoutStore: ObservableObject {
         }
     }
 
-    /// Preset shortcuts the user has deleted from the picker's Shortcuts row,
-    /// by `contentID`. The presets are a fixed catalog, so "deleting" one is
-    /// hiding it here; rebuilding the same chord brings it back.
+    /// The presets are a fixed catalog, so "deleting" one is hiding it here;
+    /// rebuilding the same chord brings it back.
     @Published var hiddenPresetIDs: Set<String> {
         didSet {
             guard persists else { return }
@@ -376,19 +347,15 @@ final class KeyPadLayoutStore: ObservableObject {
         hiddenPresetIDs = []
     }
 
-    /// The picker's Shortcuts row: presets the user hasn't deleted, then their
-    /// own creations, de-duplicated by content so the row can key on `contentID`
-    /// safely even if a future preset ever ships a chord a user already saved.
+    /// De-duplicated by content, so the row can key on `contentID` even if a
+    /// future preset ships a chord a user already saved.
     var availableShortcuts: [KeyShortcut] {
         var seen = Set<String>()
         let visiblePresets = KeyShortcut.presets.filter { !hiddenPresetIDs.contains($0.contentID) }
         return (visiblePresets + customShortcuts).filter { seen.insert($0.contentID).inserted }
     }
 
-    /// Files a built chord in the library for reuse. A chord matching a preset
-    /// isn't duplicated — it just un-hides that preset if it had been deleted;
-    /// a genuinely new chord is appended. (The cell assignment happens either
-    /// way, at the call site.)
+    /// A chord matching a preset un-hides that preset rather than duplicating it.
     func rememberShortcut(_ shortcut: KeyShortcut) {
         if KeyShortcut.presets.contains(where: { $0.contentID == shortcut.contentID }) {
             hiddenPresetIDs.remove(shortcut.contentID)
@@ -398,9 +365,8 @@ final class KeyPadLayoutStore: ObservableObject {
         customShortcuts.append(shortcut)
     }
 
-    /// Removes a shortcut from the row: a preset is hidden (the catalog is
-    /// fixed, and rebuilding the chord restores it), a user creation is dropped.
-    /// Cells keep their own copy either way, so a placed cap is never broken.
+    /// A preset is hidden, a creation dropped. Cells keep their own copy either
+    /// way, so a placed cap is never broken.
     func deleteShortcut(_ shortcut: KeyShortcut) {
         if KeyShortcut.presets.contains(where: { $0.contentID == shortcut.contentID }) {
             hiddenPresetIDs.insert(shortcut.contentID)
@@ -409,8 +375,7 @@ final class KeyPadLayoutStore: ObservableObject {
         }
     }
 
-    /// A throwaway store so previews can render (and interact with) any
-    /// layout without touching the persisted one.
+    /// A throwaway store, so previews never touch the persisted layout.
     static func preview(_ layout: KeyPadLayout = .standard) -> KeyPadLayoutStore {
         KeyPadLayoutStore(previewLayout: layout)
     }

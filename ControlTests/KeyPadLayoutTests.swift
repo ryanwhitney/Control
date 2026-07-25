@@ -2,12 +2,9 @@ import Foundation
 import Testing
 @testable import Control
 
-/// The pad layout's stored shape and the key catalog's integrity. The layout
-/// is user data that outlives app versions, so the contracts under test are
-/// tolerance (an entry a given version can't read must cost that one cell,
-/// never the whole layout) and wire-format stability (the golden fixtures —
-/// a refactor that changes the serialized shape must fail here, not in the
-/// field).
+/// The layout is user data that outlives app versions, so two contracts matter:
+/// tolerance (an unreadable entry costs that cell, never the whole layout) and
+/// wire-format stability (a refactor must fail here, not in the field).
 struct KeyPadLayoutTests {
     @Test func standardLayoutMatchesTheOriginalPad() {
         let layout = KeyPadLayout.standard
@@ -32,9 +29,8 @@ struct KeyPadLayoutTests {
         #expect(decoded == layout)
     }
 
-    /// The exact v1 wire format, pinned. If this fails after a refactor, the
-    /// stored shape changed — that needs a version bump and a migration, not
-    /// a shrug.
+    /// The exact v1 wire format. Failing here means the stored shape changed,
+    /// which needs a version bump and a migration.
     @Test func goldenV1FixtureDecodes() throws {
         let fixture = """
         {"version": 1,
@@ -54,9 +50,8 @@ struct KeyPadLayoutTests {
         #expect(layout == expected)
     }
 
-    /// The pre-release flat 12-cell shape has no zones: it must fail decode
-    /// (the store then starts fresh from `standard`) rather than half-parse.
-    /// Deliberate — nothing shipped in that shape, only test builds.
+    /// The pre-release flat shape has no zones, so it must fail decode rather
+    /// than half-parse. Nothing shipped in that shape, only test builds.
     @Test func preReleaseFlatBlobsFailDecodeCleanly() {
         let legacy = #"{"cells": [{"type": "key", "key": "up"}]}"#
         #expect(throws: (any Error).self) {
@@ -64,9 +59,8 @@ struct KeyPadLayoutTests {
         }
     }
 
-    /// A stored cell this version can't read — a key id or a command type
-    /// from a newer version — must decode as an empty cell, not fail the
-    /// layout; short rows pad out so grid indexing can't trap.
+    /// An unreadable cell decodes as empty rather than failing the layout, and
+    /// short rows pad out so grid indexing can't trap.
     @Test func unreadableCellsDecodeAsEmptyNotAsFailure() throws {
         let json = """
         {"version": 1,
@@ -148,8 +142,8 @@ struct KeyPadLayoutTests {
         #expect(script.contains("key code 126 using {command down}"))
     }
 
-    /// Modifiers always render in canonical ⌃⌥⇧⌘ order, however they were
-    /// supplied — the cap, caption, and script must not vary with input order.
+    /// Canonical ⌃⌥⇧⌘ order however they were supplied, so the cap, caption and
+    /// script don't vary with input order.
     @Test func modifiersNormalizeToCanonicalOrder() {
         let press = KeyPress(key: RemoteKey.withID("f")!, modifiers: [.command, .control])
         #expect(press.modifiers == [.control, .command])

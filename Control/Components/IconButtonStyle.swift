@@ -2,11 +2,9 @@ import SwiftUI
 import UIKit
 
 struct IconButtonStyle: ButtonStyle {
-    // Fixed sizes on purpose: a five-button transport row at these sizes already
-    // fills a small phone's width, so scaling with Dynamic Type clips the outer
-    // buttons off screen. 60pt is comfortably above tap-target minimums. The
-    // key pad passes smaller values in phone landscape, where four rows have
-    // to fit — 44pt, still the tap-target floor.
+    // Fixed on purpose: a five-button transport row already fills a small
+    // phone's width, so Dynamic Type would clip the outer buttons off screen.
+    // The key pad passes 44pt in landscape — still the tap-target floor.
     var width: CGFloat = 60
     var height: CGFloat = 60
     var fontSize: CGFloat = 36
@@ -23,22 +21,16 @@ struct IconButtonStyle: ButtonStyle {
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
             .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
-            // The built-in Reduce Motion switch for symbol effects; keeps the
-            // opacity press feedback. (A conditional trigger value would fire a
-            // spurious bounce when the setting itself toggles.)
             .symbolEffectsRemoved(reduceMotion)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
-            // Drive the bounce/fade from the press state, NOT a simultaneousGesture:
-            // attaching a TapGesture to the label swallows the Button's own action
-            // inside a paged TabView, so taps never fire.
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed {
                     bounceCount += 1
                     isAnimating = true
                     Task {
-                        // End opacity fade before bounce completes
-                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                        // End the fade before the bounce completes.
+                        try? await Task.sleep(nanoseconds: 150_000_000)
                         await MainActor.run {
                             isAnimating = false
                         }

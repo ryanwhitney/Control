@@ -7,21 +7,16 @@ class AppController: ObservableObject {
     private var isUpdating = false
     @Published var isActive = true
     
-    // Track initial comprehensive update completion
     @Published var hasCompletedInitialUpdate = false
     
     @Published var states: [String: AppState] = [:]
     @Published var lastKnownStates: [String: AppState] = [:]
     @Published var currentVolume: Float?
     
-    // Track last per-platform state refresh to avoid redundant work/log noise
     private var lastStateRefresh: [String: Date] = [:]
     
-    // Track last action per platform to prevent rapid-fire commands
     private var lastActionTime: [String: Date] = [:]
 
-    // Background prefetch that fills the non-visible tabs on the streaming
-    // transport (see `prefetchBackgroundTabs`). One at a time, cancellable.
     private var prefetchTask: Task<Void, Never>?
 
     var platforms: [any AppPlatform] {
@@ -52,9 +47,7 @@ class AppController: ObservableObject {
         isActive = true
         isUpdating = false
         hasCompletedInitialUpdate = false
-        // Forget refresh/action timestamps: after a reconnect the on-screen data
-        // may be stale, and a pre-drop refresh must not dedupe the first
-        // post-reconnect one.
+        // A pre-drop refresh must not dedupe the first post-reconnect one.
         lastStateRefresh.removeAll()
         lastActionTime.removeAll()
     }
@@ -79,22 +72,17 @@ class AppController: ObservableObject {
         isActive = true
     }
     
-    /// First refresh after a (re)connect. Chosen by transport so we don't hog a
-    /// serial channel: on streaming (`serializesAppCommands`) all app commands
-    /// share one channel, so a bulk sweep would queue behind itself and make
-    /// swipes feel slow — refresh only the visible tab and let the rest load
-    /// lazily as you navigate. On legacy (channel-per-command, concurrent) the
-    /// existing global sweep is fine and stays unchanged.
+    /// First refresh after a (re)connect, split by transport: streaming shares
+    /// one channel, so a bulk sweep would queue behind itself and make swipes
+    /// feel slow. Legacy is channel-per-command, so its global sweep is fine.
     func performInitialRefresh(visiblePlatformId: String?) async {
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping initial refresh")
             return
         }
         if sshClient.serializesAppCommands {
-            // No warm-up sleep: the app channel's ChannelExecutor waits for its
-            // interactive shell and fires its own warm-up round-trip on first use.
-            // Volume (system channel) and the visible tab's status (app-0 channel)
-            // are independent round-trips, so run them concurrently to save an RTT.
+            // No warm-up sleep: ChannelExecutor fires its own on first use.
+            // Volume and status are separate channels, so run them concurrently.
             let visible = visiblePlatformId.flatMap { id in platforms.first(where: { $0.id == id }) }
             if let visible {
                 async let volume: Void = updateSystemVolume()
@@ -105,21 +93,16 @@ class AppController: ObservableObject {
             }
             hasCompletedInitialUpdate = true
             appControllerLog("✓ Initial visible-first refresh complete")
-            // Fill the remaining tabs in the background, nearest-first.
             prefetchBackgroundTabs(around: visiblePlatformId)
         } else {
             await updateAllStates(alwaysInclude: visiblePlatformId)
         }
     }
 
-    /// Streaming only: proactively refresh the *other* tabs so swiping shows data
-    /// instead of "Loading", without the contention a bulk sweep would cause on
-    /// the serial app channel. Runs one check at a time, ordered by distance from
-    /// the visible tab (nearest first, expanding out), yielding the channel
-    /// between checks so a swipe or action is only ever behind ≤1 in-flight
-    /// command. Re-centers (cancel + restart) whenever the visible tab changes.
-    /// Foreground-only apps (IINA/mpv) are never prefetched — they'd pop to the
-    /// front off screen — and the visible tab is refreshed separately.
+    /// Streaming only: fills the other tabs so swiping shows data instead of
+    /// "Loading". One check at a time, nearest tab first, yielding between them
+    /// so a user action is never behind more than one in-flight command.
+    /// Foreground-only apps are skipped — they'd pop to the front off screen.
     func prefetchBackgroundTabs(around visiblePlatformId: String?) {
         prefetchTask?.cancel()
         // Legacy already populated every tab via its concurrent sweep.
@@ -133,15 +116,13 @@ class AppController: ObservableObject {
                 guard let self, self.isActive, !Task.isCancelled else { return }
                 await self.updateState(for: platform)
                 if Task.isCancelled { return }
-                // Gentle spacing: leave the channel idle between checks so a
-                // user action/swipe slips in rather than queueing behind prefetch.
+                // Leave the channel idle so a user action slips in.
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
     }
 
-    /// Background-checkable platforms except the visible one, ordered by tab
-    /// distance from it (nearest first).
+    /// Background-checkable platforms except the visible one, nearest first.
     private func backgroundPrefetchOrder(around visiblePlatformId: String?) -> [any AppPlatform] {
         let center = platforms.firstIndex(where: { $0.id == visiblePlatformId }) ?? 0
         return platforms.enumerated()
@@ -150,11 +131,9 @@ class AppController: ObservableObject {
             .map { $0.element }
     }
 
-    /// Refreshes system volume and every platform's status. Platforms that must
-    /// foreground the Mac app to read status (`checksStatusOnlyWhenVisible`) are
-    /// excluded so a bulk refresh never pops them to the front — except the one
-    /// named by `alwaysInclude` (the tab currently on screen), which is refreshed
-    /// first so it shows status immediately.
+    /// Refreshes volume and every platform's status. `checksStatusOnlyWhenVisible`
+    /// platforms are excluded so a sweep never pops them to the front, except
+    /// `alwaysInclude` — the tab on screen, refreshed first.
     func updateAllStates(alwaysInclude currentPlatformId: String? = nil) async {
         appControllerLog("❇︎ Starting update for \(platforms.count) platforms")
 
@@ -163,33 +142,25 @@ class AppController: ObservableObject {
             return
         }
         
-        // Legacy-only warm-up pause: give its per-command channels a moment to
-        // settle on the very first sweep. Streaming skips this — it refreshes
-        // visible-first via `performInitialRefresh` and never reaches here cold,
-        // and the ChannelExecutor does its own per-channel warm-up round-trip.
+        // Legacy's per-command channels need a moment on the first sweep.
         if !hasCompletedInitialUpdate && !sshClient.serializesAppCommands {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
         }
         
-        // Update system volume first (sequential – very fast)
         await updateSystemVolume()
 
-        // Exclude foreground-only apps (IINA/mpv) from the bulk sweep so they
-        // don't pop to the front; keep the currently-visible one so it refreshes.
+        // Foreground-only apps would pop to the front; keep the visible one.
         var platformsToCheck = platforms.filter {
             !$0.checksStatusOnlyWhenVisible || $0.id == currentPlatformId
         }
-        // Refresh the visible tab first so it paints before the rest (matters on
-        // the legacy sequential first sweep and on a Fast "Refresh All").
+        // Paints before the rest on the sequential first sweep.
         if let idx = platformsToCheck.firstIndex(where: { $0.id == currentPlatformId }) {
             platformsToCheck.insert(platformsToCheck.remove(at: idx), at: 0)
         }
 
-        // Slow-start strategy: the very first comprehensive refresh runs
-        // (force: an explicit "Refresh All" or post-connect sweep must never be
-        // silently deduped against a refresh from moments earlier).
+        // force: an explicit "Refresh All" or post-connect sweep must never be
+        // deduped against a refresh from moments earlier.
         if hasCompletedInitialUpdate {
-            // Parallel path – after the initial warm-up everything is fast again.
             await withTaskGroup(of: Void.self) { group in
                 for platform in platformsToCheck {
                     group.addTask { [weak self] in
@@ -199,7 +170,6 @@ class AppController: ObservableObject {
                 }
             }
         } else {
-            // Initial sweep: do one platform at a time.
             for platform in platformsToCheck {
                 await updateState(for: platform, force: true)
             }
@@ -212,7 +182,6 @@ class AppController: ObservableObject {
     func updateState(for platform: any AppPlatform, force: Bool = false) async {
         guard isActive else { return }
 
-        // Prevent duplicate refreshes within 2 s
         if !force, let last = lastStateRefresh[platform.id], Date().timeIntervalSince(last) < 2 {
             appControllerLog("⏭️ \(platform.name): skipping refresh (< 2s since last)")
             return
@@ -227,9 +196,13 @@ class AppController: ObservableObject {
         case .success(let output):
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Detect sentinel for not-running state
             if trimmed == ScriptTokens.notRunning {
                 updateStateIfChanged(platform.id, AppState(title: "Not running", subtitle: ""))
+                return
+            }
+
+            if trimmed == ScriptTokens.accessibilityRequired {
+                updateStateIfChanged(platform.id, Self.accessibilityRequiredState)
                 return
             }
 
@@ -245,11 +218,9 @@ class AppController: ObservableObject {
             }
         case .failure(let error):
             appControllerLog("❌ \(platform.name) status fetch failed: \(error)")
-            // A failed fetch shouldn't count as "fresh": let the next attempt
-            // (e.g. right after an auto-reconnect) run instead of deduping it.
+            // Not "fresh": the next attempt must not be deduped against it.
             lastStateRefresh[platform.id] = nil
 
-            // For AppleScript errors, show a more user-friendly message
             if error.localizedDescription.contains("AppleScript error") {
                 let newState = AppState(
                     title: "Script Error",
@@ -260,7 +231,6 @@ class AppController: ObservableObject {
                 states[platform.id] = newState
                 lastKnownStates[platform.id] = newState
             } else {
-                // For other errors, we might want to keep the previous state and just add an error
                 var currentState = states[platform.id] ?? AppState(title: "", subtitle: "error")
                 currentState.error = error.localizedDescription
                 states[platform.id] = currentState
@@ -279,8 +249,7 @@ class AppController: ObservableObject {
 
         appControllerLog("⚡︎ \(platform.name): \(action.label)")
         
-        // Menu actions (e.g. Close App) have their own script; normal actions
-        // combine the action + status into a single AppleScript round-trip.
+        // Normal actions bundle action + status into one round-trip.
         let combinedScript = isMenuAction
             ? platform.executeMenuActionWithStatus(action)
             : platform.actionWithStatus(action)
@@ -289,7 +258,6 @@ class AppController: ObservableObject {
 
         switch result {
         case .success(let output):
-            // Menu actions like Close App report the app is gone via this sentinel.
             if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.notRunning {
                 updateStateIfChanged(platform.id, AppState(title: "Not running", subtitle: ""))
                 return
@@ -315,18 +283,12 @@ class AppController: ObservableObject {
         }
     }
 
-    /// Sends an action's script on its own: no status read appended, no state
-    /// parsed. The key pad uses this for every key press.
+    /// An action's script alone — no status read appended. A bundled read sits in
+    /// front of the *next* command too, throttling a burst of key presses to its
+    /// rate; `updateState` refreshes the readout separately.
     ///
-    /// A platform's app commands share one serialized channel, so a bundled status
-    /// read (the ~134 ms frontmost-app read in `executeActionWithStatus`) sits in
-    /// front of the *next* command too, throttling a burst of presses to that rate.
-    /// Alone, a key is one System Events statement; the readout is refreshed
-    /// separately by `updateState`.
-    ///
-    /// Requires `platform.executeAction` to be a *standalone* script (the key pad,
-    /// TV's key actions) — not a fragment meant for injection into a status tell
-    /// (QuickTime, mpv, IINA).
+    /// Requires `executeAction` to be a *standalone* script, not a fragment meant
+    /// for injection into a status tell (QuickTime, mpv, IINA).
     func executeActionWithoutStatus(platform: any AppPlatform, action: AppAction) async {
         guard isActive else {
             appControllerLog("⚠️ Controller not active, skipping action")
@@ -344,8 +306,12 @@ class AppController: ObservableObject {
         case .success(let output):
             // The one thing worth reading from a status-less action.
             if output.contains("Not authorized to send Apple events") {
-                appControllerLog("⚠️ Permission required for \(platform.name)")
+                appControllerLog("⚠️ Automation permission required for \(platform.name)")
                 states[platform.id] = Self.permissionsRequiredState
+            } else if output.contains("not allowed to send keystrokes")
+                        || output.contains("not allowed assistive access") {
+                appControllerLog("⚠️ Accessibility permission required for \(platform.name)")
+                states[platform.id] = Self.accessibilityRequiredState
             }
         case .failure(let error):
             // Connection-loss handling lives in executeCommand, which already
@@ -374,10 +340,8 @@ class AppController: ObservableObject {
     private var pendingVolume: Float?
     private var volumeSendTask: Task<Void, Never>?
     private var lastVolumeSendAt = Date.distantPast
-    /// At most one volume command per interval, trailing-edge coalesced: the
-    /// latest value always wins and is always sent. This is the single rate
-    /// limit for every caller (slider, buttons, future shortcuts) — the views
-    /// just report values.
+    /// Trailing-edge coalesced, so the latest value always wins and is always
+    /// sent. The single rate limit for every caller; views just report values.
     private let volumeSendInterval: TimeInterval = 0.15
 
     func setVolume(_ volume: Float) {
@@ -455,7 +419,6 @@ class AppController: ObservableObject {
                     let commandDesc = description ?? "command"
                     appControllerLog("❌ SSH: \(commandDesc) failed - \(error)")
                     
-                    // Check if this is a connection loss
                     if let connectionManager = self.sshClient as? SSHConnectionManager,
                        connectionManager.isConnectionLossError(error) {
                         appControllerLog("🚨 Connection lost - marking controller inactive")
@@ -468,15 +431,25 @@ class AppController: ObservableObject {
         }
     }
     
+    /// No subtitle on either: the readout's "How to fix this" button carries the
+    /// instructions, and `permissionKind` tells it which set to show.
     private static let permissionsRequiredState = AppState(
         title: "Permissions Required",
-        subtitle: "Grant permission in System Settings > Privacy > Automation"
+        subtitle: "",
+        permissionKind: .automation
+    )
+
+    /// Synthesized keys need assistive access on top of Automation — a separate
+    /// grant in a separate pane.
+    private static let accessibilityRequiredState = AppState(
+        title: "Permissions Required",
+        subtitle: "",
+        permissionKind: .accessibility
     )
 
     private func updateStateIfChanged(_ platformId: String, _ newState: AppState) {
-        // Compare the whole state, not just the title — a play/pause flip on the
-        // same track changes isPlaying/subtitle but not the title, and would
-        // otherwise be dropped, leaving a stale icon.
+        // Whole state, not just the title: a play/pause flip on the same track
+        // changes only isPlaying, and would otherwise leave a stale icon.
         if states[platformId] != newState {
             states[platformId] = newState
             lastKnownStates[platformId] = newState
