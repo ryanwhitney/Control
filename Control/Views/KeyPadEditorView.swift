@@ -334,11 +334,13 @@ struct KeyPadEditorContent: View {
                 if drag == nil {
                     beginDrag(from: address)
                 }
-                if let dragValue {
-                    updateDrag(with: dragValue)
-                }
+                // Only the cell holding the lifted cap drives it — a second
+                // finger long-pressing elsewhere runs this too.
+                guard drag?.source == address, let dragValue else { return }
+                updateDrag(with: dragValue)
             }
             .onEnded { value in
+                guard drag?.source == address else { return }
                 if case .second(true, _) = value {
                     endDrag()
                 } else {
@@ -454,22 +456,27 @@ struct KeyPadEditorContent: View {
                 finishDrag()
             }
         case nil:
-            settleBack()
+            flyHome(to: drag.source)
         }
     }
-    
+
     /// Floats the lifted cap back to its own cell — no valid target under the
-    /// finger, or the drag was cancelled.
+    /// finger, or the drag was cancelled. Ignores a touch that ends mid-settle:
+    /// restarting the flight would race the completion that commits the swap.
     private func settleBack() {
-        guard var drag else { return }
+        guard var drag, !drag.isSettling else { return }
         drag.isSettling = true
         self.drag = drag
+        flyHome(to: drag.source)
+    }
+
+    private func flyHome(to source: CellAddress) {
         if reduceMotion {
             finishDrag()
             return
         }
         withAnimation(Self.settleSpring, completionCriteria: .logicallyComplete) {
-            if let frame = cellFrames[drag.source] {
+            if let frame = cellFrames[source] {
                 liftedCenter = frame.center
             }
             liftedScale = 1
@@ -845,16 +852,15 @@ private struct ShortcutBuilderView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 52)
                         .foregroundStyle(isOn ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        // Two strokes: the 4pt one sits under the material and
+                        // bleeds through as a tint, the 2pt one is the border.
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .strokeBorder(.tint, lineWidth: isOn ? 4 : 0)
-                                .fill( AnyShapeStyle(.ultraThinMaterial))
+                                .fill(AnyShapeStyle(.ultraThinMaterial))
                                 .strokeBorder(.tint, lineWidth: isOn ? 2 : 0)
-                            
-                                
                         )
                         .contentShape(.rect(cornerRadius: 12))
-                        
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(modifier.spokenName)
@@ -985,7 +991,9 @@ private extension View {
             background(RoundedRectangle(cornerRadius: 14).fill(selected ? Color.accentColor.opacity(0.15) : .clear))
         } else {
             // Picker chooser tile: material fill, gaining a tint border when
-            // selected — matching the modifier chips.
+            // selected — matching the modifier chips. Two strokes: the 4pt one
+            // sits under the material and bleeds through as a tint, the 2pt one
+            // is the border.
             background(
                 RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(.tint, lineWidth: selected ? 4 : 0)
