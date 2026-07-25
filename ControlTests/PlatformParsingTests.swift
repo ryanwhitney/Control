@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import Control
 
 /// Unit coverage for status parsing. Music, Spotify, TV, QuickTime and Safari all
@@ -65,5 +66,16 @@ struct PlatformParsingTests {
         #expect(state.title == "Safari")
         #expect(state.subtitle == "")
         #expect(state.isPlaying == nil)
+    }
+
+    /// Keyboard's status read is its only permission signal (`targetsFrontmostApp`
+    /// means nothing is activated first), so both of its `try` blocks have to let
+    /// a denied Automation prompt back out instead of degrading to a blank field.
+    @Test func keyboardStatusRethrowsPermissionDenial() {
+        let script = KeyboardApp().fetchState()
+        let tryBlocks = script.components(separatedBy: "end try").count - 1
+        let reraises = script.components(separatedBy: "then error errorMessage number errorNumber").count - 1
+        #expect(tryBlocks == 2)
+        #expect(reraises == tryBlocks)
     }
 }
