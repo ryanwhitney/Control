@@ -12,11 +12,9 @@ struct ExperimentalPlatformsView: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.primary)
                 Text("These may have reliability issues or limited functionality.")
-                Text("Once enabled, you can add controls during inital setup or under the ") +
-                Text.withSymbolPrefixes(
-                    symbols: [Text.InlineSymbol(name: "ellipsis.circle.fill", accessibilityLabel: "menu")],
-                    text: "menu on the controls screen."
-                )
+                Text("Once enabled, you can add controls during initial setup or under the ")
+                + Text(Image(systemName: "ellipsis.circle.fill")).accessibilityLabel("More")
+                + Text(" menu on the controls screen.")
 
             }
             .font(.body)
