@@ -6,7 +6,7 @@ struct WhatsNewView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var bottomPanelHeight: CGFloat = 0
     let onDismiss: () -> Void
-    
+
     /// The sheet only floats as a centered, bordered card in regular-width
     /// presentations (e.g. iPad). On iPhone it's a full-screen sheet, where a
     /// border would look out of place.
@@ -17,23 +17,28 @@ struct WhatsNewView: View {
     var body: some View {
         NavigationView {
             ZStack(alignment: .top) {
-                Image("control-2-header")
+                Image("control-2-1-header")
                     .resizable()
                     .scaledToFit()
                     .accessibilityHidden(true)
                     
                 // Scrollable Content
                 ScrollView {
-                    Spacer(minLength: 240)
+                    Spacer(minLength: 40)
                     VStack(spacing: 16) {
-                        VStack(spacing: 0) {
-                            Text("Version 2.0.0")
+                        Image("keypad")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 240, alignment: .center)
+                            .accessibilityHidden(true)
+                        VStack(spacing: 6) {
+                            Text("Version 2.1.0")
                                 .font(.subheadline)
                                 .kerning(2)
                                 .foregroundStyle(.green)
                                 .fontDesign(.monospaced)
                             
-                            Text("Control faster.")
+                            Text("Control anything.")
                                 .font(.largeTitle)
                                 .fontWidth(.expanded)
                                 .foregroundStyle(.primary)
@@ -41,20 +46,22 @@ struct WhatsNewView: View {
                                 .fontWeight(.bold)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        .padding(.horizontal)
                         .padding(.top)
                         VStack (alignment: .leading,spacing: 16){
-                            Text("In this update, I’ve overhauled how Control talks to your Mac. Commands are now as close to instant as possible.")
-                            Text("If the new method doesn't play nicely with your machine, switch to **compatibility mode** in settings.")
-                            Text("Also here:").italic()+Text(" better support for VoiceOver and Voice Control, bug fixes, design touch-ups, and troubleshooting improvements.")
-                            Text("Control gets better with your feedback.").bold()+Text(" Thanks for trying the app, and thanks to all who have reached out. Enjoy!")
+                            Text("Introducing a new set of controls that works with any app on your Mac: **Keyboard**.")
+                            Text("The same as hitting a key on your keyboard: the active app gets the key press.")
+                            Text("Customizable, with support for shortcuts.")
+                            Text("Enable it on new connections or anytime under the ") +
+                            Text.withSymbolPrefixes(
+                                symbols: [Text.InlineSymbol(name: "ellipsis.circle.fill", accessibilityLabel: "menu")],
+                                text: "menu on the controls screen."
+                            )
                             Text("–RW")
                                 .foregroundStyle(.secondary)
                                 .font(.footnote)
                                 .fontWidth(.expanded)
                                 .fontWeight(.bold)
                         }
-                        .padding()
                     }
                     .background{
                         RoundedRectangle(cornerRadius: 20)
@@ -75,7 +82,7 @@ struct WhatsNewView: View {
                     BottomButtonPanel(height: $bottomPanelHeight){
                         if #available(iOS 26.0, *) {
                             Button {
-                                preferences.markWhatsNewAsSeen()
+//                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
@@ -93,7 +100,7 @@ struct WhatsNewView: View {
                             .padding(.vertical, 16)
                         } else {
                             Button {
-                                preferences.markWhatsNewAsSeen()
+//                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
