@@ -55,7 +55,13 @@ struct PreferencesView: View {
                         color: .blue
                     )
                 }
-                
+                #if DEBUG
+                Section {
+                    Button("Reset Keyboard Hints") {
+                        preferences.resetKeyboardHints()
+                    }
+                }
+                #endif
             }
             .contentMargins(.top, 30, for: .scrollContent)
             .navigationTitle("Preferences")
@@ -80,29 +86,23 @@ struct PreferencesRow<Destination: View>: View {
     let icon: Image
     let title: String
     let color: Color
-    /// Per-symbol stroke weight; nil leaves the symbol's natural weight.
-    /// Works for custom catalog symbols too — the template's
-    /// Ultralight/Regular/Black sources interpolate the rest.
-    let weight: Font.Weight?
 
     /// A system SF Symbol.
-    init(destination: Destination, iconName: String, title: String, color: Color, weight: Font.Weight? = nil) {
+    init(destination: Destination, iconName: String, title: String, color: Color) {
         self.destination = destination
         self.icon = Image(systemName: iconName)
         self.title = title
         self.color = color
-        self.weight = weight
     }
 
     /// A custom symbol from the asset catalog (an SF Symbols app export
     /// dropped into Assets.xcassets) — those load by asset name, not
     /// `systemName`.
-    init(destination: Destination, customIconName: String, title: String, color: Color, weight: Font.Weight? = nil) {
+    init(destination: Destination, customIconName: String, title: String, color: Color) {
         self.destination = destination
         self.icon = Image(customIconName)
         self.title = title
         self.color = color
-        self.weight = weight
     }
 
     var body: some View {
@@ -113,7 +113,6 @@ struct PreferencesRow<Destination: View>: View {
                 icon
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .fontWeight(weight)
                     .foregroundStyle(.primary)
                     .frame(width: 20, height: 20)
                     .padding(4)
