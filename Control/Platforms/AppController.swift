@@ -275,18 +275,8 @@ class AppController: ObservableObject {
             return 
         }
         
-        // Rate limit actions for platforms that declare a minimum interval
-        // (e.g. TV's key-code driven actions can overload the channel).
-        let minInterval = platform.minActionInterval
-        if minInterval > 0 {
-            if let lastAction = lastActionTime[platform.id],
-               Date().timeIntervalSince(lastAction) < minInterval {
-                appControllerLog("⏭️ \(platform.name): rate limiting action (< \(minInterval)s since last)")
-                return
-            }
-            lastActionTime[platform.id] = Date()
-        }
-        
+        guard !isRateLimited(platform) else { return }
+
         appControllerLog("⚡︎ \(platform.name): \(action.label)")
         
         // Menu actions (e.g. Close App) have their own script; normal actions
@@ -342,17 +332,41 @@ class AppController: ObservableObject {
             appControllerLog("⚠️ Controller not active, skipping action")
             return
         }
+        guard !isRateLimited(platform) else { return }
+
         appControllerLog("⚡︎ \(platform.name): \(action.label)")
         let result = await executeCommand(
             platform.executeAction(action),
             channelKey: platform.id,
             description: "\(platform.id): \(action.id)"
         )
-        if case .failure(let error) = result {
+        switch result {
+        case .success(let output):
+            // The one thing worth reading from a status-less action.
+            if output.contains("Not authorized to send Apple events") {
+                appControllerLog("⚠️ Permission required for \(platform.name)")
+                states[platform.id] = Self.permissionsRequiredState
+            }
+        case .failure(let error):
             // Connection-loss handling lives in executeCommand, which already
             // saw this error.
             appControllerLog("❌ Action execution failed: \(error)")
         }
+    }
+
+    /// Enforces `minActionInterval` for the platforms that declare one (TV's
+    /// key-code actions can overload the channel), recording the send when it's
+    /// allowed through. Shared by both action paths.
+    private func isRateLimited(_ platform: any AppPlatform) -> Bool {
+        let minInterval = platform.minActionInterval
+        guard minInterval > 0 else { return false }
+        if let lastAction = lastActionTime[platform.id],
+           Date().timeIntervalSince(lastAction) < minInterval {
+            appControllerLog("⏭️ \(platform.name): rate limiting action (< \(minInterval)s since last)")
+            return true
+        }
+        lastActionTime[platform.id] = Date()
+        return false
     }
 
     // MARK: - Volume
