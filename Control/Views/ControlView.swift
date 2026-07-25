@@ -11,7 +11,20 @@ struct ControlView: View, SSHConnectedView {
     private var enabledPlatforms: Set<String> {
         savedConnections.enabledPlatforms(host)
     }
-    
+
+    /// A connection set up before Keyboard existed hasn't enabled it yet (fresh
+    /// connections get it by default). Drives the one-time discovery dots that
+    /// point from the More menu → Manage Apps → the Keyboard row in Choose Apps.
+    private var isPreKeyboardConnection: Bool {
+        !enabledPlatforms.contains("keyboard")
+    }
+
+    /// The Keyboard discovery hint for the More button and Manage Apps row: shown
+    /// on a pre-Keyboard connection until Manage Apps is opened.
+    private var showsKeyboardManageAppsHint: Bool {
+        isPreKeyboardConnection && !preferences.hasSeenKeyboardHintManageApps
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -332,15 +345,27 @@ struct ControlView: View, SSHConnectedView {
                         }
                     }
                     Button {
+                        preferences.markKeyboardHintManageAppsSeen()
                         showingSetupFlow = true
                     } label: {
                         Label {
                             Text("Manage Apps")
                         } icon: {
-                            Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
-                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                            // Hint: a custom SF Symbol — the Manage Apps icon with an
+                            // accent badge (palette puts the badge layer in the tint).
+                            // Same angled shape as the normal icon, so nothing shifts
+                            // when it reverts once Manage Apps is opened.
+                            if showsKeyboardManageAppsHint {
+                                Image("custom.rectangle.portrait.on.rectangle.portrait.angled.fill.badge")
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(preferences.tintColorValue, .secondary)
+                            } else {
+                                Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                                    .foregroundStyle(preferences.tintColorValue, .secondary)
+                            }
                         }
                     }
+                    .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls" : "")
                     if DebugLogger.shared.isLoggingEnabled {
                         Button {
                             showingDebugLogs = true
@@ -352,6 +377,12 @@ struct ControlView: View, SSHConnectedView {
                                     .foregroundStyle(.red)
                                     .font(.caption)
                             }
+                        }
+                        // TEMP (Keyboard promo): re-show the hint dots for testing.
+                        Button {
+                            preferences.resetKeyboardHints()
+                        } label: {
+                            Label("Reset Keyboard Hints", systemImage: "arrow.counterclockwise")
                         }
                     }
                     // Platform-specific actions section
@@ -371,7 +402,18 @@ struct ControlView: View, SSHConnectedView {
 //                        }
 //                    }
                 } label: {
-                    Label("More", systemImage: "ellipsis")
+                    // Hint: a custom badged ellipsis (a real symbol, so it scales
+                    // with Dynamic Type — no fixed frame). Shares the Manage Apps
+                    // hint flag: it points at that item and clears once it's tapped.
+                    Group {
+                        if showsKeyboardManageAppsHint {
+                            Image("custom.ellipsis.badge")
+                        } else {
+                            Image(systemName: "ellipsis")
+                        }
+                    }
+                    .accessibilityLabel("More")
+                    .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls available" : "")
                 }
             }
         }

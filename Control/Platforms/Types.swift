@@ -141,6 +141,7 @@ protocol AppPlatform: Identifiable {
     var checksStatusOnlyWhenVisible: Bool { get }
     var minActionInterval: TimeInterval { get }
     var fetchStateIsSelfGuarding: Bool { get }
+    var targetsFrontmostApp: Bool { get }
     var experimental: Bool { get }
     var reasonForExperimental: String { get }
     var controlStyle: ControlStyle { get }
@@ -180,6 +181,13 @@ extension AppPlatform {
     /// PermissionsView runs them bare). `combinedStatusScript()` then skips its
     /// System Events wrapper, avoiding a second process-enumeration per poll.
     var fetchStateIsSelfGuarding: Bool { false }
+
+    /// True for platforms that act on whatever app is frontmost on the Mac rather
+    /// than an app of their own (`KeyboardApp`). Such a platform has no named app
+    /// to bring forward — and activating one would defeat the point by changing
+    /// what's frontmost — so the permission check must skip its activate step and
+    /// let `fetchState()` trigger the prompt directly.
+    var targetsFrontmostApp: Bool { false }
 
     /// Default status parse: the shared separated shape below, or an empty
     /// error state when the output doesn't match. Platforms that post-process
