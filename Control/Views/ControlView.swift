@@ -12,18 +12,25 @@ struct ControlView: View, SSHConnectedView {
         savedConnections.enabledPlatforms(host)
     }
 
-    /// A connection set up before Keyboard existed hasn't enabled it yet (fresh
-    /// connections get it by default). Drives the one-time discovery dots that
-    /// point from the More menu → Manage Apps → the Keyboard row in Choose Apps.
+    /// A connection set up before Keyboard existed: it has a saved app list and
+    /// Keyboard isn't in it. An empty list doesn't count — the platforms then
+    /// come from the defaults, which include Keyboard.
     private var isPreKeyboardConnection: Bool {
-        !enabledPlatforms.contains("keyboard")
+        !enabledPlatforms.isEmpty && !enabledPlatforms.contains("keyboard")
     }
 
-    /// The Keyboard discovery hint for the More button and Manage Apps row: shown
-    /// on a pre-Keyboard connection until Manage Apps is opened.
+    /// The Keyboard discovery hint for the More button and Manage Apps row. It
+    /// points at Choose Apps, so opening Manage Apps or having seen that screen
+    /// (where turning Keyboard off is a deliberate choice) retires it.
     private var showsKeyboardManageAppsHint: Bool {
-        isPreKeyboardConnection && !preferences.hasSeenKeyboardHintManageApps
+        isPreKeyboardConnection
+            && !preferences.hasSeenKeyboardHintManageApps
+            && !preferences.hasSeenKeyboardHintChooseApps
     }
+
+    /// Diameter of the More button's hint dot, tracking Dynamic Type alongside
+    /// the symbol it sits on.
+    @ScaledMetric(relativeTo: .body) private var keyboardHintDotSize: CGFloat = 5
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) var verticalSizeClass
@@ -377,12 +384,6 @@ struct ControlView: View, SSHConnectedView {
                                     .foregroundStyle(.red)
                                     .font(.caption)
                             }
-                        }
-                        // TEMP (Keyboard promo): re-show the hint dots for testing.
-                        Button {
-                            preferences.resetKeyboardHints()
-                        } label: {
-                            Label("Reset Keyboard Hints", systemImage: "arrow.counterclockwise")
                         }
                     }
                     // Platform-specific actions section

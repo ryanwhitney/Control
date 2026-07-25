@@ -90,6 +90,10 @@ struct PermissionsView: View, SSHConnectedView {
                 permissionsGranted = true
             }
         }
+        .onDisappear {
+            // No further beats, and no `onComplete()` from a screen that's gone.
+            successSequenceTask?.cancel()
+        }
         .onChange(of: scenePhase, handleScenePhaseChange)
         .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
             Button("OK") { dismiss() }
@@ -119,32 +123,38 @@ struct PermissionsView: View, SSHConnectedView {
     private func startSuccessSequence() {
         guard allPermissionsGranted, successSequenceTask == nil else { return }
         successSequenceTask = Task { @MainActor in
-            await paceSuccessBeat(.seconds(1))
-            withAnimation(.spring()) {
-                permissionsGranted = true
-            }
-            await paceSuccessBeat(.milliseconds(500))
-            withAnimation(.spring()) {
-                showSuccess = true
-            }
-            await paceSuccessBeat(.seconds(2))
-            withAnimation(.spring()) {
-                showSuccess = false
-            }
-            await paceSuccessBeat(.milliseconds(500))
-            withAnimation(.spring()) {
-                onComplete()
-            }
+            // A beat throws only on cancellation, which stops the sequence where
+            // it stands: `onComplete()` drives navigation and must not fire from
+            // a screen the user has left.
+            do {
+                try await paceSuccessBeat(.seconds(1))
+                withAnimation(.spring()) {
+                    permissionsGranted = true
+                }
+                try await paceSuccessBeat(.milliseconds(500))
+                withAnimation(.spring()) {
+                    showSuccess = true
+                }
+                try await paceSuccessBeat(.seconds(2))
+                withAnimation(.spring()) {
+                    showSuccess = false
+                }
+                try await paceSuccessBeat(.milliseconds(500))
+                withAnimation(.spring()) {
+                    onComplete()
+                }
+            } catch {}
         }
     }
 
     /// One beat of the sequence: the interval, then a hold for as long as the
-    /// explanation sheet is open, so no step ever fires underneath it.
+    /// explanation sheet is open, so no step ever fires underneath it. Throws on
+    /// cancellation — the hold has no other exit.
     @MainActor
-    private func paceSuccessBeat(_ interval: Duration) async {
-        try? await Task.sleep(for: interval)
+    private func paceSuccessBeat(_ interval: Duration) async throws {
+        try await Task.sleep(for: interval)
         while showingPermissionsNameExplanation {
-            try? await Task.sleep(for: .milliseconds(250))
+            try await Task.sleep(for: .milliseconds(250))
         }
     }
 
