@@ -42,7 +42,7 @@ struct PermissionsHelpSheet: View {
             return [
                 openSettings,
                 Text("Go to ") + Text("Privacy & Security").bold() + Text(", then ") + Text("Automation").bold() + Text("."),
-                Text("Find ") + Text("sshd-keygen-wrapper").bold() + Text(", then turn on the app you want to control."),
+                Text("Find ") + Text("sshd-keygen-wrapper").bold() + Text(", then turn on the apps you want to control as well as ") + Text("System Events").bold() + Text("."),
             ]
         case .accessibility:
             return [
