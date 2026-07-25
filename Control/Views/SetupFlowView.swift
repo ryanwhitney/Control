@@ -56,9 +56,9 @@ struct SetupFlowNavigationView: View {
                 displayName: permContext.displayName,
                 username: permContext.username,
                 password: permContext.password,
-                enabledPlatforms: permContext.enabledPlatforms,
+                enabledPlatforms: permContext.platformsToCheck,
                 onComplete: {
-                    // Save the final selection and complete the flow
+                    // Save the full selection (not just the checked subset) and finish
                     savedConnections.updateEnabledPlatforms(permContext.host, platforms: permContext.enabledPlatforms)
                     if !context.isReconfiguration {
                         savedConnections.markAsConnected(permContext.host)
@@ -81,42 +81,33 @@ struct SetupFlowNavigationView: View {
     private func handlePlatformSelection(_ selectedPlatforms: Set<String>) {
         // ALWAYS update temporary state - this is our source of truth during the flow
         temporarySelectedPlatforms = selectedPlatforms
-        
-        let shouldSkipPermissions: Bool
-        
-        if selectedPlatforms.isEmpty {
-            // No apps selected - skip permissions and save empty selection
-            shouldSkipPermissions = true
-        } else if !context.isReconfiguration {
-            // First-time setup - always go through permissions
-            shouldSkipPermissions = false
-        } else {
-            // Reconfiguration - only go through permissions if enabling new apps
-            // Compare against ORIGINAL platforms (captured at start), not temporary state
-            let hasNewApps = !selectedPlatforms.isSubset(of: originalEnabledPlatforms)
-            shouldSkipPermissions = !hasNewApps
-            
-        }
-        
-        if shouldSkipPermissions {
-            // Save the selection and complete the flow
+
+        // Only apps newly added in this pass need a permission check; anything
+        // already set up on this connection was granted before, and re-checking it
+        // would needlessly re-activate that app on the Mac. First-time setup has an
+        // empty baseline, so every selected app counts as new.
+        let newApps = selectedPlatforms.subtracting(originalEnabledPlatforms)
+
+        if newApps.isEmpty {
+            // Nothing new to grant - save the selection and complete the flow.
             savedConnections.updateEnabledPlatforms(context.host, platforms: selectedPlatforms)
             if !context.isReconfiguration {
                 savedConnections.markAsConnected(context.host)
             }
-            
+
             // Clear temporary state since we're done
             temporarySelectedPlatforms = nil
-            
+
             onComplete()
         } else {
-            // Navigate to permissions by setting the context
+            // Navigate to permissions, checking only the newly added apps.
             permissionsContext = PermissionsNavigationContext(
                 host: context.host,
                 displayName: context.displayName,
                 username: context.username,
                 password: context.password,
-                enabledPlatforms: selectedPlatforms
+                enabledPlatforms: selectedPlatforms,
+                platformsToCheck: newApps
             )
         }
     }
@@ -129,7 +120,11 @@ struct PermissionsNavigationContext: Identifiable, Hashable {
     let displayName: String
     let username: String
     let password: String
+    /// The full selection to persist on completion.
     let enabledPlatforms: Set<String>
+    /// The subset actually verified on the permissions screen — the apps newly
+    /// added in this pass. Previously-granted apps are saved but not re-checked.
+    let platformsToCheck: Set<String>
 }
 
 // MARK: - SetupFlowView

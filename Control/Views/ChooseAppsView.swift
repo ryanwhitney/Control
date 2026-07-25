@@ -15,6 +15,7 @@ struct ChooseAppsView: View, SSHConnectedView {
 
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
+    @StateObject private var preferences = UserPreferences.shared
     @State private var headerHeight: CGFloat = 0
     @State private var bottomPanelHeight: CGFloat = 0
     @State private var showAppList: Bool = false
@@ -68,13 +69,29 @@ struct ChooseAppsView: View, SSHConnectedView {
                                 }
                             )) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
+                                    HStack(spacing: platform.id == "keyboard" ? 4 : 10) {
                                         Text(platform.name)
                                         if platform.experimental {
                                             Image(systemName: "flask.fill")
                                                 .foregroundStyle(.tint)
                                                 .font(.caption)
                                                 .accessibilityLabel("Experimental")
+                                        }
+                                        // Last step of the Keyboard discovery hint:
+                                        // a dot on the Keyboard row when an existing
+                                        // connection is being reconfigured and it
+                                        // isn't enabled yet. Clears on leaving the
+                                        // screen (see onDisappear).
+                                        if platform.id == "keyboard"
+                                            && isReconfiguration
+                                            && !selectedPlatforms.contains(platform.id)
+                                            && !preferences.hasSeenKeyboardHintChooseApps {
+                                            Text("•")
+                                                .foregroundStyle(.tint)
+                                                .baselineOffset(8)
+ 
+                                                .fontWeight(.black)
+                                                .accessibilityLabel("New")
                                         }
                                     }
                                     if let listDescription = platform.listDescription {
@@ -187,6 +204,11 @@ struct ChooseAppsView: View, SSHConnectedView {
         .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
             viewLog("ChooseAppsView: View disappeared", view: "ChooseAppsView")
+            // Seeing this screen (with the Keyboard row on it) clears its hint dot.
+            // Only when reconfiguring — first-time setup never shows the dot.
+            if isReconfiguration {
+                preferences.markKeyboardHintChooseAppsSeen()
+            }
         }
         .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
             Button("OK") { dismiss() }

@@ -26,6 +26,9 @@ struct PermissionsView: View, SSHConnectedView {
     let displayName: String
     let username: String
     let password: String
+    /// The apps to check and display on this screen — the ones being granted in
+    /// this pass, which may be just the newly added subset of a connection's full
+    /// app list (callers grant only what's new, not already-set-up apps).
     let enabledPlatforms: Set<String>
     let onComplete: () -> Void
 
@@ -416,29 +419,35 @@ struct PermissionsView: View, SSHConnectedView {
         viewLog("Starting permission check for \(platform.name)", view: "PermissionsView")
         permissionStates[platformId] = .checking
 
-        // First activate the app
-        let activateScript = """
-        tell application "\(platform.name)"
-            activate
-        end tell
-        """
+        // First activate the app — but only for platforms that have an app of
+        // their own to bring forward. Frontmost-targeting platforms (KeyboardApp)
+        // have no such app: `tell application "Keyboard"` would fail to resolve,
+        // and activating anything would change what's frontmost. Their
+        // `fetchState()` triggers the System Events prompt on its own.
+        if !platform.targetsFrontmostApp {
+            let activateScript = """
+            tell application "\(platform.name)"
+                activate
+            end tell
+            """
 
-        viewLog("Activating \(platform.name)...", view: "PermissionsView")
-        let activateResult = await withCheckedContinuation { continuation in
-            connectionManager.executeCommandIsolated(activateScript, description: "\(platform.name): activate") { result in
-                continuation.resume(returning: result)
+            viewLog("Activating \(platform.name)...", view: "PermissionsView")
+            let activateResult = await withCheckedContinuation { continuation in
+                connectionManager.executeCommandIsolated(activateScript, description: "\(platform.name): activate") { result in
+                    continuation.resume(returning: result)
+                }
             }
-        }
-        
-        switch activateResult {
-        case .success:
-            viewLog("✓ \(platform.name) activated successfully", view: "PermissionsView")
-        case .failure(let error):
-            viewLog("⚠️ \(platform.name) activation failed: \(error)", view: "PermissionsView")
-        }
 
-        // Add a small delay to allow the app to fully activate
-        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            switch activateResult {
+            case .success:
+                viewLog("✓ \(platform.name) activated successfully", view: "PermissionsView")
+            case .failure(let error):
+                viewLog("⚠️ \(platform.name) activation failed: \(error)", view: "PermissionsView")
+            }
+
+            // Add a small delay to allow the app to fully activate
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        }
 
         // Then check permissions by fetching state
         let stateScript = platform.fetchState()

@@ -38,6 +38,10 @@ struct KeyboardApp: AppPlatform {
     /// `combinedStatusScript()`'s wrapper to find, so it has to skip it.
     var fetchStateIsSelfGuarding: Bool { true }
 
+    /// There's no "Keyboard" app to bring forward — key presses go to whatever's
+    /// frontmost — so the permission check must not try to activate one.
+    var targetsFrontmostApp: Bool { true }
+
     /// Reads the frontmost app's name from its bundle path. Every risky step is
     /// wrapped in `try` so a mid-script error degrades to a blank field rather
     /// than failing the command (the streaming parser fails on any mid-script
