@@ -162,6 +162,24 @@ struct AppControllerTests {
         #expect(state?.permissionKind == .accessibility)
     }
 
+    /// IINA, mpv and TV send their keys through the status-bundling path, so it
+    /// needs the same check. The refused key aborts the script, so the error can
+    /// arrive after the action's own output with no status line behind it —
+    /// matching only the first line would miss it.
+    @Test func withStatusActionSurfacesAccessibilityError() async {
+        let fake = FakeSSHClient()
+        fake.responder = { _, _ in
+            .success("\nSystem Events got an error: osascript is not allowed to send keystrokes. (1002)")
+        }
+        let controller = makeController(fake, platforms: [MPVApp()])
+
+        await controller.executeActionWithStatus(platform: MPVApp(), action: .playPauseToggle)
+
+        let state = controller.states["mpv"]
+        #expect(state?.title == "Permissions Required")
+        #expect(state?.permissionKind == .accessibility)
+    }
+
     /// The rate limit applies to the status-less path too, so a platform that
     /// declares one can't be flooded by routing around `executeActionWithStatus`.
     @Test func statuslessActionIsRateLimitedByMinInterval() async {

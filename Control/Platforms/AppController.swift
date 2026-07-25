@@ -265,8 +265,14 @@ class AppController: ObservableObject {
             let lines = output.components(separatedBy: .newlines)
             if let firstLine = lines.first,
                firstLine.contains("Not authorized to send Apple events") {
-                appControllerLog("⚠️ Permission required for \(platform.name)")
+                appControllerLog("⚠️ Automation permission required for \(platform.name)")
                 states[platform.id] = Self.permissionsRequiredState
+            } else if Self.isAssistiveAccessError(output) {
+                // Whole output, not the first line: the refused key aborts the
+                // script, so the error can land after the action's own lines and
+                // there's no status line left to parse.
+                appControllerLog("⚠️ Accessibility permission required for \(platform.name)")
+                states[platform.id] = Self.accessibilityRequiredState
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
                 let newState = platform.parseState(lastLine)
@@ -308,8 +314,7 @@ class AppController: ObservableObject {
             if output.contains("Not authorized to send Apple events") {
                 appControllerLog("⚠️ Automation permission required for \(platform.name)")
                 states[platform.id] = Self.permissionsRequiredState
-            } else if output.contains("not allowed to send keystrokes")
-                        || output.contains("not allowed assistive access") {
+            } else if Self.isAssistiveAccessError(output) {
                 appControllerLog("⚠️ Accessibility permission required for \(platform.name)")
                 states[platform.id] = Self.accessibilityRequiredState
             }
@@ -318,6 +323,14 @@ class AppController: ObservableObject {
             // saw this error.
             appControllerLog("❌ Action execution failed: \(error)")
         }
+    }
+
+    /// macOS refuses a synthesized key with one of these when the SSH launcher
+    /// lacks assistive access. Every key-sending platform hits it — the key pad,
+    /// TV's skips, IINA and mpv's UI-scripted presses.
+    private static func isAssistiveAccessError(_ output: String) -> Bool {
+        output.contains("not allowed to send keystrokes")
+            || output.contains("not allowed assistive access")
     }
 
     /// Enforces `minActionInterval` for the platforms that declare one (TV's
