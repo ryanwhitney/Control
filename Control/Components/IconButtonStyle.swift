@@ -21,9 +21,13 @@ struct IconButtonStyle: ButtonStyle {
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
             .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
+            // A conditional trigger value would instead fire a spurious bounce
+            // when the setting itself toggles.
             .symbolEffectsRemoved(reduceMotion)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
+            // NOT a simultaneousGesture: a TapGesture on the label swallows the
+            // Button's own action inside a paged TabView, so taps never fire.
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed {
                     bounceCount += 1
