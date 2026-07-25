@@ -163,6 +163,7 @@ struct KeyPadLayoutTests {
         let undo = KeyShortcut.presets[0]
         #expect(undo.capText == "⌘Z")
         #expect(undo.captionText == "Cmd + Z")
-        #expect(undo.spokenText == "Undo")
+        // The chord, never the preset's name: nothing on screen shows the name.
+        #expect(undo.spokenText == "Command Z")
     }
 }

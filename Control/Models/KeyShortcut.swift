@@ -98,7 +98,7 @@ extension KeyPress: Codable {
 /// A shortcut the pad can send: one or more modified presses. The first UI
 /// only builds single chords (⌘Z); the array is the seam for later sequences
 /// (⌘K ⌘S) without a stored-data migration. `name` is reserved for future
-/// custom naming ("Undo") — today the UI always spells the chord.
+/// custom naming ("Undo"); nothing reads it today.
 struct KeyShortcut: Equatable, Codable {
     var name: String?
     var presses: [KeyPress]
@@ -113,10 +113,10 @@ struct KeyShortcut: Equatable, Codable {
         presses.map(\.captionText).joined(separator: ", ")
     }
 
-    /// Spoken form for VoiceOver/Voice Control: the name once names exist,
-    /// else "Command Z".
+    /// Spoken form for VoiceOver/Voice Control: "Command Z". The chord, never
+    /// `name` — only what's on the cap is sayable.
     var spokenText: String {
-        name ?? presses.map(\.spokenText).joined(separator: ", ")
+        presses.map(\.spokenText).joined(separator: ", ")
     }
 
     /// A stable identity derived from content, for action ids and dedupe.
@@ -133,8 +133,8 @@ extension KeyShortcut {
         KeyShortcut(name: name, presses: [KeyPress(key: RemoteKey.withID(keyID)!, modifiers: modifiers)])
     }
 
-    /// The preconfigured shortcuts the picker ships with. Names are carried
-    /// for the future naming UI; today's captions still spell the chord.
+    /// The preconfigured shortcuts the picker ships with. Names are carried for
+    /// the future naming UI.
     static let presets: [KeyShortcut] = [
         chord("Undo", [.command], "z"),
         chord("Redo", [.shift, .command], "z"),
