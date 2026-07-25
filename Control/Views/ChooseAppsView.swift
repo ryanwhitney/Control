@@ -204,11 +204,9 @@ struct ChooseAppsView: View, SSHConnectedView {
         .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
             viewLog("ChooseAppsView: View disappeared", view: "ChooseAppsView")
-            // Seeing this screen (with the Keyboard row on it) clears its hint dot.
-            // Only when reconfiguring — first-time setup never shows the dot.
-            if isReconfiguration {
-                preferences.markKeyboardHintChooseAppsSeen()
-            }
+            // End of the discovery walk: this screen shows the Keyboard row, dot
+            // or no dot, so seeing it at all retires the hint.
+            preferences.markKeyboardHintChooseAppsSeen()
         }
         .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
             Button("OK") { dismiss() }
