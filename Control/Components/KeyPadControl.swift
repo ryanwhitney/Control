@@ -21,8 +21,10 @@ struct KeyPadControl: View {
 
     /// The gap between caps — uniform within a zone and between the utility strip
     /// and the pad, so the live pad reads as one grid. (The editor adds its own
-    /// extra separation between the two zones; the pad itself doesn't.)
-    private var spacing: CGFloat { isCompact ? 6 : 8 }
+    /// extra separation between the two zones; the pad itself doesn't.) The whole
+    /// gap lives here — caps carry no padding — so the sizing below counts caps
+    /// and gaps exactly.
+    private var spacing: CGFloat { isCompact ? 14 : 16 }
 
     var body: some View {
         if isCompact {
@@ -147,7 +149,8 @@ struct PadKeyButton: View {
             KeyCapGlyph(glyph: command.glyph, wrapsLongText: true)
                 .accessibilityLabel(command.label)
         }
-        .padding(4)
+        // Don't pad: a cap's footprint must stay exactly `size` — the pad's
+        // sizing and its empty-cell placeholders assume it.
         .buttonStyle(IconButtonStyle(width: size, height: size, fontSize: fontSize))
         .accessibilityInputLabels(command.inputLabels)
     }
