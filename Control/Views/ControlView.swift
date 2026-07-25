@@ -402,18 +402,23 @@ struct ControlView: View, SSHConnectedView {
 //                        }
 //                    }
                 } label: {
-                    // Hint: a custom badged ellipsis (a real symbol, so it scales
-                    // with Dynamic Type — no fixed frame). Shares the Manage Apps
-                    // hint flag: it points at that item and clears once it's tapped.
-                    Group {
-                        if showsKeyboardManageAppsHint {
-                            Image("custom.ellipsis.badge")
-                        } else {
-                            Image(systemName: "ellipsis")
+                    // Hint: a dot above the ellipsis, drawn as an overlay rather
+                    // than baked into a badged symbol — a badge inside the symbol
+                    // grows its box upward only, which pushes the dots down by 27%
+                    // of the point size. An overlay adds no layout, so the dots sit
+                    // where they always do. Shares the Manage Apps hint flag: it
+                    // points at that item and clears once it's tapped.
+                    Image(systemName: "ellipsis")
+                        .overlay(alignment: .topTrailing) {
+                            if showsKeyboardManageAppsHint {
+                                Circle()
+                                    .frame(width: keyboardHintDotSize, height: keyboardHintDotSize)
+                                    // Multiples of the dot, so placement scales with it.
+                                    .offset(x: keyboardHintDotSize * 0.63, y: -keyboardHintDotSize * 1.78)
+                            }
                         }
-                    }
-                    .accessibilityLabel("More")
-                    .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls available" : "")
+                        .accessibilityLabel("More")
+                        .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls available" : "")
                 }
             }
         }
