@@ -1,0 +1,12 @@
+{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "symbols" : [
+    {
+      "filename" : "custom.rectangle.portrait.on.rectangle.portrait.angled.fill.badge.svg",
+      "idiom" : "universal"
+    }
+  ]
+}
