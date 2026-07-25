@@ -121,6 +121,31 @@ struct AppControllerTests {
         #expect(tvCalls.first?.command.contains("playpause") == true)
     }
 
+    /// The key pad's send path carries no status read, so this is the only place
+    /// a denied Automation permission can reach the readout.
+    @Test func statuslessActionSurfacesPermissionError() async {
+        let fake = FakeSSHClient()
+        fake.responder = { _, _ in .success("Not authorized to send Apple events") }
+        let controller = makeController(fake, platforms: [KeyboardApp()])
+
+        await controller.executeActionWithoutStatus(platform: KeyboardApp(), action: .key(.up))
+
+        #expect(controller.states["keyboard"]?.title == "Permissions Required")
+    }
+
+    /// The rate limit applies to the status-less path too, so a platform that
+    /// declares one can't be flooded by routing around `executeActionWithStatus`.
+    @Test func statuslessActionIsRateLimitedByMinInterval() async {
+        let fake = FakeSSHClient()
+        fake.responder = { _, _ in .success("") }
+        let controller = makeController(fake, platforms: [TVApp()])
+
+        await controller.executeActionWithoutStatus(platform: TVApp(), action: .key(.up))
+        await controller.executeActionWithoutStatus(platform: TVApp(), action: .key(.up))
+
+        #expect(fake.calls.filter { $0.channelKey == "tv" }.count == 1)
+    }
+
     // MARK: - Refresh strategy follows the transport's concurrency model
 
     /// Streaming serialises every app command on one channel, so the first
