@@ -5,14 +5,16 @@ import MultiBlur
 /// Mac and the name to look for once you're there. Instructions only — these are
 /// the Mac's settings, so there's nothing for the phone to link to.
 struct PermissionsHelpSheet: View {
+    @State private var showMailComposer = false
+
     let kind: PermissionKind
     @ObservedObject private var preferences = UserPreferences.shared
     @Environment(\.dismiss) private var dismiss
 
     private var title: String {
         switch kind {
-        case .automation: return "Allow app control"
-        case .accessibility: return "Allow key presses"
+        case .automation: return "Automation permission needed"
+        case .accessibility: return "Accessibility permission needed"
         }
     }
 
@@ -21,7 +23,14 @@ struct PermissionsHelpSheet: View {
         case .automation:
             return "Your Mac asks permission for each app Control works with. You only have to do this once."
         case .accessibility:
-            return "Your Mac needs permission before Control can press keys for you. You only have to do this once."
+            return "These controls need Accessibility permissions to send key presses to your mac. You only have to do this once."
+        }
+    }
+    
+    private var mailSubject: String {
+        switch kind {
+        case .automation: return "📱 Automation permissions help/question"
+        case .accessibility: return "📱 Accessibility permissions help/question"
         }
     }
 
@@ -48,7 +57,7 @@ struct PermissionsHelpSheet: View {
         VStack(spacing: 0) {
             List {
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 10) {
                         Text(title)
                             .font(.title2).bold()
                             .accessibilityAddTraits(.isHeader)
@@ -56,7 +65,8 @@ struct PermissionsHelpSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 24)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
                 }
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 8, trailing: 20))
@@ -77,9 +87,22 @@ struct PermissionsHelpSheet: View {
                 }
 
                 Section {
-                    Text("Control runs on your phone, never on your Mac — so you won't find it in these lists. sshd-keygen-wrapper is the part of macOS that passes Control's commands along, so that's the name to look for.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing:16){
+                        Text("Why **`sshd-keygen-wrapper`**?")
+                        Text("Control only runs on your phone, so your Mac can't permission it by name. `sshd-keygen-wrapper` is the built-in macOS process that Control uses to send commands to your Mac, so that's what needs permissions enabled.")
+                        Button {
+                            showMailComposer = true
+                        } label: {
+                            (Text("Have any questions, or need a hand? ")
+                                .foregroundStyle(.secondary)
+                                + Text("Email me anytime.")
+                                .foregroundStyle(.tint))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                        
                 }
                 .listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 0, trailing: 20))
@@ -113,6 +136,14 @@ struct PermissionsHelpSheet: View {
         .tint(preferences.tintColorValue)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showMailComposer) {
+            MailComposer(
+                isPresented: $showMailComposer,
+                subject: mailSubject,
+                recipient: "ryan.whitney@me.com",
+                body: "\n\n\n\n--\nLet me know what's happening above and I'll get back to you as soon as possible. It's helpful to know in advance what app you're trying to control."
+            )
+        }
     }
 }
 
