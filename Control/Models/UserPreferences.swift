@@ -83,7 +83,7 @@ class UserPreferences: ObservableObject {
     }
     
     // Update to show the what's new screen
-    private let whatsNewContentVersion = "2.1.0"
+    private let whatsNewContentVersion = "2.0.2"
 
     var shouldShowWhatsNew: Bool {
         return lastSeenWhatsNewVersion != whatsNewContentVersion
@@ -100,8 +100,7 @@ class UserPreferences: ObservableObject {
         if !hasSeenKeyboardHintChooseApps { hasSeenKeyboardHintChooseApps = true }
     }
 
-    /// Debug helper: re-show the Keyboard promo hint dots. Temporary — remove with
-    /// the promo.
+    /// Debug-only: re-arms the hint dots.
     func resetKeyboardHints() {
         hasSeenKeyboardHintManageApps = false
         hasSeenKeyboardHintChooseApps = false

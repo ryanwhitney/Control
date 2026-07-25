@@ -5,6 +5,9 @@ struct WhatsNewView: View {
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var bottomPanelHeight: CGFloat = 0
+    /// Gates the line about turning Keyboard on from an existing connection —
+    /// there's nowhere to follow it to without one.
+    let hasSavedConnections: Bool
     let onDismiss: () -> Void
 
     /// The sheet only floats as a centered, bordered card in regular-width
@@ -24,7 +27,7 @@ struct WhatsNewView: View {
                     
                 // Scrollable Content
                 ScrollView {
-                    Spacer(minLength: 40)
+                    Spacer(minLength: 36)
                     VStack(spacing: 16) {
                         Image("keypad")
                             .resizable()
@@ -46,22 +49,27 @@ struct WhatsNewView: View {
                                 .fontWeight(.bold)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        .padding(.top)
+                        .padding(.top, 6)
                         VStack (alignment: .leading,spacing: 16){
-                            Text("Introducing a new set of controls that works with any app on your Mac: **Keyboard**.")
-                            Text("The same as hitting a key on your keyboard: the active app gets the key press.")
-                            Text("Customizable, with support for shortcuts.")
-                            Text("Enable it on new connections or anytime under the ") +
-                            Text.withSymbolPrefixes(
-                                symbols: [Text.InlineSymbol(name: "ellipsis.circle.fill", accessibilityLabel: "menu")],
-                                text: "menu on the controls screen."
-                            )
+                            Text("Introducing ") + Text("**Keyboard** controls") + Text(":")
+                            Text("A new control pane that works the same as pressing keys on your actual keyboard.")
+                            
+                            Text("That means Control now works with nearly ")+Text("**any video**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", on ")+Text("**any website**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", and ")+Text("**any app**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(".")
+                            
+                            Text("Customizable, with support for shortcuts. ")
+                            if hasSavedConnections {
+                                Text("Enable it via “Manage Apps” under the ")
+                                + Text(Image(systemName: "ellipsis.circle.fill")).accessibilityLabel("More")
+                                + Text(" menu on any existing app control screen.")
+                            }
+                            Text("I hope you find it useful. Reach out anytime.")
                             Text("–RW")
                                 .foregroundStyle(.secondary)
                                 .font(.footnote)
                                 .fontWidth(.expanded)
                                 .fontWeight(.bold)
                         }
+                        .padding(.horizontal, 6)
                     }
                     .background{
                         RoundedRectangle(cornerRadius: 20)
@@ -82,7 +90,7 @@ struct WhatsNewView: View {
                     BottomButtonPanel(height: $bottomPanelHeight){
                         if #available(iOS 26.0, *) {
                             Button {
-//                                preferences.markWhatsNewAsSeen()
+                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
@@ -100,7 +108,7 @@ struct WhatsNewView: View {
                             .padding(.vertical, 16)
                         } else {
                             Button {
-//                                preferences.markWhatsNewAsSeen()
+                                preferences.markWhatsNewAsSeen()
                                 onDismiss()
                             } label: {
                                 HStack {
@@ -151,6 +159,10 @@ struct FeatureCard: View {
 }
 
 
-#Preview {
-    WhatsNewView(onDismiss: {})
+#Preview("Existing user") {
+    WhatsNewView(hasSavedConnections: true, onDismiss: {})
+}
+
+#Preview("First launch") {
+    WhatsNewView(hasSavedConnections: false, onDismiss: {})
 }
