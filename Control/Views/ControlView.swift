@@ -155,6 +155,218 @@ struct ControlView: View, SSHConnectedView {
         }
     }
     
+    /// The paged platform controls. Split out of `body` purely so the type
+    /// checker sees smaller expressions — a 370-line body took 1.2s to check,
+    /// which Previews pays on every rebuild.
+    private var platformPager: some View {
+        TabView(selection: $selectedPlatformIndex) {
+            ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
+                PlatformControl(
+                    platform: platform,
+                    state: Binding(
+                        get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: "", subtitle: "") },
+                        set: { appController.states[platform.id] = $0 }
+                    ),
+                    pageIndex: index,
+                    pageCount: appController.platforms.count,
+                    selectedIndex: selectedPlatformIndex,
+                    selectedName: appController.platforms[safe: selectedPlatformIndex]?.name ?? "",
+                    onSelectPage: { selectPlatform(at: $0) },
+                    titleFocus: $focusedPlatformId
+                )
+                .padding(.top, isPhoneLandscape ? 0 : -54)
+
+                .environmentObject(appController)
+                .tag(index)
+                .onAppear {
+                    savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+                }
+            }
+        }
+        .tabViewStyle(.page)
+        .onChange(of: selectedPlatformIndex) { _, newValue in
+            guard let platform = appController.platforms[safe: newValue] else { return }
+            savedConnections.updateLastViewedPlatform(host, platform: platform.id)
+            guard appController.hasCompletedInitialUpdate else { return }
+
+            pendingVisibleCheck?.cancel()
+            if platform.checksStatusOnlyWhenVisible {
+                // Reading these foregrounds the Mac app, so a quick
+                // swipe past must cancel rather than pop it forward.
+                pendingVisibleCheck = Task {
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard !Task.isCancelled else { return }
+                    await appController.updateState(for: platform)
+                }
+            } else {
+                // Scrub-through repeats are capped by updateState's
+                // own 2 s per-platform dedupe.
+                Task { await appController.updateState(for: platform) }
+            }
+            // So nearby tabs fill first. No-op on Compatibility.
+            appController.prefetchBackgroundTabs(around: platform.id)
+        }
+        // The dots ride a fixed inset above the pager's bottom edge,
+        // so lowering them means extending that edge below its slot.
+        // The pages carry matching clearance — see PlatformControl.
+        .padding(.top, isPhoneLandscape ? 0 : -24)
+    }
+
+    private var volumeRow: some View {
+        VStack(alignment: .center) {
+            HStack(spacing: 0){
+                Button{
+                    adjustVolume(by: -5)
+                } label: {
+                    Label("Decrease volume 5%", systemImage: "speaker.minus.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(10)
+                        .padding(.top, 3)
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityInputLabels(["Volume down", "Decrease volume", "Quieter"])
+                .disabled(!volumeInitialized)
+                WooglySlider(
+                    value: Binding(
+                        get: { Double(volume) },
+                        set: { newValue in
+                            if volumeInitialized {
+                                volume = Float(newValue)
+                                // Coalescing lives in setVolume.
+                                appController.setVolume(volume)
+                            }
+                        }
+                    ),
+                    in: 0...1,
+                    step: 0.01,
+                    onEditingChanged: { isEditing in
+                        if !isEditing && volumeInitialized {
+                            appController.setVolume(volume)
+                        }
+                    }
+                )
+                
+                .disabled(!volumeInitialized)
+                Button{
+                    adjustVolume(by: 5)
+                } label: {
+                    Label("Increase volume 5%", systemImage: "speaker.plus.fill")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(10)
+                        .padding(.top, 3)
+                }
+                .frame(width: 44, height: 44)
+                
+                .accessibilityInputLabels(["Volume up", "Increase volume", "Louder"])
+                .disabled(!volumeInitialized)
+            }
+        }
+        .padding(.horizontal)
+        .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
+    }
+
+    /// Desaturates and blocks the controls while the connection is unhealthy.
+    private var disconnectedOverlay: some View {
+        Rectangle()
+            .foregroundStyle(.black)
+            .blendMode(.saturation)
+            .opacity(connectionManager.connectionState == .connected ? 0 : 1)
+            .animation(.spring(), value: connectionManager.connectionState)
+            .allowsHitTesting(connectionManager.connectionState == .connected)
+    }
+
+    @ToolbarContentBuilder
+    private var controlToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName)
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                if let status = connectionStatus {
+                    statusLabel(for: status)
+                        .id(status)
+                        // From behind the title, which lifts to make room.
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.32, dampingFraction: 0.82), value: connectionStatus)
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                Button {
+                    Task {
+                        await appController.updateAllStates(alwaysInclude: appController.platforms[safe: selectedPlatformIndex]?.id)
+                    }
+                } label: {
+                    Label("Refresh All", systemImage: "arrow.clockwise")
+                }
+                Button {
+                    showingThemeSettings = true
+                } label: {
+                    // Label, not HStack, so VoiceOver reads only the title
+                    // and not the decorative symbol.
+                    Label {
+                        Text("Change Theme")
+                    } icon: {
+                        Image(systemName: "circle.fill")
+                            .foregroundStyle(preferences.tintColorValue, .secondary)
+                    }
+                }
+                Button {
+                    preferences.markKeyboardHintManageAppsSeen()
+                    showingSetupFlow = true
+                } label: {
+                    Label {
+                        Text("Manage Apps")
+                    } icon: {
+                        // Same angled shape as the plain icon, so nothing
+                        // shifts when the hint retires.
+                        if showsKeyboardManageAppsHint {
+                            Image("custom.rectangle.portrait.on.rectangle.portrait.angled.fill.badge")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                        } else {
+                            Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                                .foregroundStyle(preferences.tintColorValue, .secondary)
+                        }
+                    }
+                }
+                .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls" : "")
+                if DebugLogger.shared.isLoggingEnabled {
+                    Button {
+                        showingDebugLogs = true
+                    } label: {
+                        Label {
+                            Text("Debug Logs")
+                        } icon: {
+                            Image(systemName: "apple.terminal")
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                        }
+                    }
+                }
+            } label: {
+                // An overlay, not a badged symbol: a badge grows the symbol's
+                // box upward only, pushing the dots down by 27% of the point
+                // size. An overlay adds no layout. Shares the Manage Apps flag.
+                Image(systemName: "ellipsis")
+                    .overlay(alignment: .topTrailing) {
+                        if showsKeyboardManageAppsHint {
+                            Circle()
+                                .frame(width: keyboardHintDotSize, height: keyboardHintDotSize)
+                                // Multiples of the dot, so placement scales with it.
+                                .offset(x: keyboardHintDotSize * 0.63, y: -keyboardHintDotSize * 1.78)
+                        }
+                    }
+                    .accessibilityLabel("More")
+                    .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls available" : "")
+            }
+        }
+    }
+
+
     var body: some View {
         ZStack {
             VStack() {
@@ -164,110 +376,10 @@ struct ControlView: View, SSHConnectedView {
                     if !isPhoneLandscape {
                         Spacer()
                     }
-                    TabView(selection: $selectedPlatformIndex) {
-                        ForEach(Array(appController.platforms.enumerated()), id: \.element.id) { index, platform in
-                            PlatformControl(
-                                platform: platform,
-                                state: Binding(
-                                    get: { appController.states[platform.id] ?? appController.lastKnownStates[platform.id] ?? AppState(title: "", subtitle: "") },
-                                    set: { appController.states[platform.id] = $0 }
-                                ),
-                                pageIndex: index,
-                                pageCount: appController.platforms.count,
-                                selectedIndex: selectedPlatformIndex,
-                                selectedName: appController.platforms[safe: selectedPlatformIndex]?.name ?? "",
-                                onSelectPage: { selectPlatform(at: $0) },
-                                titleFocus: $focusedPlatformId
-                            )
-                            .environmentObject(appController)
-                            .tag(index)
-                            .onAppear {
-                                savedConnections.updateLastViewedPlatform(host, platform: platform.id)
-                            }
-                        }
-                    }
-                    .tabViewStyle(.page)
-                    .onChange(of: selectedPlatformIndex) { _, newValue in
-                        guard let platform = appController.platforms[safe: newValue] else { return }
-                        savedConnections.updateLastViewedPlatform(host, platform: platform.id)
-                        guard appController.hasCompletedInitialUpdate else { return }
-
-                        pendingVisibleCheck?.cancel()
-                        if platform.checksStatusOnlyWhenVisible {
-                            // Reading these foregrounds the Mac app, so a quick
-                            // swipe past must cancel rather than pop it forward.
-                            pendingVisibleCheck = Task {
-                                try? await Task.sleep(nanoseconds: 350_000_000)
-                                guard !Task.isCancelled else { return }
-                                await appController.updateState(for: platform)
-                            }
-                        } else {
-                            // Scrub-through repeats are capped by updateState's
-                            // own 2 s per-platform dedupe.
-                            Task { await appController.updateState(for: platform) }
-                        }
-                        // So nearby tabs fill first. No-op on Compatibility.
-                        appController.prefetchBackgroundTabs(around: platform.id)
-                    }
-                    // The dots ride a fixed inset above the pager's bottom edge,
-                    // so lowering them means extending that edge below its slot.
-                    // The pages carry matching clearance — see PlatformControl.
-                    .padding(.top, isPhoneLandscape ? 0 : -44)
-                    .padding(.bottom,  isPhoneLandscape ? 0 : 14)
+                    platformPager
                 }
                 // No spacer in portrait: the pager fills down to the volume row.
-                VStack(alignment: .center) {
-                    HStack(spacing: 0){
-                        Button{
-                            adjustVolume(by: -5)
-                        } label: {
-                            Label("Decrease volume 5%", systemImage: "speaker.minus.fill")
-                                .labelStyle(.iconOnly)
-                                .foregroundStyle(Color.accentColor)
-                                .padding(10)
-                                .padding(.top, 3)
-                        }
-                        .frame(width: 44, height: 44)
-                        .accessibilityInputLabels(["Volume down", "Decrease volume", "Quieter"])
-                        .disabled(!volumeInitialized)
-                        WooglySlider(
-                            value: Binding(
-                                get: { Double(volume) },
-                                set: { newValue in
-                                    if volumeInitialized {
-                                        volume = Float(newValue)
-                                        // Coalescing lives in setVolume.
-                                        appController.setVolume(volume)
-                                    }
-                                }
-                            ),
-                            in: 0...1,
-                            step: 0.01,
-                            onEditingChanged: { isEditing in
-                                if !isEditing && volumeInitialized {
-                                    appController.setVolume(volume)
-                                }
-                            }
-                        )
-                        .disabled(!volumeInitialized)
-                        Button{
-                            adjustVolume(by: 5)
-                        } label: {
-                            Label("Increase volume 5%", systemImage: "speaker.plus.fill")
-                                .labelStyle(.iconOnly)
-                                .foregroundStyle(Color.accentColor)
-                                .padding(10)
-                                .padding(.top, 3)
-                        }
-                        .frame(width: 44, height: 44)
-                        .accessibilityInputLabels(["Volume up", "Increase volume", "Louder"])
-                        .disabled(!volumeInitialized)
-                    }
-                }
-                .padding(.horizontal)
-                // Less above than below: the dots sit lower now, so a symmetric
-                // gap would waste space the pages can use.
-                .frame(maxWidth: 500, maxHeight: isPhoneLandscape ? 10 : nil)
+                volumeRow
                 if !isPhoneLandscape {
                     Spacer(minLength: 20)
                 }
@@ -275,12 +387,7 @@ struct ControlView: View, SSHConnectedView {
             .opacity(connectionManager.connectionState == .connected ? 1 : 0.3)
             .animation(.spring(), value: connectionManager.connectionState)
 
-            Rectangle()
-                .foregroundStyle(.black)
-                .blendMode(.saturation)
-                .opacity(connectionManager.connectionState == .connected ? 0 : 1)
-                .animation(.spring(), value: connectionManager.connectionState)
-                .allowsHitTesting(connectionManager.connectionState == .connected)
+            disconnectedOverlay
         }
         // Landscape gives its vertical margins to the pages.
         .padding(.vertical, isPhoneLandscape ? 0 : 16)
@@ -289,93 +396,7 @@ struct ControlView: View, SSHConnectedView {
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
         .id(enabledPlatforms) // Force recreation when platforms change
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(displayName)
-                        .font(.headline)
-                        .accessibilityAddTraits(.isHeader)
-                    if let status = connectionStatus {
-                        statusLabel(for: status)
-                            .id(status)
-                            // From behind the title, which lifts to make room.
-                            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .animation(.spring(response: 0.32, dampingFraction: 0.82), value: connectionStatus)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        Task {
-                            await appController.updateAllStates(alwaysInclude: appController.platforms[safe: selectedPlatformIndex]?.id)
-                        }
-                    } label: {
-                        Label("Refresh All", systemImage: "arrow.clockwise")
-                    }
-                    Button {
-                        showingThemeSettings = true
-                    } label: {
-                        // Label, not HStack, so VoiceOver reads only the title
-                        // and not the decorative symbol.
-                        Label {
-                            Text("Change Theme")
-                        } icon: {
-                            Image(systemName: "circle.fill")
-                                .foregroundStyle(preferences.tintColorValue, .secondary)
-                        }
-                    }
-                    Button {
-                        preferences.markKeyboardHintManageAppsSeen()
-                        showingSetupFlow = true
-                    } label: {
-                        Label {
-                            Text("Manage Apps")
-                        } icon: {
-                            // Same angled shape as the plain icon, so nothing
-                            // shifts when the hint retires.
-                            if showsKeyboardManageAppsHint {
-                                Image("custom.rectangle.portrait.on.rectangle.portrait.angled.fill.badge")
-                                    .symbolRenderingMode(.palette)
-                                    .foregroundStyle(preferences.tintColorValue, .secondary)
-                            } else {
-                                Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled.fill")
-                                    .foregroundStyle(preferences.tintColorValue, .secondary)
-                            }
-                        }
-                    }
-                    .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls" : "")
-                    if DebugLogger.shared.isLoggingEnabled {
-                        Button {
-                            showingDebugLogs = true
-                        } label: {
-                            Label {
-                                Text("Debug Logs")
-                            } icon: {
-                                Image(systemName: "apple.terminal")
-                                    .foregroundStyle(.red)
-                                    .font(.caption)
-                            }
-                        }
-                    }
-                } label: {
-                    // An overlay, not a badged symbol: a badge grows the symbol's
-                    // box upward only, pushing the dots down by 27% of the point
-                    // size. An overlay adds no layout. Shares the Manage Apps flag.
-                    Image(systemName: "ellipsis")
-                        .overlay(alignment: .topTrailing) {
-                            if showsKeyboardManageAppsHint {
-                                Circle()
-                                    .frame(width: keyboardHintDotSize, height: keyboardHintDotSize)
-                                    // Multiples of the dot, so placement scales with it.
-                                    .offset(x: keyboardHintDotSize * 0.63, y: -keyboardHintDotSize * 1.78)
-                            }
-                        }
-                        .accessibilityLabel("More")
-                        .accessibilityHint(showsKeyboardManageAppsHint ? "New Keyboard controls available" : "")
-                }
-            }
-        }
+        .toolbar { controlToolbar }
         .onAppear {
             viewLog("View appeared", view: "ControlView")
             viewLog("Enabled platforms: \(enabledPlatforms)", view: "ControlView")
