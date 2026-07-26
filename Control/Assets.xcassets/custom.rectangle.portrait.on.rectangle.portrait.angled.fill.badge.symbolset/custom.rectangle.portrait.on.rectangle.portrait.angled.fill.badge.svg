@@ -7,23 +7,23 @@ PUBLIC "-//W3C//DTD SVG 1.1//EN"
  <!--glyph: "", point size: 100.0, font version: "21.0d4e1", template writer version: "138.0.0"-->
  <style>.defaults {-sfsymbols-variable-value-mode:color;-sfsymbols-draw-reverses-motion-groups:true}
 
-.monochrome-0 {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.monochrome-1 {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.monochrome-2 {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.monochrome-3 {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
-.monochrome-4 {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
+.monochrome-0 {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.monochrome-1 {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.monochrome-2 {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.monochrome-3 {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
+.monochrome-4 {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
 
-.multicolor-0:tintColor {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.multicolor-1:tintColor {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.multicolor-2:tintColor {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.multicolor-3:tintColor {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
-.multicolor-4:systemRedColor {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
+.multicolor-0:tintColor {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.multicolor-1:tintColor {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.multicolor-2:tintColor {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.multicolor-3:tintColor {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
+.multicolor-4:systemRedColor {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
 
-.hierarchical-0:secondary {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.hierarchical-1:primary {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.hierarchical-2:secondary {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:-7c78c078d57daa24 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
-.hierarchical-3:primary {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
-.hierarchical-4:primary {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:-7c78c078d57daa24 _badge badge}
+.hierarchical-0:secondary {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.hierarchical-1:primary {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.hierarchical-2:secondary {-sfsymbols-motion-group:1;-sfsymbols-layer-tags:16c03013b7da83cd 1b7d2e59993ec39b rectangle.portrait.on.rectangle.portrait.angled.fill}
+.hierarchical-3:primary {opacity:0.0;-sfsymbols-clear-behind:true;-sfsymbols-motion-group:0;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
+.hierarchical-4:primary {-sfsymbols-motion-group:0;-sfsymbols-always-pulses:true;-sfsymbols-layer-tags:16c03013b7da83cd _badge badge}
 
 .SFSymbolsPreviewWireframe {fill:none;opacity:1.0;stroke:black;stroke-width:0.5}
 </style>
@@ -106,22 +106,22 @@ PUBLIC "-//W3C//DTD SVG 1.1//EN"
    <path class="monochrome-0 multicolor-0:tintColor hierarchical-0:secondary SFSymbolsPreviewWireframe" d="M77.2461-77.1973C75.5859-86.6211 68.9941-91.2109 59.5703-89.5508L22.4609-83.0078C13.0371-81.3477 8.44727-74.8047 10.1074-65.3809L19.1406-14.1113C20.8008-4.6875 27.3926-0.0976562 36.8164-1.75781L73.9258-8.30078C83.3496-9.96094 87.9395-16.5039 86.2793-25.9277Z"/>
    <path class="monochrome-1 multicolor-1:tintColor hierarchical-1:primary SFSymbolsPreviewWireframe" d="M112.549-51.0254C112.549-64.6484 103.613-73.584 89.9902-73.584L52.2949-73.584C38.6719-73.584 29.7363-64.6484 29.7363-51.0254L29.7363 1.02539C29.7363 14.6484 38.6719 23.584 52.2949 23.584L89.9902 23.584C103.613 23.584 112.549 14.6484 112.549 1.02539Z"/>
    <path class="monochrome-2 multicolor-2:tintColor hierarchical-2:secondary SFSymbolsPreviewWireframe" d="M105.225-51.0254C105.225-60.5957 99.5605-66.2598 89.9902-66.2598L52.2949-66.2598C42.7246-66.2598 37.0605-60.5957 37.0605-51.0254L37.0605 1.02539C37.0605 10.5957 42.7246 16.2598 52.2949 16.2598L89.9902 16.2598C99.5605 16.2598 105.225 10.5957 105.225 1.02539Z"/>
-   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M103.5 12.1924C114.046 12.1924 122.738 3.50095 122.738-7.04585C122.738-17.5927 114.046-26.2841 103.5-26.2841C92.9531-26.2841 84.2617-17.5927 84.2617-7.04585C84.2617 3.50095 92.9531 12.1924 103.5 12.1924Z"/>
-   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M103.5 5.84475C110.531 5.84475 116.39-0.0146484 116.39-7.04585C116.39-14.0771 110.531-19.9365 103.5-19.9365C96.4686-19.9365 90.6093-14.0771 90.6093-7.04585C90.6093-0.0146484 96.4686 5.84475 103.5 5.84475Z"/>
+   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M103.01-42.7587C113.556-42.7587 122.248-51.4501 122.248-61.9969C122.248-72.5438 113.556-81.2352 103.01-81.2352C92.463-81.2352 83.7716-72.5438 83.7716-61.9969C83.7716-51.4501 92.463-42.7587 103.01-42.7587Z"/>
+   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M103.01-49.1063C110.041-49.1063 115.9-54.9657 115.9-61.9969C115.9-69.0282 110.041-74.8876 103.01-74.8876C95.9786-74.8876 90.1192-69.0282 90.1192-61.9969C90.1192-54.9657 95.9786-49.1063 103.01-49.1063Z"/>
   </g>
   <g id="Regular-S" transform="matrix(1 0 0 1 1399.19 696)">
    <path class="monochrome-0 multicolor-0:tintColor hierarchical-0:secondary SFSymbolsPreviewWireframe" d="M69.6289-73.0957C68.1641-81.2988 63.4277-84.6191 55.3711-83.2031L20.0195-76.9531C11.9629-75.5859 8.64258-70.8008 10.1074-62.5977L19.043-11.6211C20.5078-3.4668 25.2441-0.0976562 33.3008-1.51367L68.6523-7.76367C76.709-9.13086 80.0293-13.9648 78.5645-22.1191Z"/>
    <path class="monochrome-1 multicolor-1:tintColor hierarchical-1:primary SFSymbolsPreviewWireframe" d="M97.2656-51.416C97.2656-62.8906 90.6738-69.5801 79.2969-69.5801L43.4082-69.5801C31.9824-69.5801 25.4395-62.8906 25.4395-51.416L25.4395 0.292969C25.4395 11.7188 32.0312 18.457 43.4082 18.457L79.2969 18.457C90.6738 18.457 97.2656 11.7188 97.2656 0.292969Z"/>
    <path class="monochrome-2 multicolor-2:tintColor hierarchical-2:secondary SFSymbolsPreviewWireframe" d="M91.5527-51.416C91.5527-59.7656 87.5-63.8672 79.2969-63.8672L43.4082-63.8672C35.2051-63.8672 31.1035-59.7656 31.1035-51.416L31.1035 0.292969C31.1035 8.59375 35.2051 12.7441 43.4082 12.7441L79.2969 12.7441C87.5 12.7441 91.5527 8.59375 91.5527 0.292969Z"/>
-   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M91.1792 12.3145C101.775 12.3145 110.515 3.57415 110.515-7.02155C110.515-17.666 101.775-26.4062 91.1792-26.4062C80.5347-26.4062 71.8433-17.666 71.8433-7.02155C71.8433 3.57415 80.5347 12.3145 91.1792 12.3145Z"/>
-   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M91.1792 6.60155C98.6499 6.60155 104.802 0.449152 104.802-7.02155C104.802-14.541 98.6499-20.6933 91.1792-20.6933C83.6597-20.6933 77.5074-14.541 77.5074-7.02155C77.5074 0.449152 83.6597 6.60155 91.1792 6.60155Z"/>
+   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M90.7475-42.6366C101.343-42.6366 110.083-51.3769 110.083-61.9726C110.083-72.6171 101.343-81.3573 90.7475-81.3573C80.103-81.3573 71.4116-72.6171 71.4116-61.9726C71.4116-51.3769 80.103-42.6366 90.7475-42.6366Z"/>
+   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M90.7475-48.3495C98.2182-48.3495 104.371-54.5019 104.371-61.9726C104.371-69.4921 98.2182-75.6444 90.7475-75.6444C83.228-75.6444 77.0757-69.4921 77.0757-61.9726C77.0757-54.5019 83.228-48.3495 90.7475-48.3495Z"/>
   </g>
   <g id="Ultralight-S" transform="matrix(1 0 0 1 511.459 696)">
    <path class="monochrome-0 multicolor-0:tintColor hierarchical-0:secondary SFSymbolsPreviewWireframe" d="M66.0415-75.457C64.8946-81.8892 60.9302-84.71 54.5083-83.5664L18.1123-77.1802C11.6904-76.04 8.86963-72.0723 10.0166-65.5947L19.4971-11.8027C20.644-5.37401 24.7446-2.54979 31.0757-3.69334L67.4263-10.0796C73.8028-11.2197 76.669-15.2363 75.5674-21.665Z"/>
    <path class="monochrome-1 multicolor-1:tintColor hierarchical-1:primary SFSymbolsPreviewWireframe" d="M89.773-54.1406C89.773-62.3911 84.9522-67.2188 76.7539-67.2188L39.8208-67.2188C31.6191-67.2188 26.8017-62.3911 26.8017-54.1406L26.8017 0.474608C26.8017 8.76711 31.7134 13.5528 39.8208 13.5528L76.7539 13.5528C84.8614 13.5528 89.773 8.76711 89.773 0.474608Z"/>
    <path class="monochrome-2 multicolor-2:tintColor hierarchical-2:secondary SFSymbolsPreviewWireframe" d="M86.7393-54.1406C86.7393-60.6738 83.2769-64.1396 76.7539-64.1396L39.8208-64.1396C33.2979-64.1396 29.832-60.6738 29.832-54.1406L29.832 0.474608C29.832 7.00441 33.3887 10.4737 39.8208 10.4737L76.7539 10.4737C83.1861 10.4737 86.7393 7.00441 86.7393 0.474608Z"/>
-   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M86.8545 7.5464C94.8618 7.5464 101.468 0.940402 101.468-7.0215C101.468-15.0322 94.8618-21.6382 86.8545-21.6382C78.8437-21.6382 72.2412-15.0322 72.2412-7.0215C72.2412 0.940402 78.8437 7.5464 86.8545 7.5464Z"/>
-   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M86.8545 4.5127C93.1445 4.5127 98.3887-0.731398 98.3887-7.0215C98.3887-13.3604 93.1445-18.5591 86.8545-18.5591C80.5156-18.5591 75.3169-13.3604 75.3169-7.0215C75.3169-0.731398 80.5156 4.5127 86.8545 4.5127Z"/>
+   <path class="monochrome-3 multicolor-3:tintColor hierarchical-3:primary SFSymbolsPreviewWireframe" d="M86.4433-47.4046C94.4506-47.4046 101.057-54.0106 101.057-61.9725C101.057-69.9832 94.4506-76.5892 86.4433-76.5892C78.4325-76.5892 71.83-69.9832 71.83-61.9725C71.83-54.0106 78.4325-47.4046 86.4433-47.4046Z"/>
+   <path class="monochrome-4 multicolor-4:systemRedColor hierarchical-4:primary SFSymbolsPreviewWireframe" d="M86.4433-50.4383C92.7333-50.4383 97.9775-55.6824 97.9775-61.9725C97.9775-68.3114 92.7333-73.5101 86.4433-73.5101C80.1044-73.5101 74.9057-68.3114 74.9057-61.9725C74.9057-55.6824 80.1044-50.4383 86.4433-50.4383Z"/>
   </g>
  </g>
 </svg>
