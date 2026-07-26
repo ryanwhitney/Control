@@ -3,7 +3,6 @@ import MultiBlur
 import StoreKit
 
 struct FeedbackPreferenceView: View {
-    @ObservedObject private var preferences = UserPreferences.shared
     @State private var showMailComposer = false
 
     var body: some View {
@@ -37,7 +36,7 @@ struct FeedbackPreferenceView: View {
                     .glassPillLabel()
                     .fontWeight(.bold)
                 }
-                .glassPillButtonStyle(tint: preferences.tintColorValue)
+                .glassPillButtonStyle(tint: .accentColor)
                 .frame(maxWidth: .infinity)
                 .disabled(showMailComposer)
             }

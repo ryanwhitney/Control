@@ -121,7 +121,7 @@ struct ConnectionsView: View {
                 .presentationCornerRadius(20)
                 .interactiveDismissDisabled(true)
             }
-            .tint(UserPreferences.shared.tintColorValue)
+            .themeTint(UserPreferences.shared.tintColorValue)
         }
         .environmentObject(viewModel)
         .onAppear {

@@ -78,7 +78,7 @@ struct PreferencesView: View {
             }
         }
         .background(.ultraThinMaterial)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
     }
 }
 

@@ -56,12 +56,12 @@ struct CompatibilityFallbackNotice: View {
                 .glassPillLabel()
                 .fontWeight(.bold)
             }
-            .glassPillButtonStyle(tint: preferences.tintColorValue)
+            .glassPillButtonStyle(tint: .accentColor)
             .frame(maxWidth: .infinity)
 
         }
         .padding(24)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }

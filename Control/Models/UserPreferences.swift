@@ -109,3 +109,12 @@ class UserPreferences: ObservableObject {
         lastSeenWhatsNewVersion = ""
     }
 }
+
+extension View {
+    /// Sets both colour channels from one source. `.tint` and `Color.accentColor`
+    /// read different environment values, and neither crosses a sheet boundary,
+    /// so every sheet root needs this or the two disagree inside it.
+    func themeTint(_ color: Color) -> some View {
+        tint(color).accentColor(color)
+    }
+}

@@ -512,6 +512,7 @@ private struct KeyPickerView: View {
                 }
             }
         }
+        .themeTint(UserPreferences.shared.tintColorValue)
         .presentationBackground(.thickMaterial)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)

@@ -125,15 +125,13 @@ struct PermissionsHelpSheet: View {
                 .glassPillLabel()
                 .fontWeight(.bold)
             }
-            // Not `.accentColor`, which reads the asset catalog and comes out
-            // blue whatever the theme.
-            .glassPillButtonStyle(tint: preferences.tintColorValue)
+            .glassPillButtonStyle(tint: .accentColor)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
             .padding(.vertical, 8)
         }
         .background(.ultraThickMaterial)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showMailComposer) {
