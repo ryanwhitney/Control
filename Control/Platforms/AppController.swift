@@ -19,6 +19,11 @@ class AppController: ObservableObject {
 
     private var prefetchTask: Task<Void, Never>?
 
+    /// Platforms whose assistive-access guard has passed, so their poll stops
+    /// paying ~10ms for it. Cleared when a press is refused, and on reset — a
+    /// reconnect may be a different Mac.
+    private var assistiveAccessVerified: Set<String> = []
+
     var platforms: [any AppPlatform] {
         platformRegistry.activePlatforms
     }
@@ -50,6 +55,7 @@ class AppController: ObservableObject {
         // A pre-drop refresh must not dedupe the first post-reconnect one.
         lastStateRefresh.removeAll()
         lastActionTime.removeAll()
+        assistiveAccessVerified.removeAll()
     }
 
     func cleanup() {
@@ -190,7 +196,10 @@ class AppController: ObservableObject {
 
         appControllerLog("⚐ \(platform.name): checking status")
 
-        let result = await executeCommand(platform.combinedStatusScript(), channelKey: platform.id, description: "\(platform.id): combined status")
+        let script = platform.combinedStatusScript(
+            assumingAssistiveAccess: assistiveAccessVerified.contains(platform.id)
+        )
+        let result = await executeCommand(script, channelKey: platform.id, description: "\(platform.id): combined status")
 
         switch result {
         case .success(let output):
@@ -202,13 +211,21 @@ class AppController: ObservableObject {
             }
 
             if trimmed == ScriptTokens.accessibilityRequired {
+                assistiveAccessVerified.remove(platform.id)
                 updateStateIfChanged(platform.id, Self.accessibilityRequiredState)
                 return
             }
 
             if output.contains("Not authorized to send Apple events") {
                 updateStateIfChanged(platform.id, Self.permissionsRequiredState)
+            } else if ScriptTokens.indicatesAssistiveAccessDenied(output) {
+                // IINA/mpv UI-script their status, so the poll itself is
+                // refused and there's no sentinel to match.
+                assistiveAccessVerified.remove(platform.id)
+                updateStateIfChanged(platform.id, Self.accessibilityRequiredState)
             } else {
+                // The only proof the guard can give; a refused press re-arms it.
+                assistiveAccessVerified.insert(platform.id)
                 let newState = platform.parseState(output)
                 let playString = newState.isPlaying.map { $0 ? "playing" : "paused" } ?? "n/a"
                 let subtitlePart = newState.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -247,14 +264,14 @@ class AppController: ObservableObject {
         
         guard !isRateLimited(platform) else { return }
 
-        appControllerLog("⚡︎ \(platform.name): \(action.label)")
+        appControllerLog("⚡︎ \(platform.name): \(action.logDescription)")
         
         // Normal actions bundle action + status into one round-trip.
         let combinedScript = isMenuAction
             ? platform.executeMenuActionWithStatus(action)
             : platform.actionWithStatus(action)
 
-        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.id): \(action)")
+        let result = await executeCommand(combinedScript, channelKey: platform.id, description: "\(platform.id): \(action.logDescription)")
 
         switch result {
         case .success(let output):
@@ -267,11 +284,12 @@ class AppController: ObservableObject {
                firstLine.contains("Not authorized to send Apple events") {
                 appControllerLog("⚠️ Automation permission required for \(platform.name)")
                 states[platform.id] = Self.permissionsRequiredState
-            } else if Self.isAssistiveAccessError(output) {
+            } else if ScriptTokens.indicatesAssistiveAccessDenied(output) {
                 // Whole output, not the first line: the refused key aborts the
                 // script, so the error can land after the action's own lines and
                 // there's no status line left to parse.
                 appControllerLog("⚠️ Accessibility permission required for \(platform.name)")
+                assistiveAccessVerified.remove(platform.id)
                 states[platform.id] = Self.accessibilityRequiredState
             } else if let lastLine = lines.last?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !lastLine.isEmpty {
@@ -302,11 +320,11 @@ class AppController: ObservableObject {
         }
         guard !isRateLimited(platform) else { return }
 
-        appControllerLog("⚡︎ \(platform.name): \(action.label)")
+        appControllerLog("⚡︎ \(platform.name): \(action.logDescription)")
         let result = await executeCommand(
             platform.executeAction(action),
             channelKey: platform.id,
-            description: "\(platform.id): \(action.id)"
+            description: "\(platform.id): \(action.logDescription)"
         )
         switch result {
         case .success(let output):
@@ -314,8 +332,9 @@ class AppController: ObservableObject {
             if output.contains("Not authorized to send Apple events") {
                 appControllerLog("⚠️ Automation permission required for \(platform.name)")
                 states[platform.id] = Self.permissionsRequiredState
-            } else if Self.isAssistiveAccessError(output) {
+            } else if ScriptTokens.indicatesAssistiveAccessDenied(output) {
                 appControllerLog("⚠️ Accessibility permission required for \(platform.name)")
+                assistiveAccessVerified.remove(platform.id)
                 states[platform.id] = Self.accessibilityRequiredState
             }
         case .failure(let error):
@@ -323,14 +342,6 @@ class AppController: ObservableObject {
             // saw this error.
             appControllerLog("❌ Action execution failed: \(error)")
         }
-    }
-
-    /// macOS refuses a synthesized key with one of these when the SSH launcher
-    /// lacks assistive access. Every key-sending platform hits it — the key pad,
-    /// TV's skips, IINA and mpv's UI-scripted presses.
-    private static func isAssistiveAccessError(_ output: String) -> Bool {
-        output.contains("not allowed to send keystrokes")
-            || output.contains("not allowed assistive access")
     }
 
     /// Enforces `minActionInterval` for the platforms that declare one (TV's

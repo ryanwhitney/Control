@@ -60,6 +60,9 @@ struct PreferencesView: View {
                     Button("Reset Keyboard Hints") {
                         preferences.resetKeyboardHints()
                     }
+                    Button("Reset What's New") {
+                        preferences.resetWhatsNewSeen()
+                    }
                 }
                 #endif
             }

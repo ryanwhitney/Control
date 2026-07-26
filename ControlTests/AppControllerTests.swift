@@ -162,6 +162,50 @@ struct AppControllerTests {
         #expect(state?.permissionKind == .accessibility)
     }
 
+    /// The guard is dropped after a clean read and re-armed the moment a press is
+    /// refused — otherwise a revoked grant would go unnoticed until reconnect,
+    /// since the status read itself succeeds on Automation alone.
+    @Test func assistiveGuardIsDroppedAfterCleanReadAndReArmedOnRefusal() async {
+        let fake = FakeSSHClient()
+        fake.responder = { [sep] _, _ in .success("Safari\(sep)\(sep)false") }
+        let controller = makeController(fake, platforms: [KeyboardApp()])
+
+        await controller.updateState(for: KeyboardApp(), force: true)
+        await controller.updateState(for: KeyboardApp(), force: true)
+
+        let scripts = fake.commands(on: "keyboard")
+        #expect(scripts.count == 2)
+        #expect(scripts[0].contains("UI elements enabled"))
+        #expect(!scripts[1].contains("UI elements enabled"))
+
+        fake.responder = { _, _ in
+            .success("System Events got an error: osascript is not allowed to send keystrokes. (1002)")
+        }
+        await controller.executeActionWithoutStatus(platform: KeyboardApp(), action: .key(.up))
+        fake.responder = { [sep] _, _ in .success("Safari\(sep)\(sep)false") }
+        await controller.updateState(for: KeyboardApp(), force: true)
+
+        #expect(fake.commands(on: "keyboard").last?.contains("UI elements enabled") == true)
+    }
+
+    /// IINA and mpv UI-script their status read, so the poll itself is refused
+    /// and there's no sentinel to match. Without this it parses as a script
+    /// error, and since the poll runs on every tab visit it overwrites the state
+    /// a refused press just set.
+    @Test func statusPollSurfacesAccessibilityError() async {
+        let fake = FakeSSHClient()
+        fake.responder = { _, _ in
+            .success("System Events got an error: osascript is not allowed assistive access. (-1719)")
+        }
+        let controller = makeController(fake, platforms: [MPVApp()])
+
+        await controller.updateState(for: MPVApp(), force: true)
+
+        let state = controller.states["mpv"]
+        #expect(state?.title == "Permissions Required")
+        #expect(state?.permissionKind == .accessibility)
+    }
+
     /// IINA, mpv and TV send their keys through the status-bundling path, so it
     /// needs the same check. The refused key aborts the script, so the error can
     /// arrive after the action's own output with no status line behind it —

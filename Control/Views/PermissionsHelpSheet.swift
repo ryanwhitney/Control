@@ -23,7 +23,7 @@ struct PermissionsHelpSheet: View {
         case .automation:
             return "Your Mac asks permission for each app Control works with. You only have to do this once."
         case .accessibility:
-            return "These controls need Accessibility permissions to send key presses to your mac. You only have to do this once."
+            return "These controls need Accessibility permissions to send key presses to your Mac. You only have to do this once."
         }
     }
     

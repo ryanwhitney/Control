@@ -56,7 +56,7 @@ struct CompatibilityFallbackNotice: View {
                 .glassPillLabel()
                 .fontWeight(.bold)
             }
-            .glassPillButtonStyle(tint: .accentColor)
+            .glassPillButtonStyle(tint: preferences.tintColorValue)
             .frame(maxWidth: .infinity)
 
         }

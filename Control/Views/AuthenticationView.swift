@@ -2,6 +2,7 @@ import SwiftUI
 import MultiBlur
 
 struct AuthenticationView: View {
+    @ObservedObject private var preferences = UserPreferences.shared
 
     let mode: Mode 
 
@@ -191,7 +192,7 @@ struct AuthenticationView: View {
                     }
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .glassPillLabel(tint: .accentColor)
+                    .glassPillLabel(tint: preferences.tintColorValue)
                     .fontWeight(.bold)
                 }
                 .glassPillButtonStyle()
