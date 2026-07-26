@@ -32,7 +32,6 @@ struct PermissionsView: View, SSHConnectedView {
     let onComplete: () -> Void
 
     @StateObject internal var connectionManager = SSHConnectionManager.shared
-    @ObservedObject private var preferences = UserPreferences.shared
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var isCheckSweepRunning = false
     @State private var permissionsGranted: Bool = false
@@ -342,7 +341,7 @@ struct PermissionsView: View, SSHConnectedView {
                 Text("Check Permissions")
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .glassPillLabel(tint: preferences.tintColorValue)
+                    .glassPillLabel(tint: .accentColor)
                     .fontWeight(.bold)
                     .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
             }
@@ -609,13 +608,13 @@ private struct PermissionsNameExplanationSheet: View {
                 .glassPillLabel()
                 .fontWeight(.bold)
             }
-            .glassPillButtonStyle(tint: preferences.tintColorValue)
+            .glassPillButtonStyle(tint: .accentColor)
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 8)
         .background(.ultraThickMaterial)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
         .presentationDetents([.fraction(0.9), .large])
         .presentationDragIndicator(.visible)
     }

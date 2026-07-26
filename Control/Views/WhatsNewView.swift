@@ -135,7 +135,7 @@ struct WhatsNewView: View {
             .navigationBarHidden(true)
         }
         .presentationBackground(.black)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
     }
 }
 

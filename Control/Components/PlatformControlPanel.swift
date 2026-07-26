@@ -205,7 +205,7 @@ struct PlatformControl: View {
                                 .fontWeight(.bold)
                                 .multiblur([(10, 0.25), (50, 0.35)])
                         }
-                        .glassPillButtonStyle(tint: preferences.tintColorValue)
+                        .glassPillButtonStyle(tint: .accentColor)
                         .accessibilityHint("Explains which permission to grant on your Mac")
                         .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
                     }
@@ -232,7 +232,7 @@ struct PlatformControl: View {
             // Puts back what the clearance below gave up, so transport rows keep
             // their position while the dots stay lower. The key pad keeps the
             // space: its portrait height is fixed.
-            .padding(.top, isPhoneLandscape || isKeyPad ? 0 : 20 * controlScale)
+            .padding(.top, isPhoneLandscape || isKeyPad ? 0 : 0 * controlScale)
             // Keeps the controls clear of the dots, which overlay the pager's
             // bottom edge 14pt below its slot (see ControlView).
             .padding(.bottom, isPhoneLandscape ? 40 : 40 * controlScale)

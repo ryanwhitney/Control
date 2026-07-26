@@ -20,8 +20,7 @@ struct VolumeControlApp: App {
                 .onAppear {
                     networkPermissions.requestPermissions()
                 }
-                .tint(preferences.tintColorValue)
-                .accentColor(preferences.tintColorValue)
+                .themeTint(preferences.tintColorValue)
                 .preferredColorScheme(.dark)
         }
     }

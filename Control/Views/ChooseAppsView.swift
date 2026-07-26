@@ -170,7 +170,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                         Text(isReconfiguration ? "Update" : "Continue")
                             .padding(.vertical, 11)
                             .frame(maxWidth: .infinity)
-                            .glassPillLabel(tint: preferences.tintColorValue)
+                            .glassPillLabel(tint: .accentColor)
                             .fontWeight(.bold)
                             .multiblur([(10,0.25), (20,0.85), (50,0.85),  (100,0.85)])
                     }
