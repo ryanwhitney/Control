@@ -44,22 +44,33 @@ struct KeyboardApp: AppPlatform {
     ///    re-runs that filter on every property access, so it's only a fallback.
     ///  * `path to frontmost application` costs ~13 ms. Coerce `as text`;
     ///    **never** `as alias`, which errors on Cryptex-resident apps (Safari
-    ///    lives at `Preboot:Cryptexes:App:…`).
+    ///    lives at `Preboot:Cryptexes:App:…`). HFS text stores a displayed `/`
+    ///    as `:`, so an app named "AC/DC Player" reads back truncated — accepted:
+    ///    it's display-only, and `name of (path to …)` avoids it for ~10 ms more.
     ///
     /// `UI elements enabled` is the assistive-access check the pad needs and this
-    /// read doesn't — here so the readout and a key press can't disagree.
+    /// read doesn't — here so the readout and a key press can't disagree. It costs
+    /// ~10 ms against the read's ~13 ms, so the controller drops it once the grant
+    /// is confirmed and puts it back if a press is ever refused.
+    ///
+    /// Delimiters are saved *above* the `try` and restored in both paths: they're
+    /// global to the interpreter, and Fast keeps one alive per channel, so an
+    /// error between set and restore would leak ":" into every later command —
+    /// and the next run would then read ":" as the value to restore.
     ///
     /// The empty middle field stands in for the absent subtitle: the shared parse
     /// needs three fields before it reads the third.
-    private func statusScript() -> String {
+    private func statusScript(guardingAssistiveAccess: Bool = true) -> String {
         let sep = ScriptTokens.fieldSeparator
+        let guardLine = guardingAssistiveAccess
+            ? "\n    if not (UI elements enabled) then return \"\(ScriptTokens.accessibilityRequired)\""
+            : ""
         return """
-        tell application "System Events"
-            if not (UI elements enabled) then return "\(ScriptTokens.accessibilityRequired)"
+        tell application "System Events"\(guardLine)
             set frontApp to ""
+            set savedDelims to AppleScript's text item delimiters
             try
                 set appPath to path to frontmost application as text
-                set savedDelims to AppleScript's text item delimiters
                 set AppleScript's text item delimiters to ":"
                 set pathParts to text items of appPath
                 set AppleScript's text item delimiters to savedDelims
@@ -72,6 +83,7 @@ struct KeyboardApp: AppPlatform {
                     end if
                 end repeat
             on error errorMessage number errorNumber
+                set AppleScript's text item delimiters to savedDelims
                 if errorNumber is \(Self.notAuthorizedErrorNumber) then error errorMessage number errorNumber
             end try
             if frontApp is "" then
@@ -90,6 +102,11 @@ struct KeyboardApp: AppPlatform {
     }
 
     func fetchState() -> String { statusScript() }
+
+    /// Dropping the guard is the controller's call; see `assistiveAccessVerified`.
+    func combinedStatusScript(assumingAssistiveAccess: Bool) -> String {
+        statusScript(guardingAssistiveAccess: !assumingAssistiveAccess)
+    }
 
     /// Self-contained, not an injected fragment: a key press sends exactly this.
     /// One System Events statement per press, all inside the same tell.

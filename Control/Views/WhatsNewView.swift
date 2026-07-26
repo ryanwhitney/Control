@@ -54,11 +54,11 @@ struct WhatsNewView: View {
                             Text("Introducing ") + Text("**Keyboard** controls") + Text(":")
                             Text("A new control pane that works the same as pressing keys on your actual keyboard.")
                             
-                            Text("That means Control now works with nearly ")+Text("**any video**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", on ")+Text("**any website**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", and ")+Text("**any app**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(".")
+                            Text("That means Control now works with nearly ")+Text("**any video**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(",  ")+Text("**any website**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", and ")+Text("**any app**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(".")
                             
                             Text("Customizable, with support for shortcuts. ")
                             if hasSavedConnections {
-                                Text("Enable it via “Manage Apps” under the ")
+                                Text("Enable it via “Manage Apps” on the ")
                                 + Text(Image(systemName: "ellipsis.circle.fill")).accessibilityLabel("More")
                                 + Text(" menu on any existing app control screen.")
                             }

@@ -205,7 +205,7 @@ struct PlatformControl: View {
                                 .fontWeight(.bold)
                                 .multiblur([(10, 0.25), (50, 0.35)])
                         }
-                        .glassPillButtonStyle(tint: .accentColor)
+                        .glassPillButtonStyle(tint: preferences.tintColorValue)
                         .accessibilityHint("Explains which permission to grant on your Mac")
                         .transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
                     }

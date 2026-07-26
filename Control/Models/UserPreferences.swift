@@ -103,4 +103,9 @@ class UserPreferences: ObservableObject {
         hasSeenKeyboardHintManageApps = false
         hasSeenKeyboardHintChooseApps = false
     }
+
+    /// Debug-only: shows What's New again on the next launch.
+    func resetWhatsNewSeen() {
+        lastSeenWhatsNewVersion = ""
+    }
 }

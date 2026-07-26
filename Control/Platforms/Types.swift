@@ -50,6 +50,17 @@ enum AppAction: Identifiable, Equatable {
         }
     }
 
+    /// What the debug log may say. Key presses report only that a key was sent:
+    /// the pad targets whatever is frontmost on the Mac, so the key itself can
+    /// be someone's password, and the logs are shareable.
+    var logDescription: String {
+        switch self {
+        case .key: return "key press"
+        case .shortcut: return "shortcut"
+        default: return label
+        }
+    }
+
     /// Voice Control names — shorter than the descriptive VoiceOver labels.
     var inputLabels: [String] {
         switch self {
@@ -155,6 +166,7 @@ protocol AppPlatform: Identifiable {
     var menuActions: [ActionConfig] { get }
     
     func fetchState() -> String
+    func combinedStatusScript(assumingAssistiveAccess: Bool) -> String
     func executeAction(_ action: AppAction) -> String
     func executeMenuActionWithStatus(_ action: AppAction) -> String
     func parseState(_ output: String) -> AppState
@@ -274,6 +286,12 @@ extension AppPlatform {
     /// tell as the remote interactive shell requires. Self-guarding platforms
     /// skip the wrapper: process enumeration is slow, and everything queued
     /// behind it on the serialized channel waits.
+    /// Only platforms whose script carries an assistive-access guard implement
+    /// this; for everyone else the flag has nothing to drop.
+    func combinedStatusScript(assumingAssistiveAccess: Bool) -> String {
+        combinedStatusScript()
+    }
+
     func combinedStatusScript() -> String {
         guard !fetchStateIsSelfGuarding else { return fetchState() }
         return """

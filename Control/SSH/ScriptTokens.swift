@@ -34,6 +34,14 @@ enum ScriptTokens {
     /// without this the readout reports healthy while every press is refused.
     static let accessibilityRequired = "VC7NOACCESS_\(nonce)"
 
+    /// macOS's own refusal of a synthesized key press or UI-scripted action,
+    /// which needs assistive access rather than the Automation grant everything
+    /// else asks for. Matched by both the controller and the permission check.
+    static func indicatesAssistiveAccessDenied(_ output: String) -> Bool {
+        output.contains("not allowed to send keystrokes")
+            || output.contains("not allowed assistive access")
+    }
+
     /// Field separator between the title/subtitle/isPlaying fields of platform
     /// status output, split by `AppPlatform.parseSeparatedState`. Deliberately
     /// distinctive so a media title can't collide with it. Fixed (no nonce):

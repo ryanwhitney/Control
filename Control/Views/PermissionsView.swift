@@ -5,18 +5,18 @@ enum PlatformPermissionState: Equatable {
     case initial
     case checking
     case granted
-    case failed(String)
+    /// `nil` when the check never got an answer, so there are no instructions to
+    /// offer — only a named grant has a fix the sheet can describe.
+    case failed(PermissionKind?)
 
-    static func == (lhs: PlatformPermissionState, rhs: PlatformPermissionState) -> Bool {
-        switch (lhs, rhs) {
-        case (.initial, .initial),
-            (.checking, .checking),
-            (.granted, .granted):
-            return true
-        case (.failed(let lhsError), .failed(let rhsError)):
-            return lhsError == rhsError
-        default:
-            return false
+    var spokenStatus: String {
+        switch self {
+        case .initial: return "not checked yet"
+        case .checking: return "checking"
+        case .granted: return "permission granted"
+        case .failed(.automation): return "app control permission needed"
+        case .failed(.accessibility): return "key press permission needed"
+        case .failed(nil): return "permission check timed out"
         }
     }
 }
@@ -32,6 +32,7 @@ struct PermissionsView: View, SSHConnectedView {
     let onComplete: () -> Void
 
     @StateObject internal var connectionManager = SSHConnectionManager.shared
+    @ObservedObject private var preferences = UserPreferences.shared
     @State private var permissionStates: [String: PlatformPermissionState] = [:]
     @State private var isCheckSweepRunning = false
     @State private var permissionsGranted: Bool = false
@@ -45,6 +46,15 @@ struct PermissionsView: View, SSHConnectedView {
     @State private var showingPermissionsNameExplanation = false
     /// Non-nil once the success choreography has started; it runs exactly once.
     @State private var successSequenceTask: Task<Void, Never>?
+    /// The failed platform whose instructions are open, so dismissing can
+    /// re-check just that one.
+    @State private var helpFor: PermissionHelpRequest?
+
+    struct PermissionHelpRequest: Identifiable {
+        let platformId: String
+        let kind: PermissionKind
+        var id: String { platformId }
+    }
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     
@@ -81,6 +91,8 @@ struct PermissionsView: View, SSHConnectedView {
 
             if allPermissionsGranted {
                 permissionsGranted = true
+                // `onChange` can't fire for a value that arrived already true.
+                startSuccessSequence()
             }
         }
         .onDisappear {
@@ -105,6 +117,14 @@ struct PermissionsView: View, SSHConnectedView {
                 startSuccessSequence()
             }
         }
+        .sheet(item: $helpFor) { help in
+            PermissionsHelpSheet(kind: help.kind)
+                .onDisappear {
+                    // Just this one: a full sweep re-activates every app on the
+                    // Mac, too intrusive to do on the chance they fixed it.
+                    Task { await checkPermission(for: help.platformId) }
+                }
+        }
     }
 
     /// The granted → success → onComplete choreography as one awaitable sequence,
@@ -112,6 +132,10 @@ struct PermissionsView: View, SSHConnectedView {
     private func startSuccessSequence() {
         guard allPermissionsGranted, successSequenceTask == nil else { return }
         successSequenceTask = Task { @MainActor in
+            // Cleared however this ends: leaving it set after a cancellation
+            // would make the guard above permanent, stranding the user on a
+            // screen whose only exit is `onComplete()`.
+            defer { successSequenceTask = nil }
             // A beat throws only on cancellation: `onComplete()` drives
             // navigation and must not fire from a screen the user has left.
             do {
@@ -168,21 +192,38 @@ struct PermissionsView: View, SSHConnectedView {
                     HStack{EmptyView()}.frame(height: headerHeight)
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(PlatformRegistry.allPlatforms.filter { enabledPlatforms.contains($0.id) }, id: \.id) { platform in
+                            let fixableKind = fixableKind(for: platform.id)
                             HStack {
                                 Text(platform.name)
                                 Spacer()
                                 permissionStatusIcon(for: platform.id)
+                                if fixableKind != nil {
+                                    Image(systemName: "chevron.right")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .padding()
                             .background(.ultraThinMaterial.opacity(0.5))
                             .cornerRadius(12)
                             .opacity(permissionStates[platform.id] != .initial ? 1 : 0.5)
                             .animation(.spring(), value: permissionStates[platform.id])
+                            // The whole row, not the chevron: it's one
+                            // accessibility element, and a chevron-sized target
+                            // would be a sliver.
+                            .contentShape(.rect(cornerRadius: 12))
+                            .onTapGesture {
+                                if let fixableKind {
+                                    helpFor = PermissionHelpRequest(platformId: platform.id, kind: fixableKind)
+                                }
+                            }
                             // So an unchecked row reads "not checked yet" rather
                             // than a bare app name.
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(platform.name)
-                            .accessibilityValue(statusDescription(for: platform.id))
+                            .accessibilityValue(state(of: platform.id).spokenStatus)
+                            .accessibilityAddTraits(fixableKind != nil ? .isButton : [])
+                            .accessibilityHint(fixableKind != nil ? "Shows how to fix this on your Mac" : "")
                         }
                     }
                     .opacity(showAppList ? 1 : 0)
@@ -251,21 +292,19 @@ struct PermissionsView: View, SSHConnectedView {
             .map { $0.name }
     }
 
-    private func statusDescription(for platformId: String) -> String {
-        switch permissionStates[platformId] ?? .initial {
-        case .initial:
-            return "not checked yet"
-        case .checking:
-            return "checking"
-        case .granted:
-            return "permission granted"
-        case .failed(let reason):
-            return reason
-        }
+    private func state(of platformId: String) -> PlatformPermissionState {
+        permissionStates[platformId] ?? .initial
+    }
+
+    /// The grant this row can offer instructions for; nil unless it failed with
+    /// a named one.
+    private func fixableKind(for platformId: String) -> PermissionKind? {
+        if case .failed(let kind) = state(of: platformId) { return kind }
+        return nil
     }
 
     /// Purely visual — the row ignores its children, so a label added here could
-    /// never be read. Spoken status comes from `statusDescription(for:)`.
+    /// never be read. Spoken status comes from `spokenStatus`.
     private func permissionStatusIcon(for platformId: String) -> some View {
         Group {
             switch permissionStates[platformId] ?? .initial {
@@ -303,7 +342,7 @@ struct PermissionsView: View, SSHConnectedView {
                 Text("Check Permissions")
                     .padding(.vertical, 11)
                     .frame(maxWidth: .infinity)
-                    .glassPillLabel(tint: .accentColor)
+                    .glassPillLabel(tint: preferences.tintColorValue)
                     .fontWeight(.bold)
                     .multiblur([(10,0.25), (20,0.35), (50,0.5),  (100,0.5)])
             }
@@ -380,13 +419,16 @@ struct PermissionsView: View, SSHConnectedView {
         // The all-granted case is announced by the success transition instead.
         if !allPermissionsGranted {
             let grantedCount = enabledPlatforms.filter { permissionStates[$0] == .granted }.count
+            // Named with the grant each needs, so the summary is actionable.
             let failedNames = PlatformRegistry.allPlatforms
                 .filter { enabledPlatforms.contains($0.id) }
-                .filter { if case .failed = permissionStates[$0.id] ?? .initial { return true } else { return false } }
-                .map { $0.name }
+                .compactMap { platform -> String? in
+                    guard case .failed = state(of: platform.id) else { return nil }
+                    return "\(platform.name), \(state(of: platform.id).spokenStatus)"
+                }
             var summary = "Permission check finished. \(grantedCount) of \(enabledPlatforms.count) granted."
             if !failedNames.isEmpty {
-                summary += " Needs attention: \(failedNames.joined(separator: ", "))."
+                summary += " Needs attention: \(failedNames.joined(separator: "; "))."
             }
             AccessibilityNotification.Announcement(summary).post()
         }
@@ -444,11 +486,20 @@ struct PermissionsView: View, SSHConnectedView {
             
             if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.accessibilityRequired {
                 viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
-                permissionStates[platformId] = .failed("Accessibility needed")
+                permissionStates[platformId] = .failed(.accessibility)
+            } else if ScriptTokens.indicatesAssistiveAccessDenied(output) {
+                // IINA/mpv/TV never return the sentinel — their scripts carry no
+                // assistive-access guard — so this is where they're caught.
+                viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
+                permissionStates[platformId] = .failed(.accessibility)
             } else if output.contains("Not authorized to send Apple events") {
                 viewLog("❌ \(platform.name): Permission denied", view: "PermissionsView")
-                permissionStates[platformId] = .failed("Permission needed")
+                permissionStates[platformId] = .failed(.automation)
             } else {
+                // TODO: a closed app can't be exercised, so it lands here as
+                // granted — IINA/mpv return their own "Not running" status, and
+                // the `activate` above only waits 500ms for a cold launch. The
+                // control screen catches it reactively on first use.
                 viewLog("✓ \(platform.name): Permission granted", view: "PermissionsView")
                 permissionStates[platformId] = .granted
             }
@@ -477,12 +528,13 @@ struct PermissionsView: View, SSHConnectedView {
                     viewLog("Retry successful for \(platform.name)", view: "PermissionsView")
                     viewLog("Output: \(output)", view: "PermissionsView")
                     
-                    if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.accessibilityRequired {
-                viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
-                permissionStates[platformId] = .failed("Accessibility needed")
-            } else if output.contains("Not authorized to send Apple events") {
+                    if output.trimmingCharacters(in: .whitespacesAndNewlines) == ScriptTokens.accessibilityRequired
+                        || ScriptTokens.indicatesAssistiveAccessDenied(output) {
+                        viewLog("❌ \(platform.name): Accessibility permission needed", view: "PermissionsView")
+                        permissionStates[platformId] = .failed(.accessibility)
+                    } else if output.contains("Not authorized to send Apple events") {
                         viewLog("❌ \(platform.name): Permission still denied after retry", view: "PermissionsView")
-                        permissionStates[platformId] = .failed("Permission needed")
+                        permissionStates[platformId] = .failed(.automation)
                     } else {
                         viewLog("✓ \(platform.name): Permission granted after retry", view: "PermissionsView")
                         permissionStates[platformId] = .granted
@@ -495,7 +547,7 @@ struct PermissionsView: View, SSHConnectedView {
             }
 
             viewLog("❌ \(platform.name): Permission check timed out after \(attempts) attempts (60s)", view: "PermissionsView")
-            permissionStates[platformId] = .failed("Permission dialog timed out")
+            permissionStates[platformId] = .failed(nil)
         }
     }
 }
@@ -557,7 +609,7 @@ private struct PermissionsNameExplanationSheet: View {
                 .glassPillLabel()
                 .fontWeight(.bold)
             }
-            .glassPillButtonStyle(tint: .accentColor)
+            .glassPillButtonStyle(tint: preferences.tintColorValue)
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 24)

@@ -445,12 +445,14 @@ private extension CGRect {
 }
 
 private extension KeyPadLayout {
-    /// The two zones look alike to a swipe, so the name goes in the value.
+    /// The two zones look alike to a swipe, so the name goes in the value. No
+    /// direction for the strip: the live pad pivots it to a column in landscape,
+    /// while the pad proper keeps its shape in both.
     func accessibilityPosition(of address: CellAddress) -> String {
         let grid = self[address.zone]
         switch address.zone {
         case .utility:
-            return "top row, position \(address.index + 1) of \(grid.cells.count)"
+            return "utility strip, position \(address.index + 1) of \(grid.cells.count)"
         case .pad:
             return "pad row \(address.index / grid.columns + 1), column \(address.index % grid.columns + 1)"
         }
