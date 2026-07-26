@@ -116,6 +116,7 @@ struct DebugLogsView: View {
                             .disabled(debugLogger.logs.isEmpty)
                         } label: {
                             Image(systemName: "ellipsis.circle")
+                                .accessibilityLabel("More")
                         }
                     }
                 }

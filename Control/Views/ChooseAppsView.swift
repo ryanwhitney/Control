@@ -15,13 +15,16 @@ struct ChooseAppsView: View, SSHConnectedView {
 
     @StateObject internal var connectionManager = SSHConnectionManager.shared
     @StateObject private var platformRegistry = PlatformRegistry()
+    @StateObject private var preferences = UserPreferences.shared
     @State private var headerHeight: CGFloat = 0
+    @State private var bottomPanelHeight: CGFloat = 0
     @State private var showAppList: Bool = false
     
     private var availablePlatforms: [any AppPlatform] {
+        // Registry order, which the pager shows too, so this list previews it.
         let nonExperimental = platformRegistry.nonExperimentalPlatforms
-        let enabledExperimental = platformRegistry.experimentalPlatforms.filter { 
-            platformRegistry.enabledExperimentalPlatforms.contains($0.id) 
+        let enabledExperimental = platformRegistry.experimentalPlatforms.filter {
+            platformRegistry.enabledExperimentalPlatforms.contains($0.id)
         }
         return nonExperimental + enabledExperimental
     }
@@ -40,11 +43,9 @@ struct ChooseAppsView: View, SSHConnectedView {
     
     // MARK: - SSH Connection Callbacks
     func onSSHConnected() {
-        // Connection successful - no specific action needed
     }
     
     func onSSHConnectionFailed(_ error: Error) {
-        // Error handling is done automatically by the mixin
     }
 
     var body: some View {
@@ -64,13 +65,34 @@ struct ChooseAppsView: View, SSHConnectedView {
                                     }
                                 }
                             )) {
-                                HStack {
-                                    Text(platform.name)
-                                    if platform.experimental {
-                                        Image(systemName: "flask.fill")
-                                            .foregroundStyle(.tint)
-                                            .font(.caption)
-                                            .accessibilityLabel("Experimental")
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: platform.id == "keyboard" ? 4 : 10) {
+                                        Text(platform.name)
+                                        if platform.experimental {
+                                            Image(systemName: "flask.fill")
+                                                .foregroundStyle(.tint)
+                                                .font(.caption)
+                                                .accessibilityLabel("Experimental")
+                                        }
+                                        // Last step of the Keyboard discovery
+                                        // hint; clears in onDisappear.
+                                        if platform.id == "keyboard"
+                                            && isReconfiguration
+                                            && !selectedPlatforms.contains(platform.id)
+                                            && !preferences.hasSeenKeyboardHintChooseApps {
+                                            Text("•")
+                                                .foregroundStyle(.tint)
+                                                .baselineOffset(8)
+ 
+                                                .fontWeight(.black)
+                                                .accessibilityLabel("New")
+                                        }
+                                    }
+                                    if let listDescription = platform.listDescription {
+                                        Text(listDescription)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
                                     }
                                 }
                                 .padding()
@@ -91,6 +113,7 @@ struct ChooseAppsView: View, SSHConnectedView {
                     }
                 }
                 .padding()
+                .padding(.bottom, bottomPanelHeight + 12)
             }
             .mask(
                 LinearGradient(colors:[.clear, .black, .black, .black, .black, .black], startPoint: .top, endPoint: .bottom)
@@ -108,23 +131,22 @@ struct ChooseAppsView: View, SSHConnectedView {
                     .padding(0)
                     .foregroundStyle(.tint, .quaternary)
                     .padding(.bottom, -20)
+                    .multiblur([(10, 0.85), (25, 0.5), (50, 0.5)])
                     .accessibilityHidden(true)
                 Text("Choose apps to control")
                     .font(.title2)
                     .bold()
                     .padding(.horizontal)
                     .padding(.top)
-                Text("You can change these anytime.")
+                Text("You can change these later, too.")
                     .foregroundColor(.secondary)
                     .padding(.horizontal)
             }
-            // One heading element instead of a header trait on each fragment.
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
-            // The header sits after the list in the ZStack; read it first, with
-            // a running summary of the selection. Count only visible platforms:
-            // a saved selection can hold ids no longer listed (e.g. a disabled
-            // experimental app), which would announce "8 of 7 apps selected".
+            // It sits after the list in the ZStack; read it first. Counting only
+            // visible platforms avoids "8 of 7 apps selected" when a saved
+            // selection holds ids no longer listed.
             .accessibilitySortPriority(1)
             .accessibilityValue("\(visibleSelectionCount) of \(availablePlatforms.count) apps selected")
             .frame(maxWidth:.infinity)
@@ -140,7 +162,7 @@ struct ChooseAppsView: View, SSHConnectedView {
             
             VStack{
                 Spacer()
-                BottomButtonPanel{
+                BottomButtonPanel(height: $bottomPanelHeight){
                     Button(action: {
                         viewLog("Selected platforms: \(selectedPlatforms)", view: "ChooseAppsView")
                         onComplete(selectedPlatforms)
@@ -174,6 +196,9 @@ struct ChooseAppsView: View, SSHConnectedView {
         .onChange(of: scenePhase, handleScenePhaseChange)
         .onDisappear {
             viewLog("ChooseAppsView: View disappeared", view: "ChooseAppsView")
+            // End of the discovery walk: this screen shows the Keyboard row, dot
+            // or no dot, so seeing it at all retires the hint.
+            preferences.markKeyboardHintChooseAppsSeen()
         }
         .alert("Connection Lost", isPresented: showingConnectionLostAlert) {
             Button("OK") { dismiss() }
@@ -189,7 +214,6 @@ struct ChooseAppsView: View, SSHConnectedView {
     }
 
     private func updateSelectedPlatforms() {
-        // Initialize selected platforms based on initialSelection or defaultEnabled property
         if let initialSelection = initialSelection {
             selectedPlatforms = initialSelection
         } else {

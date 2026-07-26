@@ -113,7 +113,7 @@ struct ConnectionsView: View {
                 }
             }
             .sheet(isPresented: $viewModel.showingWhatsNew) {
-                WhatsNewView {
+                WhatsNewView(hasSavedConnections: !viewModel.savedConnections.items.isEmpty) {
                     viewModel.showingWhatsNew = false
                 }
                 .presentationBackground(.black)
@@ -121,7 +121,7 @@ struct ConnectionsView: View {
                 .presentationCornerRadius(20)
                 .interactiveDismissDisabled(true)
             }
-            .tint(UserPreferences.shared.tintColorValue)
+            .themeTint(UserPreferences.shared.tintColorValue)
         }
         .environmentObject(viewModel)
         .onAppear {

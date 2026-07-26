@@ -5,7 +5,9 @@ class PlatformRegistry: ObservableObject {
     @Published var enabledPlatforms: Set<String>
     @Published var enabledExperimentalPlatforms: Set<String>
     
+    // This order is the pager's order, and Choose Apps lists it the same way.
     static let allPlatforms: [any AppPlatform] = [
+        KeyboardApp(),
         QuickTimeApp(),
         TVApp(),
         MusicApp(),

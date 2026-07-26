@@ -2,38 +2,39 @@ import SwiftUI
 import UIKit
 
 struct IconButtonStyle: ButtonStyle {
+    // Fixed on purpose: a five-button transport row already fills a small
+    // phone's width, so Dynamic Type would clip the outer buttons off screen.
+    // The key pad passes 44pt in landscape — still the tap-target floor.
+    var width: CGFloat = 60
+    var height: CGFloat = 60
+    var fontSize: CGFloat = 36
     @State private var bounceCount = 0
     @State private var isAnimating = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // Fixed sizes on purpose: a five-button transport row at these sizes already
-    // fills a small phone's width, so scaling with Dynamic Type clips the outer
-    // buttons off screen. 60pt is comfortably above tap-target minimums.
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding(12)
-            .font(.system(size: 36))
+            .font(.system(size: fontSize))
             .fontWeight(.regular)
-            .frame(width: 60, height: 60)
+            .frame(width: width, height: height)
             .foregroundStyle(.tint)
             .labelStyle(.iconOnly)
             .opacity((configuration.isPressed || isAnimating) ? 0.6 : 1.0)
             .symbolEffect(.bounce.down.wholeSymbol, options: .speed(3.0), value: bounceCount)
-            // The built-in Reduce Motion switch for symbol effects; keeps the
-            // opacity press feedback. (A conditional trigger value would fire a
-            // spurious bounce when the setting itself toggles.)
+            // A conditional trigger value would instead fire a spurious bounce
+            // when the setting itself toggles.
             .symbolEffectsRemoved(reduceMotion)
             .animation(.easeInOut(duration: 0.05), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.05), value: isAnimating)
-            // Drive the bounce/fade from the press state, NOT a simultaneousGesture:
-            // attaching a TapGesture to the label swallows the Button's own action
-            // inside a paged TabView, so taps never fire.
+            // NOT a simultaneousGesture: a TapGesture on the label swallows the
+            // Button's own action inside a paged TabView, so taps never fire.
             .onChange(of: configuration.isPressed) { _, isPressed in
                 if isPressed {
                     bounceCount += 1
                     isAnimating = true
                     Task {
-                        // End opacity fade before bounce completes
-                        try? await Task.sleep(nanoseconds: 150_000_000) // 150ms
+                        // End the fade before the bounce completes.
+                        try? await Task.sleep(nanoseconds: 150_000_000)
                         await MainActor.run {
                             isAnimating = false
                         }

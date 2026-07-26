@@ -29,6 +29,12 @@ struct PreferencesView: View {
                         color: .green
                     )
                     PreferencesRow(
+                        destination: KeyPadEditorContent(showsEnablementHint: true),
+                        customIconName: "custom.arrowtriangles.up.right.down.left",
+                        title: "Customize Keyboard Controls",
+                        color: .black.opacity(0.35)
+                    )
+                    PreferencesRow(
                         destination: ExperimentalPlatformsView(),
                         iconName: "flask.fill",
                         title: "Experimental App Controls",
@@ -49,7 +55,16 @@ struct PreferencesView: View {
                         color: .blue
                     )
                 }
-                
+                #if DEBUG
+                Section {
+                    Button("Reset Keyboard Hints") {
+                        preferences.resetKeyboardHints()
+                    }
+                    Button("Reset What's New") {
+                        preferences.resetWhatsNewSeen()
+                    }
+                }
+                #endif
             }
             .contentMargins(.top, 30, for: .scrollContent)
             .navigationTitle("Preferences")
@@ -63,7 +78,7 @@ struct PreferencesView: View {
             }
         }
         .background(.ultraThinMaterial)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
     }
 }
 
@@ -71,16 +86,34 @@ struct PreferencesView: View {
 
 struct PreferencesRow<Destination: View>: View {
     let destination: Destination
-    let iconName: String
+    let icon: Image
     let title: String
     let color: Color
+
+    /// A system SF Symbol.
+    init(destination: Destination, iconName: String, title: String, color: Color) {
+        self.destination = destination
+        self.icon = Image(systemName: iconName)
+        self.title = title
+        self.color = color
+    }
+
+    /// A custom symbol from the asset catalog (an SF Symbols app export
+    /// dropped into Assets.xcassets) — those load by asset name, not
+    /// `systemName`.
+    init(destination: Destination, customIconName: String, title: String, color: Color) {
+        self.destination = destination
+        self.icon = Image(customIconName)
+        self.title = title
+        self.color = color
+    }
 
     var body: some View {
         NavigationLink {
             destination
         } label: {
             HStack {
-                Image(systemName: iconName)
+                icon
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .foregroundStyle(.primary)

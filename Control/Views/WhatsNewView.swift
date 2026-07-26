@@ -4,8 +4,12 @@ import MultiBlur
 struct WhatsNewView: View {
     @StateObject private var preferences = UserPreferences.shared
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var bottomPanelHeight: CGFloat = 0
+    /// Gates the line about turning Keyboard on from an existing connection —
+    /// there's nowhere to follow it to without one.
+    let hasSavedConnections: Bool
     let onDismiss: () -> Void
-    
+
     /// The sheet only floats as a centered, bordered card in regular-width
     /// presentations (e.g. iPad). On iPhone it's a full-screen sheet, where a
     /// border would look out of place.
@@ -16,23 +20,28 @@ struct WhatsNewView: View {
     var body: some View {
         NavigationView {
             ZStack(alignment: .top) {
-                Image("control-2-header")
+                Image("control-2-1-header")
                     .resizable()
                     .scaledToFit()
                     .accessibilityHidden(true)
                     
                 // Scrollable Content
                 ScrollView {
-                    Spacer(minLength: 240)
+                    Spacer(minLength: 36)
                     VStack(spacing: 16) {
-                        VStack(spacing: 0) {
-                            Text("Version 2.0.0")
+                        Image("keypad")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 240, alignment: .center)
+                            .accessibilityHidden(true)
+                        VStack(spacing: 6) {
+                            Text("Version 2.1.0")
                                 .font(.subheadline)
                                 .kerning(2)
                                 .foregroundStyle(.green)
                                 .fontDesign(.monospaced)
                             
-                            Text("Control faster.")
+                            Text("Control anything.")
                                 .font(.largeTitle)
                                 .fontWidth(.expanded)
                                 .foregroundStyle(.primary)
@@ -40,20 +49,27 @@ struct WhatsNewView: View {
                                 .fontWeight(.bold)
                                 .accessibilityAddTraits(.isHeader)
                         }
-                        .padding(.horizontal)
-                        .padding(.top)
+                        .padding(.top, 6)
                         VStack (alignment: .leading,spacing: 16){
-                            Text("In this update, I’ve overhauled how Control talks to your Mac. Commands are now as close to instant as possible.")
-                            Text("If the new method doesn't play nicely with your machine, switch to **compatibility mode** in settings.")
-                            Text("Also here:").italic()+Text(" better support for VoiceOver and Voice Control, bug fixes, design touch-ups, and troubleshooting improvements.")
-                            Text("Control gets better with your feedback.").bold()+Text(" Thanks for trying the app, and thanks to all who have reached out. Enjoy!")
+                            Text("Introducing ") + Text("**Keyboard** controls") + Text(":")
+                            Text("A new control pane that works the same as pressing keys on your actual keyboard.")
+                            
+                            Text("That means Control now works with nearly ")+Text("**any video**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(",  ")+Text("**any website**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(", and ")+Text("**any app**").fontWidth(.init(0.05)).foregroundStyle(.tint) + Text(".")
+                            
+                            Text("Customizable, with support for shortcuts. ")
+                            if hasSavedConnections {
+                                Text("Enable it via “Manage Apps” on the ")
+                                + Text(Image(systemName: "ellipsis.circle.fill")).accessibilityLabel("More")
+                                + Text(" menu on any existing app control screen.")
+                            }
+                            Text("I hope you find it useful. Reach out anytime.")
                             Text("–RW")
                                 .foregroundStyle(.secondary)
                                 .font(.footnote)
                                 .fontWidth(.expanded)
                                 .fontWeight(.bold)
                         }
-                        .padding()
+                        .padding(.horizontal, 6)
                     }
                     .background{
                         RoundedRectangle(cornerRadius: 20)
@@ -61,15 +77,17 @@ struct WhatsNewView: View {
                             .blur(radius: 80)
                     }
                     .padding(.horizontal)
-                    .padding(.bottom, 100)
-                    
+                    // Clearance for the floating Continue panel, measured live
+                    // so it stays right when Dynamic Type grows the button.
+                    .padding(.bottom, bottomPanelHeight + 12)
+
                 }
                 .scrollContentBackground(.hidden)
                 
                 // Fixed Button at Bottom
                 VStack{
                     Spacer()
-                    BottomButtonPanel{
+                    BottomButtonPanel(height: $bottomPanelHeight){
                         if #available(iOS 26.0, *) {
                             Button {
                                 preferences.markWhatsNewAsSeen()
@@ -117,7 +135,7 @@ struct WhatsNewView: View {
             .navigationBarHidden(true)
         }
         .presentationBackground(.black)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
     }
 }
 
@@ -141,6 +159,10 @@ struct FeatureCard: View {
 }
 
 
-#Preview {
-    WhatsNewView(onDismiss: {})
+#Preview("Existing user") {
+    WhatsNewView(hasSavedConnections: true, onDismiss: {})
+}
+
+#Preview("First launch") {
+    WhatsNewView(hasSavedConnections: false, onDismiss: {})
 }

@@ -61,7 +61,7 @@ struct CompatibilityFallbackNotice: View {
 
         }
         .padding(24)
-        .tint(preferences.tintColorValue)
+        .themeTint(preferences.tintColorValue)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }
