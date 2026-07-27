@@ -880,6 +880,7 @@ struct HostKeyReviewView: View {
                 HostKeyCheckStart(context: context)
             }
         }
+        .themeTint(UserPreferences.shared.tintColorValue)
     }
 }
 

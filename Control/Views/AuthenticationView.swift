@@ -253,6 +253,7 @@ struct AuthenticationView: View {
             }
             .navigationBarHidden(mode == .authenticate)
         }
+        .themeTint(UserPreferences.shared.tintColorValue)
     }
 
     private var usernameHelpButton: some View {
