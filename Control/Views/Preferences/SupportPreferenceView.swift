@@ -14,7 +14,7 @@ struct SupportPreferenceView: View {
                 VStack(alignment: .leading, spacing: 8){
                     Text("Found an issue?")
                         .font(.headline)
-                    Text("This app includes zero analytics or tracking. If you run into any  issues, please let me know and I'll do my best to fix it.")
+                    Text("This app includes zero analytics or tracking. If you run into any  issues, please let me know and I’ll do my best to fix it.")
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 8){
@@ -130,7 +130,7 @@ struct SupportPreferenceView: View {
                 isPresented: $showMailComposer,
                 subject: "📱 Support Request: Control",
                 recipient: "ryan.whitney@me.com",
-                body: "\n\n---------\nAbove, please describe the issue you're having or any other feedback you'd like to share. Thanks!"
+                body: "\n\n---------\nAbove, please describe the issue you’re having or any other feedback you’d like to share. Thanks!"
             )
         }
         .sheet(isPresented: $showingDebugLogs) {

@@ -108,7 +108,7 @@ struct PermissionsView: View, SSHConnectedView {
         .onChange(of: allPermissionsGranted) {
             guard allPermissionsGranted else { return }
             // Otherwise conveyed by a visual crossfade only.
-            AccessibilityNotification.Announcement("All permissions granted. You're all set.").post()
+            AccessibilityNotification.Announcement("All permissions granted. You’re all set.").post()
             startSuccessSequence()
         }
         .onChange(of: showingPermissionsNameExplanation) { _, isOpen in
@@ -176,7 +176,7 @@ struct PermissionsView: View, SSHConnectedView {
                 .foregroundStyle(.tint)
                 .padding(.bottom, 10)
                 .accessibilityHidden(true)
-            Text("You're all set")
+            Text("You’re all set")
                 .font(.title2)
                 .bold()
         }
@@ -582,8 +582,8 @@ private struct PermissionsNameExplanationSheet: View {
                     VStack(alignment: .leading, spacing: 16){
                         Group{
                             Text("Control lives on your phone. It never runs on your Mac, though it does send *commands* to it.")
-                            Text("Those commands are sent via macOS's built-in Remote Login, and sshd-keygen-wrapper is the system process that delivers them.")
-                            Text("Note: if you ever want to manage these permissions later, they're found under System Settings > Privacy & Security > Automation > sshd-keygen-wrapper.")
+                            Text("Those commands are sent via macOS’s built-in Remote Login, and sshd-keygen-wrapper is the system process that delivers them.")
+                            Text("Note: if you ever want to manage these permissions later, they’re found under System Settings > Privacy & Security > Automation > sshd-keygen-wrapper.")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
