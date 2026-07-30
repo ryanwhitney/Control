@@ -32,6 +32,17 @@ extension View {
         }
     }
     
+    /// Tightens the gap between a `Label`'s icon and its title where the API
+    /// exists (iOS 26+); earlier versions keep the system spacing.
+    @ViewBuilder
+    func labelIconSpacingIfAvailable(_ spacing: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            labelIconToTitleSpacing(spacing)
+        } else {
+            self
+        }
+    }
+
     /// Applies a background + corner radius only on pre-iOS 26 systems, where
     /// the Liquid Glass button style isn't available to provide its own surface.
     @ViewBuilder

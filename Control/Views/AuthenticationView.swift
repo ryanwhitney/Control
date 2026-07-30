@@ -3,7 +3,7 @@ import MultiBlur
 
 struct AuthenticationView: View {
 
-    let mode: Mode 
+    let mode: Mode
 
     // Pass in saved info for edit mode
     let existingHost: String?
@@ -18,6 +18,8 @@ struct AuthenticationView: View {
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
+
+    @State private var showLoginUsernameHelpSheet = false
 
     let onSuccess: (String, String?) -> Void // (hostname, nickname?)
     let onCancel: () -> Void
@@ -150,11 +152,25 @@ struct AuthenticationView: View {
                             .padding(.horizontal)
                     }
                     .listRowBackground(Color.clear)
-                    .padding(.top, 16)
-                    .padding(.vertical, 24)
+                    .padding(.top, 40)
                     .listSectionSpacing(0)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
+                // Every mode asks for the username, so every mode offers the
+                // help: under the sign-in blurb where there is one, otherwise
+                // straight above the field.
+                Section {
+                    HStack {
+                        Spacer()
+                        usernameHelpButton
+                        Spacer()
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .padding(.top, mode == .authenticate ? 20 : 16)
+                .padding(.bottom, mode == .authenticate ? 40 : 16)
+                .listSectionSpacing(0)
+                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 Section{
                     TextField("Username" + (mode == .add ? " (Optional)" : ""), text: $username)
                         .focused($focusedField, equals: .username)
@@ -208,6 +224,9 @@ struct AuthenticationView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showLoginUsernameHelpSheet) {
+                LoginUsernameHelpSheet()
+            }
             .navigationTitle(mode != .authenticate ? mode.title : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -224,6 +243,22 @@ struct AuthenticationView: View {
             }
             .navigationBarHidden(mode == .authenticate)
         }
+    }
+
+    private var usernameHelpButton: some View {
+        Button {
+            showLoginUsernameHelpSheet = true
+        } label: {
+            Label("What’s my username?", systemImage: "info.circle.fill")
+                .font(.footnote)
+                .fontWeight(.bold)
+                .padding(.vertical, 2)
+                .padding(.horizontal, 2)
+                .glassPillLabel(tint: .accentColor)
+                .multiblur([(10, 0.25), (50, 0.35)])
+        }
+        .glassPillButtonStyle()
+        .labelIconSpacingIfAvailable(4)
     }
 
     private var canSubmit: Bool {
