@@ -249,7 +249,7 @@ struct AuthenticationView: View {
                 .padding(.vertical, 2)
                 .padding(.horizontal, 2)
                 .glassPillLabel(tint: .accentColor)
-                .multiblur([(10, 0.25), (50, 0.35)])
+                .multiblur([(10, 0.35), (50, 0.45)])
         }
         .glassPillButtonStyle()
         .labelIconSpacingIfAvailable(4)
