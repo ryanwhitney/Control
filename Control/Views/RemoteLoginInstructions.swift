@@ -84,6 +84,8 @@ struct RemoteLoginInstructions: View {
                             .foregroundStyle(.secondary)
                         step
                     }
+                    // One instruction, not a stray number.
+                    .accessibilityElement(children: .combine)
                 }
             }
             .listStyle(GroupedListStyle())
@@ -103,7 +105,7 @@ struct RemoteLoginInstructions: View {
 
             Section {
                 infoRow("tv.badge.wifi.fill", "Make sure both devices are on the same WiFi network.")
-                infoRow("wifi.exclamationmark.circle.fill", "If you're using a VPN, ensure it allows local network access.")
+                infoRow("wifi.exclamationmark.circle.fill", "If you’re using a VPN, ensure it allows local network access.")
             }
             .listSectionSpacing(0)
             .listStyle(GroupedListStyle())
@@ -113,7 +115,7 @@ struct RemoteLoginInstructions: View {
 
             Section {
                 infoRow("building.2.fill", "Control may not work on large networks such as those used by hotels, offices, or universities. Connecting the Mac via Personal Hotspot is a workaround.")
-                infoRow("lock.shield.fill", "Control won't work with devices that have Lockdown Mode enabled.")
+                infoRow("lock.shield.fill", "Control won’t work with devices that have Lockdown Mode enabled.")
             }
             .listSectionSpacing(0)
             .listStyle(GroupedListStyle())

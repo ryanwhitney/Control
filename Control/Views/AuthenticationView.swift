@@ -3,7 +3,7 @@ import MultiBlur
 
 struct AuthenticationView: View {
 
-    let mode: Mode 
+    let mode: Mode
 
     // Pass in saved info for edit mode
     let existingHost: String?
@@ -18,6 +18,8 @@ struct AuthenticationView: View {
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
+
+    @State private var showLoginUsernameHelpSheet = false
 
     let onSuccess: (String, String?) -> Void // (hostname, nickname?)
     let onCancel: () -> Void
@@ -94,6 +96,7 @@ struct AuthenticationView: View {
                         // A real Button (not a tap gesture on text) so VoiceOver
                         // and Voice Control can reach it; underline marks the
                         // link without relying on color alone.
+                       
                         Button {
                             isPopoverPresented = true
                         } label: {
@@ -144,14 +147,21 @@ struct AuthenticationView: View {
                     }
                 } else {
                     Section {
-                        Text("Enter the username and password you use to log in to \(hostname.isEmpty ? "this Mac" : hostname).")
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal)
+                        VStack(spacing: 20) {
+                            Text("Enter the username and password you use to log in to \(hostname.isEmpty ? "this Mac" : hostname).")
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                            HStack {
+                                Spacer()
+                                usernameHelpButton
+                                Spacer()
+                            }
+                        }
                     }
                     .listRowBackground(Color.clear)
-                    .padding(.top, 16)
-                    .padding(.vertical, 24)
+                    .padding(.top, 40)
+                    .padding(.bottom, 40)
                     .listSectionSpacing(0)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
@@ -200,13 +210,16 @@ struct AuthenticationView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
             }
-            .contentMargins(.top, 0)
+            .contentMargins(.top, mode.showsNetworkMessage ? 10 : 0)
             .onAppear {
                 if mode == .authenticate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         focusedField = .username
                     }
                 }
+            }
+            .sheet(isPresented: $showLoginUsernameHelpSheet) {
+                LoginUsernameHelpSheet()
             }
             .navigationTitle(mode != .authenticate ? mode.title : "")
             .navigationBarTitleDisplayMode(.inline)
@@ -224,6 +237,22 @@ struct AuthenticationView: View {
             }
             .navigationBarHidden(mode == .authenticate)
         }
+    }
+
+    private var usernameHelpButton: some View {
+        Button {
+            showLoginUsernameHelpSheet = true
+        } label: {
+            Label("What’s my username?", systemImage: "info.circle.fill")
+                .font(.footnote)
+                .fontWeight(.bold)
+                .padding(.vertical, 2)
+                .padding(.horizontal, 2)
+                .glassPillLabel(tint: .accentColor)
+                .multiblur([(10, 0.35), (50, 0.45)])
+        }
+        .glassPillButtonStyle()
+        .labelIconSpacingIfAvailable(4)
     }
 
     private var canSubmit: Bool {

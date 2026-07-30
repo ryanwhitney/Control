@@ -13,7 +13,7 @@ struct HelpButtonView: View {
                 Button {
                     onHelp()
                 } label: {
-                    Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
+                    Label("Why isn’t my device showing?", systemImage: "questionmark.circle.fill")
                         .padding()
                         .frame(maxWidth: .infinity)
                         .tint(.accentColor)
@@ -38,7 +38,7 @@ struct HelpPromptButton: View {
         Button {
             onHelp()
         } label: {
-            Label("Why isn't my device showing?", systemImage: "questionmark.circle.fill")
+            Label("Why isn’t my device showing?", systemImage: "questionmark.circle.fill")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
