@@ -140,3 +140,79 @@ struct SavedConnectionMigrationTests {
         #expect(decoded.trustedHostKeys == nil)
     }
 }
+
+/// Hostnames are case-insensitive (mDNS/DNS), so two spellings must never
+/// become two rows: host-key trust would land on one and the setup state on
+/// the other, and deleting the wrong one would silently drop the pin.
+struct SavedConnectionsCaseInsensitivityTests {
+
+    @Test func addUpdatesTheExistingRowRatherThanDuplicatingIt() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: false)
+        connections.add(hostname: "Mac-Mini.local", name: "Mac mini", username: "ryan2", saveCredentials: false)
+
+        #expect(connections.items.count == 1)
+        #expect(connections.lastUsername(for: "mac-mini.local") == "ryan2")
+    }
+
+    /// The defect this closes: a pin written under one spelling and setup state
+    /// read under the other used to resolve to different rows.
+    @Test func trustAndSetupStateShareOneRowAcrossSpellings() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: false)
+
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: "MAC-MINI.local")
+        connections.updateEnabledPlatforms("Mac-Mini.local", platforms: ["music"])
+        connections.markAsConnected("mac-MINI.local")
+
+        #expect(connections.items.count == 1)
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini.local") == ["SHA256:abc"])
+        #expect(connections.enabledPlatforms("mac-mini.local") == ["music"])
+        #expect(connections.hasConnectedBefore("mac-mini.local"))
+    }
+
+    @Test func removeMatchesRegardlessOfSpelling() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: false)
+
+        connections.remove(hostname: "MAC-MINI.local")
+
+        #expect(connections.items.isEmpty)
+    }
+
+    @Test func lookupsResolveUnderEitherSpelling() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: false)
+        connections.updateLastViewedPlatform("MAC-MINI.local", platform: "vlc")
+
+        #expect(connections.connection(for: "Mac-Mini.local")?.name == "Mac mini")
+        #expect(connections.lastUsername(for: "MAC-MINI.local") == "ryan")
+        #expect(connections.lastViewedPlatform("mac-mini.local") == "vlc")
+    }
+
+    @Test func updateNameRenamesInPlaceWithoutTouchingAddressOrTrust() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: "mac-mini.local")
+
+        connections.updateName("Mac mini (2)", for: "MAC-MINI.local")
+
+        #expect(connections.items.count == 1)
+        #expect(connections.connection(for: "mac-mini.local")?.name == "Mac mini (2)")
+        #expect(connections.connection(for: "mac-mini.local")?.hostname == "mac-mini.local")
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini.local") == ["SHA256:abc"])
+    }
+
+    /// The repair path connects to the replacement address only when the row
+    /// actually moved, so the move has to report whether it happened.
+    @Test func updateHostnameReportsWhetherItMoved() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "old.local", name: "Mac mini", saveCredentials: false)
+
+        #expect(connections.updateHostname(from: "old.local", to: "new.local"))
+        #expect(!connections.updateHostname(from: "missing.local", to: "other.local"))
+
+        connections.add(hostname: "taken.local", name: "Other", saveCredentials: false)
+        #expect(!connections.updateHostname(from: "new.local", to: "TAKEN.local"))
+    }
+}

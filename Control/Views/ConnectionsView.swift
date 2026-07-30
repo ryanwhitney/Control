@@ -89,8 +89,17 @@ struct ConnectionsView: View {
                 AuthenticationSheet()
                     .environmentObject(viewModel)
             }
-            .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
-                if case .hostKeyMismatch = viewModel.pendingRecovery {
+            .alert(viewModel.alertTitle, isPresented: $viewModel.showingError) {
+                if let repair = viewModel.pendingAddressRepair {
+                    // The key-verified repair offer: the Mac's pinned identity
+                    // was found at another address, so this is a routine update,
+                    // not a security decision — the fingerprint already matched.
+                    // Declining hands over to the mismatch alert below rather
+                    // than returning to a list that looks untroubled.
+                    Button("Update & Connect") { viewModel.acceptAddressRepair(repair) }
+                        .keyboardShortcut(.defaultAction)
+                    Button("Not Now", role: .cancel) { viewModel.declineAddressRepair() }
+                } else if case .hostKeyMismatch = viewModel.pendingRecovery {
                     // Review opens the guided flow, which carries all the
                     // explanation and the trust decision; the alert itself
                     // offers no permanent security choices. Not Now is the safe
@@ -107,7 +116,7 @@ struct ConnectionsView: View {
                     Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
                 }
             } message: {
-                Text(viewModel.connectionError?.message ?? "")
+                Text(viewModel.alertMessage)
             }
             .sheet(isPresented: $viewModel.showingHostKeyReview) {
                 if let context = viewModel.hostKeyReviewContext {
@@ -122,25 +131,6 @@ struct ConnectionsView: View {
                     )
                     .interactiveDismissDisabled()
                 }
-            }
-            // The key-verified repair offer: the Mac's pinned identity was
-            // found at another address, so this is a routine update, not a
-            // security decision — the fingerprint already matched. The
-            // binding's setter only clears state; the actions carry the
-            // repair value so dismissal order can't lose it.
-            .alert(
-                Text(viewModel.pendingAddressRepair.map { "\($0.computer.name) Has a New Address" } ?? "New Address"),
-                isPresented: Binding(
-                    get: { viewModel.pendingAddressRepair != nil },
-                    set: { if !$0 { viewModel.pendingAddressRepair = nil } }
-                ),
-                presenting: viewModel.pendingAddressRepair
-            ) { repair in
-                Button("Update & Connect") { viewModel.acceptAddressRepair(repair) }
-                    .keyboardShortcut(.defaultAction)
-                Button("Not Now", role: .cancel) { viewModel.declineAddressRepair() }
-            } message: { repair in
-                Text(repair.message)
             }
             .navigationDestination(isPresented: $viewModel.showingSetupFlow) {
                 SetupFlowDestination()
@@ -266,7 +256,7 @@ private struct AddConnectionSheet: View {
                         lastUsername: viewModel.username
                     )
                     viewModel.showingAddDialog = false
-                    viewModel.connectWithNewCredentials(computer: newComputer)
+                    viewModel.addConnection(computer: newComputer)
                 },
                 onCancel: { viewModel.showingAddDialog = false }
             )
@@ -359,6 +349,7 @@ private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
     override func editConnection(_ computer: Connection) {}
     override func connectWithCredentials(computer: Connection) {}
     override func connectWithNewCredentials(computer: Connection, approvedHostKey: SSHHostKeyInfo?) {}
+    override func addConnection(computer: Connection) {}
     override func onAppear() {}
     override func onDisappear() {}
 }

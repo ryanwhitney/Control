@@ -53,7 +53,7 @@ class SavedConnections: ObservableObject {
     func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
 
         // Update existing connection if it exists, else create new
-        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+        if let index = index(for: hostname) {
             items[index].username = username
             if let name = name {
                 items[index].name = name
@@ -78,14 +78,14 @@ class SavedConnections: ObservableObject {
     
     func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil, saveCredentials: Bool) {
 
-        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+        if let index = index(for: hostname) {
             items[index].username = username
             if let name = name {
                 items[index].name = name
             }
             items[index].saveCredentialsPreference = saveCredentials
             save()
-            
+
             // Save or remove password based on preference
             if saveCredentials, let password = password {
                 savePassword(password, for: hostname)
@@ -100,7 +100,7 @@ class SavedConnections: ObservableObject {
     }
     
     func lastUsername(for hostname: String) -> String? {
-        return items.first(where: { $0.hostname == hostname })?.username
+        return connection(for: hostname)?.username
     }
     
     func password(for hostname: String) -> String? {
@@ -108,7 +108,7 @@ class SavedConnections: ObservableObject {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: hostname,
+            kSecAttrAccount as String: canonicalHostname(hostname),
             kSecReturnData as String: true
         ]
         
@@ -130,11 +130,13 @@ class SavedConnections: ObservableObject {
             return
         }
         
+        let account = canonicalHostname(hostname)
+
         // First try to update existing password
         let updateQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: hostname
+            kSecAttrAccount as String: account
         ]
         
         let updateAttributes: [String: Any] = [
@@ -152,7 +154,7 @@ class SavedConnections: ObservableObject {
             let addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: "VolumeControl",
-                kSecAttrAccount as String: hostname,
+                kSecAttrAccount as String: account,
                 kSecValueData as String: passwordData,
                 kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
             ]
@@ -173,7 +175,7 @@ class SavedConnections: ObservableObject {
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: hostname
+            kSecAttrAccount as String: canonicalHostname(hostname)
         ]
         _ = SecItemDelete(deleteQuery as CFDictionary)
     }
@@ -181,17 +183,30 @@ class SavedConnections: ObservableObject {
     /// Matches a stored connection to `hostname` case-insensitively. Bonjour
     /// preserves the Mac's advertised capitalization while a hand-typed host is
     /// usually lowercase, yet both resolve to the same Mac (mDNS/DNS names are
-    /// case-insensitive). Keeping host-key trust case-insensitive stops the two
-    /// spellings from holding separate trust and silently trusting-on-first-use
-    /// under whichever one has no pin.
-    private func hostKeyIndex(for hostname: String) -> Int? {
+    /// case-insensitive). Every lookup in this type routes through here, so the
+    /// two spellings can't end up as separate rows with host-key trust on one
+    /// and the setup state on the other.
+    private func index(for hostname: String) -> Int? {
         items.firstIndex { $0.hostname.caseInsensitiveCompare(hostname) == .orderedSame }
+    }
+
+    /// The spelling a row is stored under. Keychain items are keyed by an exact
+    /// account string, so credential calls resolve through this instead of using
+    /// whatever casing the caller happened to hold.
+    private func canonicalHostname(_ hostname: String) -> String {
+        index(for: hostname).map { items[$0].hostname } ?? hostname
+    }
+
+    /// The stored row for `hostname`, for callers that would otherwise match on
+    /// `hostname` themselves and reintroduce a case-sensitive lookup.
+    func connection(for hostname: String) -> SavedConnection? {
+        index(for: hostname).map { items[$0] }
     }
 
     /// The keys the user has accepted for `hostname` (usually one). Empty when
     /// the host has never been pinned — the trust-on-first-use case.
     func trustedHostKeys(for hostname: String) -> [TrustedHostKey] {
-        hostKeyIndex(for: hostname).map { items[$0].trustedHostKeys ?? [] } ?? []
+        index(for: hostname).map { items[$0].trustedHostKeys ?? [] } ?? []
     }
 
     /// The trusted fingerprints as a set, for the transport's pinning check.
@@ -206,7 +221,7 @@ class SavedConnections: ObservableObject {
     /// so a normal reconnect doesn't churn the store. No-ops if the row doesn't
     /// exist yet — callers pin after `add(...)` has created it.
     func pinHostKey(_ info: SSHHostKeyInfo, for hostname: String) {
-        guard let index = hostKeyIndex(for: hostname) else { return }
+        guard let index = index(for: hostname) else { return }
         var keys = items[index].trustedHostKeys ?? []
         if let existing = keys.firstIndex(where: { $0.keyType == info.keyType }) {
             guard keys[existing].fingerprint != info.fingerprint else { return }
@@ -221,9 +236,9 @@ class SavedConnections: ObservableObject {
     func getSaveCredentialsPreference(for hostname: String) -> Bool {
 
         // Return the user's preference, with smart defaults for legacy connections
-        if let connection = items.first(where: { $0.hostname == hostname }) {
+        if let saved = connection(for: hostname) {
 
-            if let preference = connection.saveCredentialsPreference {
+            if let preference = saved.saveCredentialsPreference {
                 // User has explicitly set a preference
                 return preference
             } else {
@@ -250,12 +265,16 @@ class SavedConnections: ObservableObject {
     }
     
     func remove(hostname: String) {
+        // Resolve the stored spelling first: the Keychain entry is keyed by it,
+        // and it can't be looked up once the row is gone.
+        let account = canonicalHostname(hostname)
+
         // Remove from saved items
-        items.removeAll { $0.hostname == hostname }
+        items.removeAll { $0.hostname.caseInsensitiveCompare(hostname) == .orderedSame }
         save()
 
         // Remove password from keychain
-        removePassword(for: hostname)
+        removePassword(for: account)
     }
 
     /// Moves a saved connection to a new hostname, carrying everything with
@@ -264,9 +283,12 @@ class SavedConnections: ObservableObject {
     /// answered at a new address, so the trust genuinely belongs to the new
     /// name. No-ops if the old row doesn't exist or a row already holds the
     /// new hostname (callers exclude that case before offering the repair).
-    func updateHostname(from oldHostname: String, to newHostname: String) {
-        guard let index = items.firstIndex(where: { $0.hostname.caseInsensitiveCompare(oldHostname) == .orderedSame }),
-              !items.contains(where: { $0.hostname.caseInsensitiveCompare(newHostname) == .orderedSame }) else { return }
+    /// Returns whether the move happened, so a caller that would otherwise
+    /// connect to an unrepaired row can stop instead.
+    @discardableResult
+    func updateHostname(from oldHostname: String, to newHostname: String) -> Bool {
+        guard let index = index(for: oldHostname),
+              !items.contains(where: { $0.hostname.caseInsensitiveCompare(newHostname) == .orderedSame }) else { return false }
         let migratingPassword = password(for: items[index].hostname)
         let previousHostname = items[index].hostname
         items[index].hostname = newHostname
@@ -275,38 +297,48 @@ class SavedConnections: ObservableObject {
             savePassword(migratingPassword, for: newHostname)
             removePassword(for: previousHostname)
         }
+        return true
     }
-    
+
+    /// Renames a row in place, leaving its address and trust untouched. The
+    /// address repair uses this so the list stops showing the old name after
+    /// the alert announced the new one.
+    func updateName(_ name: String, for hostname: String) {
+        guard let index = index(for: hostname), items[index].name != name else { return }
+        items[index].name = name
+        save()
+    }
+
     func markAsConnected(_ hostname: String) {
-        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+        if let index = index(for: hostname) {
             items[index].hasConnectedBefore = true
             save()
         }
     }
-    
+
     func updateEnabledPlatforms(_ hostname: String, platforms: Set<String>) {
-        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+        if let index = index(for: hostname) {
             items[index].enabledPlatforms = platforms
             save()
         }
     }
-    
+
     func hasConnectedBefore(_ hostname: String) -> Bool {
-        return items.first(where: { $0.hostname == hostname })?.hasConnectedBefore ?? false
+        return connection(for: hostname)?.hasConnectedBefore ?? false
     }
-    
+
     func enabledPlatforms(_ hostname: String) -> Set<String> {
-        return items.first(where: { $0.hostname == hostname })?.enabledPlatforms ?? []
+        return connection(for: hostname)?.enabledPlatforms ?? []
     }
-    
+
     func updateLastViewedPlatform(_ hostname: String, platform: String) {
-        if let index = items.firstIndex(where: { $0.hostname == hostname }) {
+        if let index = index(for: hostname) {
             items[index].lastViewedPlatform = platform
             save()
         }
     }
-    
+
     func lastViewedPlatform(_ hostname: String) -> String? {
-        return items.first(where: { $0.hostname == hostname })?.lastViewedPlatform
+        return connection(for: hostname)?.lastViewedPlatform
     }
 }

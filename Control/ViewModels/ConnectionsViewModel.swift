@@ -45,6 +45,20 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
+    /// The list presents every connection problem through one alert: two
+    /// `.alert`s on a single view conflict, and declining the repair has to be
+    /// able to hand over to the mismatch alert. Both share `showingError` and
+    /// differ only in the content these supply.
+    var alertTitle: String {
+        if let repair = pendingAddressRepair { return "\(repair.computer.name) Has a New Address" }
+        return connectionError?.title ?? ""
+    }
+
+    var alertMessage: String {
+        if let repair = pendingAddressRepair { return repair.message }
+        return connectionError?.message ?? ""
+    }
+
     @Published var networkComputers: [Connection] = []
     @Published var savedComputers: [Connection] = []
     @Published var isSearching = false
@@ -171,7 +185,7 @@ class ConnectionsViewModel: ObservableObject {
 
         selectedConnection = computer
 
-        if let savedConnection = savedConnections.items.first(where: { $0.hostname == computer.host }) {
+        if let savedConnection = savedConnections.connection(for: computer.host) {
             username = savedConnection.username ?? ""
             let retrievedPassword = savedConnections.password(for: computer.host)
             password = retrievedPassword ?? ""
@@ -206,6 +220,48 @@ class ConnectionsViewModel: ObservableObject {
                 connectingComputer = nil
                 handleConnectionError(error: error, computer: computer)
             }
+        }
+    }
+
+    /// "Add" from the add sheet, where the username and password are optional.
+    /// With both filled in this is a normal connect. With either blank there's
+    /// nothing to authenticate with, so instead of offering empty credentials
+    /// and failing, confirm the Mac is really at that address with a
+    /// credential-free probe, save it, and ask for the login. An address that
+    /// answers nothing errors and saves no row, so a typo leaves nothing behind.
+    func addConnection(computer: Connection) {
+        guard username.isEmpty || password.isEmpty else {
+            connectWithNewCredentials(computer: computer)
+            return
+        }
+
+        logConnectionAttempt(computer: computer)
+        connectingComputer = computer
+
+        Task {
+            let found = await SSHTransportConnector.probeHostKey(host: computer.host) != nil
+            connectingComputer = nil
+
+            guard found else {
+                handleConnectionError(
+                    error: SSHError.connectionFailed("no SSH host answered at \(computer.host)"),
+                    computer: computer
+                )
+                return
+            }
+
+            // The probe proves an SSH host is there, not which one, so nothing
+            // is pinned here: the first authenticated connect still establishes
+            // trust exactly as it does for any other new Mac.
+            savedConnections.add(
+                hostname: computer.host,
+                name: computer.name,
+                username: username.isEmpty ? nil : username,
+                password: nil,
+                saveCredentials: saveCredentials
+            )
+            selectedConnection = computer
+            isAuthenticating = true
         }
     }
 
@@ -322,6 +378,16 @@ class ConnectionsViewModel: ObservableObject {
         presentMismatchOnReturn = false
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 400_000_000)
+            // Only present if nothing else has started. A tap on another Mac
+            // inside the delay would otherwise raise this Mac's alert over that
+            // connect, and "Review…" would open the wrong Mac's fingerprint.
+            // Dropping it is safe: the mismatch recurs on the next attempt.
+            // `selectedConnection` is still the failed Mac when the setup flow
+            // popped us back, so only a switch to a *different* one disqualifies.
+            guard connectingComputer == nil,
+                  !isAuthenticating,
+                  pendingAddressRepair == nil,
+                  selectedConnection == nil || selectedConnection?.id == recoveryComputer?.id else { return }
             showingError = true
         }
     }
@@ -507,6 +573,7 @@ class ConnectionsViewModel: ObservableObject {
         if matches.count == 1, let match = matches.first {
             viewLog("Address repair: pinned key for \(computer.host.redacted()) verified at \(match.host.redacted())", view: "ConnectionsViewModel")
             pendingAddressRepair = AddressRepair(computer: computer, replacement: match)
+            showingError = true
         } else {
             showingError = true
         }
@@ -530,19 +597,35 @@ class ConnectionsViewModel: ObservableObject {
     /// carries over because the key at the new address already matched it.
     func acceptAddressRepair(_ repair: AddressRepair) {
         pendingAddressRepair = nil
-        savedConnections.updateHostname(from: repair.computer.host, to: repair.replacement.host)
+        guard savedConnections.updateHostname(from: repair.computer.host, to: repair.replacement.host) else {
+            // The row moved or vanished while the probe ran. Connecting now
+            // would repair nothing and pin nothing, so fall back to the
+            // mismatch rather than quietly trusting-on-first-use.
+            presentAlertNextTurn()
+            return
+        }
+        // The offer named the Mac's current Bonjour name; carry it over so the
+        // list doesn't keep showing the one the alert just superseded.
+        savedConnections.updateName(repair.replacement.name, for: repair.replacement.host)
         clearRecoveryState()
         connectWithCredentials(computer: repair.replacement)
     }
 
-    /// "Not Now" on the repair offer: nothing moves, nothing is trusted, and
-    /// the next tap re-runs the same detection.
+    /// "Not Now" on the repair offer: nothing moves and nothing is trusted, but
+    /// the old address did fail verification, so fall through to the mismatch
+    /// alert rather than returning to a list that looks untroubled. That alert
+    /// carries the explanation and the route to the fingerprint review.
     func declineAddressRepair() {
         pendingAddressRepair = nil
-        clearRecoveryState()
-        selectedConnection = nil
-        username = ""
-        password = ""
+        presentAlertNextTurn()
+    }
+
+    /// Re-presents the alert after one has just been dismissed. A second alert
+    /// raised in the same turn as the first one's dismissal doesn't present.
+    private func presentAlertNextTurn() {
+        Task { @MainActor in
+            showingError = true
+        }
     }
 
     private func navigateToApp(computer: Connection) {

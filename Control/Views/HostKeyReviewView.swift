@@ -283,7 +283,11 @@ private struct ExpectedOutputCard: View {
         ]
         let result = NSMutableAttributedString(string: "\(keyBits) ", attributes: dim)
         result.append(NSAttributedString(string: fingerprint, attributes: code))
-        result.append(NSAttributedString(string: " no comment (\(keyTypeLabel))", attributes: dim))
+        // The comment field is whatever the Mac stamped on the key at
+        // generation ("root@some-mac.local"), so it can't be predicted here.
+        // A placeholder keeps the sample honest: printing a literal value the
+        // Mac won't produce is what makes a careful user think it didn't match.
+        result.append(NSAttributedString(string: " … (\(keyTypeLabel))", attributes: dim))
         return result
     }
 
@@ -310,7 +314,7 @@ private struct ExpectedOutputCard: View {
             )
             Text("**If it prints the highlighted fingerprint**, this really is \(displayName). It's safe to reconnect.")
                 .font(.callout)
-            Text("**If anything else appears**, whatever answered isn't your Mac. Don't connect.")
+            Text("**If the fingerprint is different**, whatever answered isn't your Mac. Don't connect.")
                 .font(.callout)
         }
     }
@@ -880,7 +884,6 @@ struct HostKeyReviewView: View {
                 HostKeyCheckStart(context: context)
             }
         }
-        .themeTint(UserPreferences.shared.tintColorValue)
     }
 }
 
