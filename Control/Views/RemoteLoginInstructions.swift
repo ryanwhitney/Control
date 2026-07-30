@@ -84,6 +84,8 @@ struct RemoteLoginInstructions: View {
                             .foregroundStyle(.secondary)
                         step
                     }
+                    // One instruction, not a stray number.
+                    .accessibilityElement(children: .combine)
                 }
             }
             .listStyle(GroupedListStyle())

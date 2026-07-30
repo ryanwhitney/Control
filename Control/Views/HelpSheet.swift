@@ -1,16 +1,14 @@
 import SwiftUI
 import MultiBlur
 
-/// Chrome for the app's help sheets: a leading title and subtitle, the caller's
-/// instruction sections, an optional explainer above the "need a hand?" mail
-/// link, and the dismissing OK pill. Callers supply content only — the list
-/// styling, presentation, and mail plumbing live here so every help sheet stays
-/// the same shape.
+/// Chrome for the app's help sheets: title and subtitle, the caller's
+/// instruction sections, an optional explainer above the mail link, and the
+/// dismissing OK pill.
 struct HelpSheet<Content: View, Explainer: View>: View {
     private let title: String
     private let subtitle: String
     private let mailSubject: String
-    /// The prose below the reply separator, which each sheet writes in full.
+    /// Prose below the reply separator, which the sheet supplies in full.
     private let mailBody: String
     private let detents: Set<PresentationDetent>
     private let content: Content
@@ -137,8 +135,7 @@ extension HelpSheet where Explainer == EmptyView {
     }
 }
 
-/// A help sheet's numbered instructions, with each step's emphasis already
-/// baked into its `Text`.
+/// Numbered instructions; each step's emphasis is baked into its `Text`.
 struct HelpSheetSteps: View {
     let steps: [Text]
 

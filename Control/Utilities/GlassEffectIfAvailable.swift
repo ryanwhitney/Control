@@ -32,8 +32,7 @@ extension View {
         }
     }
     
-    /// Tightens the gap between a `Label`'s icon and its title where the API
-    /// exists (iOS 26+); earlier versions keep the system spacing.
+    /// Tightens a `Label`'s icon-to-title gap where the API exists (iOS 26+).
     @ViewBuilder
     func labelIconSpacingIfAvailable(_ spacing: CGFloat) -> some View {
         if #available(iOS 26.0, *) {

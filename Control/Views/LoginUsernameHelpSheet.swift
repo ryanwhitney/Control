@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Where to find the short macOS user name Control logs in with. Instructions
-/// only — the name lives on the Mac, so there's nothing for the phone to read.
+/// only — the name lives on the Mac, so there's nothing here for the phone to read.
 struct LoginUsernameHelpSheet: View {
     private var finderSteps: [Text] {
         [
@@ -22,7 +22,7 @@ struct LoginUsernameHelpSheet: View {
     private var systemInfoSteps: [Text] {
         [
             Text("Hold") + Text(" Option ").bold() + Text("and click on ")
-                + Text("\u{F8FF}").accessibilityLabel("the Apple menu").bold()
+                + Text(Image(systemName: "apple.logo")).accessibilityLabel("the Apple menu").bold()
                 + Text(" in the top left corner of your screen."),
             Text("With") + Text(" Option ").bold() + Text("held, the first menu item should be") + Text(" System Information").bold() + Text("."),
             Text("Click") + Text(" System Information ").bold() + Text("and select") + Text(" Software ").bold() + Text("in the left sidebar."),
@@ -36,11 +36,10 @@ struct LoginUsernameHelpSheet: View {
             subtitle: "This is surprisingly difficult to find. Here are a few ways to figure it out:",
             mailSubject: "📱 macOS username help/question",
             mailBody: "Let me know what’s happening above and I’ll get back to you as soon as possible.",
-            // Three sections of steps: too long to start at `.medium`.
+            // Three sections of steps: too long to open at `.medium`.
             detents: [.large]
         ) {
-            // The first header sits tighter than the others, against the
-            // subtitle's own bottom padding rather than a run of steps.
+            // Tighter than the rest: it follows the subtitle, not a run of steps.
             appHeader("finder-icon", label: "Finder icon", title: "Using Finder:", topPadding: 30)
             HelpSheetSteps(steps: finderSteps)
 
@@ -52,7 +51,6 @@ struct LoginUsernameHelpSheet: View {
         }
     }
 
-    /// A centered app icon over the heading for that app's steps.
     private func appHeader(
         _ image: String,
         label: String,

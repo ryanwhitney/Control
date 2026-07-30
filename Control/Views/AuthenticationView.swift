@@ -96,6 +96,7 @@ struct AuthenticationView: View {
                         // A real Button (not a tap gesture on text) so VoiceOver
                         // and Voice Control can reach it; underline marks the
                         // link without relying on color alone.
+                       
                         Button {
                             isPopoverPresented = true
                         } label: {
@@ -146,31 +147,24 @@ struct AuthenticationView: View {
                     }
                 } else {
                     Section {
-                        Text("Enter the username and password you use to log in to \(hostname.isEmpty ? "this Mac" : hostname).")
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal)
+                        VStack(spacing: 20) {
+                            Text("Enter the username and password you use to log in to \(hostname.isEmpty ? "this Mac" : hostname).")
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal)
+                            HStack {
+                                Spacer()
+                                usernameHelpButton
+                                Spacer()
+                            }
+                        }
                     }
                     .listRowBackground(Color.clear)
                     .padding(.top, 40)
+                    .padding(.bottom, 40)
                     .listSectionSpacing(0)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-                // Every mode asks for the username, so every mode offers the
-                // help: under the sign-in blurb where there is one, otherwise
-                // straight above the field.
-                Section {
-                    HStack {
-                        Spacer()
-                        usernameHelpButton
-                        Spacer()
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .padding(.top, mode == .authenticate ? 20 : 16)
-                .padding(.bottom, mode == .authenticate ? 40 : 16)
-                .listSectionSpacing(0)
-                .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                 Section{
                     TextField("Username" + (mode == .add ? " (Optional)" : ""), text: $username)
                         .focused($focusedField, equals: .username)
@@ -216,7 +210,7 @@ struct AuthenticationView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
             }
-            .contentMargins(.top, 0)
+            .contentMargins(.top, mode.showsNetworkMessage ? 10 : 0)
             .onAppear {
                 if mode == .authenticate {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
