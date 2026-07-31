@@ -93,7 +93,7 @@ extension SSHConnectedView {
             host: host,
             username: username,
             password: password,
-            onSuccess: { 
+            onSuccess: {
                 viewLog("✓ \(viewName): SSH connection successful", view: viewName)
                 onSSHConnected()
             },

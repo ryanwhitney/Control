@@ -9,6 +9,13 @@ enum SSHError: Error {
     case connectionFailed(String)
     case timeout
     case channelError(String)
+    /// The SSH server's host key doesn't match what we pinned from a prior
+    /// successful connection. `observed` carries the key actually presented
+    /// (for internal logging and for re-pinning if the user chooses to
+    /// reconnect anyway) — never surfaced in `formatError`'s user-facing copy.
+    /// Always non-nil: the one construction site (`HostKeyPinningDelegate`)
+    /// only reaches this case after successfully computing the presented key.
+    case hostKeyMismatch(observed: SSHHostKeyInfo)
 
     /// Single connection-error classifier shared by both transports, so the same
     /// network failure maps to the same `SSHError` (and user-facing message)
@@ -138,6 +145,11 @@ enum SSHError: Error {
                 Could not establish an SSH session with \(displayName).
                 Please ensure Remote Login is enabled and try again.
                 """
+            )
+        case .hostKeyMismatch:
+            return (
+                "Couldn't Verify \(displayName)",
+                "This may not be the Mac you've connected to before, so Control didn't connect."
             )
         }
     }

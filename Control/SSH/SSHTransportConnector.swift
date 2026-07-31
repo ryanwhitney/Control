@@ -19,6 +19,7 @@ enum SSHTransportConnector {
     struct Established {
         let connection: Channel
         let session: Channel
+        let hostKeyInfo: SSHHostKeyInfo
     }
 
     static func connect(
@@ -26,6 +27,7 @@ enum SSHTransportConnector {
         host: String,
         username: String,
         password: String,
+        trustedHostKeyFingerprints: Set<String>,
         connectionId: String,
         makeChildHandlers: @escaping () -> [ChannelHandler],
         completion: @escaping (Result<Established, Error>) -> Void
@@ -33,7 +35,7 @@ enum SSHTransportConnector {
         // Exactly one result is delivered no matter which of the watchdog /
         // auth-failure / TCP / session paths fires first (they run on different
         // threads: main queue vs. the NIO event loop).
-        let attempt = ConnectAttempt(completion)
+        let attempt = OnceOnlyDelivery(completion)
 
         let timeout = DispatchWorkItem {
             attempt.finish(.failure(SSHError.timeout)) {
@@ -50,6 +52,18 @@ enum SSHTransportConnector {
             }
         }
 
+        let hostKeyDelegate = HostKeyPinningDelegate(trustedFingerprints: trustedHostKeyFingerprints)
+        hostKeyDelegate.onReject = { error in
+            // Records the reason only. This runs inside the key exchange, on
+            // the read path; closing the channel here would re-enter NIOSSH's
+            // state machine mid-handler. Failing validation is what tears the
+            // connection down, a line later.
+            attempt.finish(.failure(error), closingChannel: false) {
+                timeout.cancel()
+                sshLog("❌ [\(connectionId)] Host key rejected: \(error)")
+            }
+        }
+
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelOption(ChannelOptions.socket(IPPROTO_TCP, TCP_NODELAY), value: 1)
@@ -58,7 +72,7 @@ enum SSHTransportConnector {
                 channel.pipeline.addHandler(NIOSSHHandler(
                     role: .client(.init(
                         userAuthDelegate: authDelegate,
-                        serverAuthDelegate: AcceptAllHostKeysDelegate()
+                        serverAuthDelegate: hostKeyDelegate
                     )),
                     allocator: channel.allocator,
                     inboundChildChannelInitializer: { childChannel, channelType in
@@ -82,7 +96,19 @@ enum SSHTransportConnector {
                 openSessionChannel(on: connection, makeChildHandlers: makeChildHandlers) { sessionResult in
                     switch sessionResult {
                     case .success(let session):
-                        let delivered = attempt.finish(.success(Established(connection: connection, session: session))) {
+                        // validateHostKey always runs before a child channel
+                        // opens, so observedInfo is guaranteed set here. If it
+                        // somehow isn't, fail as a neutral connection error, not
+                        // a changed-identity alarm.
+                        guard let hostKeyInfo = hostKeyDelegate.observedInfo else {
+                            attempt.finish(.failure(SSHError.connectionFailed("Could not verify the Mac's identity"))) {
+                                timeout.cancel()
+                                sshLog("❌ [\(connectionId)] Session opened without an observed host key")
+                            }
+                            session.close(promise: nil)
+                            return
+                        }
+                        let delivered = attempt.finish(.success(Established(connection: connection, session: session, hostKeyInfo: hostKeyInfo))) {
                             timeout.cancel()
                         }
                         if !delivered {
@@ -106,6 +132,92 @@ enum SSHTransportConnector {
         }
     }
 
+    /// Reads the SSH host key a machine presents, without authenticating.
+    /// The key exchange runs far enough for the server to prove possession of
+    /// its host key, the fingerprint is recorded, and validation is then
+    /// failed so the connection tears down before user authentication could
+    /// begin — no credentials are ever offered. Returns nil on any failure
+    /// (unreachable, timeout, unparseable key).
+    ///
+    /// Used to search for a pinned identity at another address after a
+    /// mismatch. The result is trustworthy because only the holder of the
+    /// host's private key can complete the exchange for its fingerprint.
+    static func probeHostKey(host: String, timeout: TimeInterval = 4.0) async -> SSHHostKeyInfo? {
+        await probeHostKeys(hosts: [host], timeout: timeout)[host]
+    }
+
+    /// Probes several hosts at once, sharing one event-loop group across all
+    /// of them and shutting it down once every probe has finished — a batch
+    /// of short, related probes (e.g. address-repair candidates) shouldn't
+    /// each pay for their own thread spin-up and teardown, and running them
+    /// concurrently means the batch takes as long as the slowest probe, not
+    /// the sum of all of them.
+    static func probeHostKeys(hosts: [String], timeout: TimeInterval = 4.0) async -> [String: SSHHostKeyInfo] {
+        guard !hosts.isEmpty else { return [:] }
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: min(hosts.count, 4))
+
+        let results = await withTaskGroup(of: (String, SSHHostKeyInfo?).self) { taskGroup in
+            for host in hosts {
+                taskGroup.addTask { (host, await probeHostKey(group: group, host: host, timeout: timeout)) }
+            }
+            var collected: [String: SSHHostKeyInfo] = [:]
+            for await (host, info) in taskGroup {
+                if let info { collected[host] = info }
+            }
+            return collected
+        }
+
+        // Every probe answers only once its channel has closed or its connect
+        // has failed, so nothing is still touching the group by this point.
+        await withCheckedContinuation { continuation in
+            group.shutdownGracefully { _ in continuation.resume() }
+        }
+        return results
+    }
+
+    private static func probeHostKey(group: EventLoopGroup, host: String, timeout: TimeInterval) async -> SSHHostKeyInfo? {
+        let probeDelegate = HostKeyProbeDelegate()
+        // One budget for the whole probe, not one per phase: connecting and
+        // handshaking share it, so a slow connect can't double the wait.
+        let budget = TimeAmount.milliseconds(Int64(timeout * 1000))
+        let deadline = NIODeadline.now() + budget
+
+        let bootstrap = ClientBootstrap(group: group)
+            .channelOption(ChannelOptions.connectTimeout, value: budget)
+            .channelInitializer { channel in
+                channel.pipeline.addHandler(NIOSSHHandler(
+                    role: .client(.init(
+                        userAuthDelegate: ProbeNoAuthDelegate(),
+                        serverAuthDelegate: probeDelegate
+                    )),
+                    allocator: channel.allocator,
+                    inboundChildChannelInitializer: nil
+                ))
+            }
+
+        return await withCheckedContinuation { continuation in
+            bootstrap.connect(host: host, port: 22).whenComplete { result in
+                switch result {
+                case .success(let channel):
+                    // The probe delegate fails validation once it has the key,
+                    // so the channel closes itself; the watchdog covers a
+                    // handshake that stalls before reaching validateHostKey.
+                    // Both live on the channel's own event loop, so neither can
+                    // outlive it and land on a group that has been shut down.
+                    let watchdog = channel.eventLoop.scheduleTask(deadline: deadline) {
+                        channel.close(promise: nil)
+                    }
+                    channel.closeFuture.whenComplete { _ in
+                        watchdog.cancel()
+                        continuation.resume(returning: probeDelegate.observedInfo)
+                    }
+                case .failure:
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
+
     private static func openSessionChannel(
         on connection: Channel,
         makeChildHandlers: @escaping () -> [ChannelHandler],
@@ -123,46 +235,53 @@ enum SSHTransportConnector {
         }.whenComplete(completion)
     }
 
-    /// Thread-safe once-only result delivery plus custody of the TCP channel,
-    /// so whichever path loses the completion race can still close it.
-    private final class ConnectAttempt {
+    /// Once-only result delivery plus custody of the channel: the watchdog, the
+    /// server's reply and a connection failure race across the main queue and
+    /// the NIO event loop, so the first wins and the losers can still close the
+    /// channel. A failure closes the channel; success hands it to the caller
+    /// live.
+    private final class OnceOnlyDelivery {
         private let lock = NSLock()
         private var completion: ((Result<Established, Error>) -> Void)?
-        private var connection: Channel?
+        private var channel: Channel?
 
         init(_ completion: @escaping (Result<Established, Error>) -> Void) {
             self.completion = completion
         }
 
-        /// Records the live TCP channel. Returns false when the attempt already
+        /// Records the live channel. Returns false when the attempt already
         /// finished (the caller must close the channel itself).
         func register(_ channel: Channel) -> Bool {
             lock.lock()
             defer { lock.unlock() }
             guard completion != nil else { return false }
-            connection = channel
+            self.channel = channel
             return true
         }
 
-        /// Delivers `result` unless one was already delivered; on failure also
-        /// closes the registered TCP channel. `onDeliver` (logging, watchdog
-        /// cancellation) runs only for the winning call. Returns whether this
-        /// call won.
+        /// Delivers `value` unless one was already delivered. `onDeliver`
+        /// (logging, watchdog cancellation) runs only for the winning call.
+        /// `closingChannel: false` is for a caller whose own teardown is
+        /// already under way. Returns whether this call won.
         @discardableResult
-        func finish(_ result: Result<Established, Error>, onDeliver: () -> Void = {}) -> Bool {
+        func finish(
+            _ value: Result<Established, Error>,
+            closingChannel: Bool = true,
+            onDeliver: () -> Void = {}
+        ) -> Bool {
             lock.lock()
             let handler = completion
             completion = nil
-            let channel = connection
-            connection = nil
+            let held = channel
+            channel = nil
             lock.unlock()
 
             guard let handler else { return false }
-            if case .failure = result {
-                channel?.close(promise: nil)
+            if closingChannel, case .failure = value {
+                held?.close(promise: nil)
             }
             onDeliver()
-            handler(result)
+            handler(value)
             return true
         }
     }
@@ -217,10 +336,101 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     }
 }
 
-class AcceptAllHostKeysDelegate: NIOSSHClientServerAuthenticationDelegate {
+/// Pins the Mac's SSH host key across connections. `trustedFingerprints` is
+/// the set of keys the user has already accepted for this host (from
+/// `SavedConnections`). Following the `known_hosts` model, a key is accepted
+/// if it's in that set — a Mac that legitimately presents more than one host
+/// key (e.g. across an OS update that changes the negotiated key type) won't
+/// false-alarm once each key has been confirmed. An *empty* set means the
+/// host has never been pinned, so the presented key is trust-on-first-use.
+/// A non-empty set that doesn't contain the presented key is rejected: the
+/// identity changed since we last saw it — a benign reason (reinstalled
+/// macOS, new Mac same name) or a spoofed device on the network — which the
+/// caller surfaces as `SSHError.hostKeyMismatch` for the user to decide on.
+final class HostKeyPinningDelegate: NIOSSHClientServerAuthenticationDelegate {
+    private let trustedFingerprints: Set<String>
+    private let lock = NSLock()
+    private var _observedInfo: SSHHostKeyInfo?
+    /// The key the server presented, computed during validation. Read on the
+    /// success path to record what was pinned. Nil only if the key couldn't be
+    /// parsed (an effectively unreachable internal failure) or before
+    /// validation has run. Locked rather than relying on the writer
+    /// (`validateHostKey`, on NIOSSH's event loop) and the reader (the
+    /// connect completion handler) staying on the same thread — true today,
+    /// but not a guarantee either side's contract makes.
+    var observedInfo: SSHHostKeyInfo? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _observedInfo
+    }
+    /// Delivers the reason a key was rejected, called *before* the validation
+    /// promise is failed so the caller's once-only result wins the race against
+    /// NIOSSH's teardown (which would otherwise surface a generic connection
+    /// error). It must only record the reason: this runs inside the key
+    /// exchange, so closing the channel from it would re-enter NIOSSH's state
+    /// machine mid-handler. Carries the error as a parameter so this delegate
+    /// isn't captured by the caller's closure — that would form a retain cycle.
+    var onReject: ((SSHError) -> Void)?
+
+    init(trustedFingerprints: Set<String>) {
+        self.trustedFingerprints = trustedFingerprints
+    }
+
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
-        // Accept all host keys - in production, you should verify against known hosts
-        validationCompletePromise.succeed(())
+        guard let info = try? SSHHostKeyFingerprint.compute(for: hostKey) else {
+            // NIOSSH already parsed this key during key exchange, so this is
+            // effectively unreachable. Fail closed, but as a neutral connection
+            // error — an internal parse failure, not a changed identity.
+            onReject?(.connectionFailed("Could not read the Mac's identity"))
+            validationCompletePromise.fail(SSHError.connectionFailed("Could not read the Mac's identity"))
+            return
+        }
+        lock.lock()
+        _observedInfo = info
+        lock.unlock()
+
+        // Empty set → trust-on-first-use; otherwise the presented key must be
+        // one the user has already accepted for this host.
+        if trustedFingerprints.isEmpty || trustedFingerprints.contains(info.fingerprint) {
+            validationCompletePromise.succeed(())
+            return
+        }
+        onReject?(.hostKeyMismatch(observed: info))
+        validationCompletePromise.fail(SSHError.hostKeyMismatch(observed: info))
+    }
+}
+
+/// Captures the host key presented during a probe's key exchange, then fails
+/// validation so the connection ends before user authentication. Locked
+/// because the write happens on the event loop and the read on whichever
+/// thread the probe's continuation resumes.
+private final class HostKeyProbeDelegate: NIOSSHClientServerAuthenticationDelegate {
+    private let lock = NSLock()
+    private var _observedInfo: SSHHostKeyInfo?
+
+    var observedInfo: SSHHostKeyInfo? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _observedInfo
+    }
+
+    func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+        let info = try? SSHHostKeyFingerprint.compute(for: hostKey)
+        lock.lock()
+        _observedInfo = info
+        lock.unlock()
+        validationCompletePromise.fail(SSHError.connectionFailed("Host key probe complete"))
+    }
+}
+
+/// Never offers credentials. A probe's validation failure means auth is never
+/// reached, but if it somehow were, this delegate declines to authenticate.
+private final class ProbeNoAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
+    func nextAuthenticationType(
+        availableMethods: NIOSSHAvailableUserAuthenticationMethods,
+        nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
+    ) {
+        nextChallengePromise.succeed(nil)
     }
 }
 

@@ -89,10 +89,45 @@ struct ConnectionsView: View {
                 AuthenticationSheet()
                     .environmentObject(viewModel)
             }
-            .alert(viewModel.connectionError?.title ?? "", isPresented: $viewModel.showingError) {
-                Button("OK", role: .cancel) { }
+            .alert(viewModel.alertTitle, isPresented: $viewModel.showingError) {
+                switch viewModel.pendingRecovery {
+                case .addressRepair(let repair):
+                    // The key-verified repair offer: the Mac's pinned identity
+                    // was found at another address, so this is a routine update,
+                    // not a security decision — the fingerprint already matched.
+                    // Declining hands over to the mismatch alert below rather
+                    // than returning to a list that looks untroubled.
+                    Button("Update & Connect") { viewModel.acceptAddressRepair(repair) }
+                        .keyboardShortcut(.defaultAction)
+                    Button("Not Now", role: .cancel) { viewModel.declineAddressRepair() }
+                case .hostKeyMismatch:
+                    // Review opens the guided flow, which carries all the
+                    // explanation and the trust decision; the alert itself
+                    // offers no permanent security choices. Not Now is the safe
+                    // do-nothing exit: declining is a valid, reversible choice,
+                    // and the label honestly predicts the alert will return.
+                    // If the new key couldn't be read there's nothing to
+                    // review, so only Not Now is offered.
+                    if viewModel.hostKeyReviewContext != nil {
+                        Button("Review…") { viewModel.openHostKeyReview() }
+                            .keyboardShortcut(.defaultAction)
+                    }
+                    Button("Not Now", role: .cancel) { viewModel.cancelHostKeyMismatch() }
+                case .none, .authFailure:
+                    Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
+                }
             } message: {
-                Text(viewModel.connectionError?.message ?? "")
+                Text(viewModel.alertMessage)
+            }
+            .sheet(isPresented: $viewModel.showingHostKeyReview) {
+                if let context = viewModel.hostKeyReviewContext {
+                    HostKeyReviewView(
+                        request: context,
+                        onTrust: { viewModel.confirmHostKeyChangeAndReconnect() },
+                        onDecline: { viewModel.cancelHostKeyMismatch() }
+                    )
+                    .interactiveDismissDisabled()
+                }
             }
             .navigationDestination(isPresented: $viewModel.showingSetupFlow) {
                 SetupFlowDestination()
@@ -149,6 +184,9 @@ struct ConnectionsView: View {
             if !newVal {
                 viewModel.connectingComputer = nil
                 viewModel.selectedConnection = nil
+                // If we popped because of an in-session host-key mismatch,
+                // present the verify/reconnect alert now that we're back.
+                viewModel.presentPendingMismatchAlertIfNeeded()
             }
         }
         .onChange(of: viewModel.showingSetupFlow) { _, newValue in
@@ -163,21 +201,7 @@ struct ConnectionsView: View {
                     viewLog("ConnectionsView: setup flow dismissed, disconnected active SSH session", view: "ConnectionsView")
                 }
                 viewModel.connectingComputer = nil
-            }
-        }
-        .onChange(of: viewModel.showingError) { _, newValue in
-            if !newValue {
-                viewModel.connectingComputer = nil
-                if viewModel.lastErrorWasAuthFailure {
-                    // Re-prompt for credentials - keep selectedConnection and username
-                    viewModel.password = ""
-                    viewModel.lastErrorWasAuthFailure = false
-                    viewModel.isAuthenticating = true
-                } else {
-                    viewModel.selectedConnection = nil
-                    viewModel.username = ""
-                    viewModel.password = ""
-                }
+                viewModel.presentPendingMismatchAlertIfNeeded()
             }
         }
     }
@@ -194,6 +218,7 @@ private struct AddConnectionSheet: View {
                 mode: .edit,
                 existingHost: computer.host,
                 existingName: computer.name,
+                existingTrustedHostKeys: viewModel.savedConnections.trustedHostKeys(for: computer.host),
                 username: $viewModel.username,
                 password: $viewModel.password,
                 saveCredentials: $viewModel.saveCredentials,
@@ -218,7 +243,7 @@ private struct AddConnectionSheet: View {
                 mode: .add,
                 username: $viewModel.username,
                 password: $viewModel.password,
-                saveCredentials: .init(get: { true }, set: { viewModel.saveCredentials = $0 }),
+                saveCredentials: $viewModel.saveCredentials,
                 onSuccess: { hostname, nickname in
                     let newComputer = Connection(
                         id: hostname,
@@ -228,7 +253,7 @@ private struct AddConnectionSheet: View {
                         lastUsername: viewModel.username
                     )
                     viewModel.showingAddDialog = false
-                    viewModel.connectWithNewCredentials(computer: newComputer)
+                    viewModel.addConnection(computer: newComputer)
                 },
                 onCancel: { viewModel.showingAddDialog = false }
             )
@@ -319,8 +344,9 @@ private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
     override func selectComputer(_ computer: Connection) {}
     override func deleteConnection(hostname: String) {}
     override func editConnection(_ computer: Connection) {}
-    override func connectWithCredentials(computer: Connection) {}
-    override func connectWithNewCredentials(computer: Connection) {}
+    override func connectWithCredentials(computer: Connection, expecting: Set<String>?) {}
+    override func connectWithNewCredentials(computer: Connection, approvedHostKey: SSHHostKeyInfo?) {}
+    override func addConnection(computer: Connection) {}
     override func onAppear() {}
     override func onDisappear() {}
 }

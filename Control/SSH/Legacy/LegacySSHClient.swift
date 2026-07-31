@@ -28,7 +28,7 @@ class LegacySSHClient: SSHClientProtocol {
         try? group.syncShutdownGracefully()
     }
 
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
         let connectionId = String(UUID().uuidString.prefix(8))
         sshLog("🆔 [\(connectionId)] LegacySSHClient: Starting connection process")
 
@@ -37,8 +37,7 @@ class LegacySSHClient: SSHClientProtocol {
             disconnect()
         }
 
-        let isLocal = host.contains(".local")
-        let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
+        let connectionType = HostProvenance(host: host) == .localHostname ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
         sshLog("Attempting TCP connection: \(connectionType)")
 
         SSHTransportConnector.connect(
@@ -46,6 +45,7 @@ class LegacySSHClient: SSHClientProtocol {
             host: host,
             username: username,
             password: password,
+            trustedHostKeyFingerprints: trustedHostKeyFingerprints,
             connectionId: connectionId,
             makeChildHandlers: { [SSHCommandHandler(), SSHChannelErrorHandler()] }
         ) { [weak self] result in
@@ -56,7 +56,7 @@ class LegacySSHClient: SSHClientProtocol {
                 self.connection = established.connection
                 self.session = established.session
                 sshLog("✓ [\(connectionId)] SSH connection fully established")
-                completion(.success(()))
+                completion(.success(established.hostKeyInfo))
             case .failure(let error):
                 completion(.failure(error))
             }

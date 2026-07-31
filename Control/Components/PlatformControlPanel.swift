@@ -281,17 +281,3 @@ private struct PlatformControlPreviewHost: View {
         )
     }
 }
-
-#Preview {
-    let client = SSHClient()
-    client.connect(
-        host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
-        username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
-        password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? ""
-    ) { _ in }
-
-    return PlatformControlPreviewHost()
-        .environmentObject(AppController(sshClient: client, platformRegistry: PlatformRegistry()))
-        .padding()
-        .preferredColorScheme(.dark)
-}

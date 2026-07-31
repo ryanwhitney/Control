@@ -93,7 +93,7 @@ struct LiveIntegrationTests {
         defer { UserPreferences.shared.connectionMethod = previousMethod }
 
         let manager = SSHConnectionManager()
-        try await manager.connect(host: host, username: user, password: pass)
+        try await manager.connect(host: host, username: user, password: pass, trustedHostKeyFingerprints: [])
         manager.startHeartbeat()
         defer {
             manager.stopHeartbeat()

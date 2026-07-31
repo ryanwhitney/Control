@@ -1,7 +1,7 @@
 import Foundation
 
 protocol SSHClientProtocol {
-    func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void)
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void)
     func disconnect()
     /// Execute a command on a long-lived, dedicated SSH channel identified by `channelKey`.
     /// The same channel is reused for subsequent calls with the same key.

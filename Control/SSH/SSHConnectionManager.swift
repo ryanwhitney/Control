@@ -7,6 +7,34 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     /// Set only by the manager and its extensions (+Heartbeat drives the
     /// recovering/connected transitions, hence no `private(set)`).
     @Published var connectionState: ConnectionState = .disconnected
+    /// Supplies the fingerprints trusted for a given host, read live from
+    /// `SavedConnections`. Installed by `ConnectionsViewModel` (which owns the
+    /// store) when its list appears. In-session reconnects (`handleConnection`)
+    /// resolve trust through this, keyed by the host they are reconnecting to,
+    /// so the check can never reuse a different Mac's trust set. nil means the
+    /// store is out of reach, which fails the connect — falling through to an
+    /// empty set would be trust-on-first-use against an already-pinned Mac.
+    var trustedHostKeyProvider: (@MainActor (String) -> Set<String>?)?
+    /// Invoked when an in-session reconnect (`handleConnection`) hits a host-key
+    /// mismatch. Installed by `ConnectionsViewModel`, which owns the recovery UI
+    /// and the store; it routes the user back to the connections list and into
+    /// the same verify/reconnect flow the first connect uses, so pinning stays
+    /// in one place. `async` because that flow searches for a key-verified
+    /// repair before presenting anything, so `handleConnection`'s retry loop
+    /// waits for that to resolve rather than moving on mid-search. Returns
+    /// whether it took the failure; anything else falls through to `onError`,
+    /// so a mismatch can't leave the caller waiting on an alert nobody raised.
+    var hostKeyMismatchHandler: (@MainActor (String, SSHHostKeyInfo) async -> Bool)?
+    /// The in-session reconnect retry loop (`handleConnection`). Held so it can
+    /// be cancelled when the connection is torn down — otherwise a loop left
+    /// running after the user leaves a Mac could reconnect to it (or still be
+    /// alive when the user connects to a different Mac).
+    private var reconnectTask: Task<Void, Never>?
+    /// Bumped by every `connect()`. A cancelled attempt captures the value it
+    /// ran under, so it can tell "I'm still the current attempt, my state is
+    /// mine to reset" from "a newer connect already took over" — the
+    /// distinction `finishDisconnectCleanup`'s `.connecting` guard can't make.
+    private var connectGeneration: UInt64 = 0
     /// Active SSH transport, selected per `UserPreferences.connectionMethod` on
     /// each connect. `nonisolated(unsafe)`: it is assigned on the MainActor in
     /// `connect()` before any command is dispatched, and only read thereafter.
@@ -114,6 +142,25 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
+    /// Locked rather than MainActor-isolated like the rest of this file:
+    /// `withTaskCancellationHandler`'s `onCancel` can fire from any thread.
+    private final class CancellationFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+
+        var isSet: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return flag
+        }
+
+        func set() {
+            lock.lock()
+            flag = true
+            lock.unlock()
+        }
+    }
+
     init() {
         connectionLog("SSHConnectionManager: Initializing")
         self.sshClient = SSHClient()
@@ -188,6 +235,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         sshClient.serializesAppCommands
     }
 
+    /// Builds the transport for a connect. A stored, overridable property
+    /// (rather than `connect()` calling `makeTransport` directly) so tests can
+    /// substitute a fake client instead of a real `SSHClient`/`LegacySSHClient`.
+    var transportFactory: (ConnectionMethod) -> SSHClientProtocol = SSHConnectionManager.makeTransport
+
     /// Builds the SSH transport for the selected connection method.
     private static func makeTransport(for method: ConnectionMethod) -> SSHClientProtocol {
         switch method {
@@ -254,12 +306,16 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         }
     }
     
-    func connect(host: String, username: String, password: String) async throws {
+    /// Connects and returns the host key the server presented and that pinning
+    /// accepted. Returning it (rather than stashing it on the manager) keeps the
+    /// verified key tied to *this* call, so a caller can't read a value left by
+    /// a different, interleaved connect.
+    @discardableResult
+    func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>) async throws -> SSHHostKeyInfo {
         connectionLog("SSHConnectionManager: Connection Request")
-        
+
         // Show connection metadata without exposing sensitive info
-        let isLocal = host.contains(".local")
-        let connectionType = isLocal ? "Bonjour (.local)" : "TCP/IP"
+        let connectionType = HostProvenance(host: host) == .localHostname ? "Bonjour (.local)" : "TCP/IP"
         let hostRedacted = host.redacted()
         
         connectionLog("Connecting via \(connectionType) to \(hostRedacted)")
@@ -271,7 +327,7 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         // override (set when Fast proved broken on some Mac this session) wins
         // over the user's persisted preference.
         let method = sessionMethodOverride ?? UserPreferences.shared.connectionMethod
-        sshClient = Self.makeTransport(for: method)
+        sshClient = transportFactory(method)
         activeConnectionMethod = method
         connectionEverResponded = false
         connectionLog("Transport: \(method.displayName)\(sessionMethodOverride != nil ? " (auto)" : "")")
@@ -279,41 +335,66 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         connectionState = .connecting
         reconnectPending = false   // a connect attempt is now the active recovery
         currentCredentials = Credentials(host: host, username: username, password: password)
-        
-        return try await withCheckedThrowingContinuation { continuation in
-            let client = self.client // Capture nonisolated client
-            var hasResumed = false
-            let connectionId = UUID().uuidString.prefix(8)
-            
-            client.connect(host: host, username: username, password: password) { result in
-                Task { @MainActor in
-                    guard !hasResumed else {
-                        connectionLog("⚠️ [\(connectionId)] Continuation already resumed, ignoring duplicate result: \(result)")
-                        return
-                    }
-                    hasResumed = true
-                    
-                    switch result {
-                    case .success:
-                        connectionLog("✓ [\(connectionId)] Connection successful")
-                        self.connectionState = .connected
-                        self.consecutiveHeartbeatFailures = 0
-                        self.recoveryDeadline = nil
-                        continuation.resume()
-                    case .failure(let error):
-                        connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
-                        self.connectionState = .failed(error.localizedDescription)
-                        self.currentCredentials = nil
+        connectGeneration &+= 1
+        let generation = connectGeneration
 
-                        // Ensure client is disconnected on failure to prevent stale
-                        // state. The connect retry loop (handleConnection) owns the
-                        // retry/surface decision, so we don't fire handleConnectionLost
-                        // here (it would double-handle and could show the error mid-retry).
-                        client.disconnect()
-                        continuation.resume(throwing: error)
+        // The completion handler below runs on its own Task and so can't see
+        // `Task.isCancelled` for the task awaiting this call. Without this
+        // flag, a handshake finishing after its caller gave up would still be
+        // adopted as the live connection.
+        let cancelled = CancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<SSHHostKeyInfo, Error>) in
+                let client = self.client // Capture nonisolated client
+                var hasResumed = false
+                let connectionId = UUID().uuidString.prefix(8)
+
+                client.connect(host: host, username: username, password: password, trustedHostKeyFingerprints: trustedHostKeyFingerprints) { result in
+                    Task { @MainActor in
+                        guard !hasResumed else {
+                            connectionLog("⚠️ [\(connectionId)] Continuation already resumed, ignoring duplicate result: \(result)")
+                            return
+                        }
+                        hasResumed = true
+
+                        guard !cancelled.isSet else {
+                            connectionLog("⚠️ [\(connectionId)] Caller cancelled while connecting – discarding result")
+                            client.disconnect()
+                            // This attempt left the state at `.connecting`, and
+                            // the cancelling `disconnect()` skipped it for that
+                            // reason. Only the still-current attempt may reset
+                            // it — a newer connect owns its own state.
+                            if self.connectGeneration == generation {
+                                self.resetToDisconnected()
+                            }
+                            continuation.resume(throwing: CancellationError())
+                            return
+                        }
+
+                        switch result {
+                        case .success(let hostKeyInfo):
+                            connectionLog("✓ [\(connectionId)] Connection successful")
+                            self.connectionState = .connected
+                            self.consecutiveHeartbeatFailures = 0
+                            self.recoveryDeadline = nil
+                            continuation.resume(returning: hostKeyInfo)
+                        case .failure(let error):
+                            connectionLog("❌ [\(connectionId)] Connection failed: \(error)")
+                            self.connectionState = .failed(error.localizedDescription)
+                            self.currentCredentials = nil
+
+                            // Ensure client is disconnected on failure to prevent stale
+                            // state. The connect retry loop (handleConnection) owns the
+                            // retry/surface decision, so we don't fire handleConnectionLost
+                            // here (it would double-handle and could show the error mid-retry).
+                            client.disconnect()
+                            continuation.resume(throwing: error)
+                        }
                     }
                 }
             }
+        } onCancel: {
+            cancelled.set()
         }
     }
     
@@ -335,6 +416,12 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     nonisolated func disconnect() {
         sshClient.disconnect()
         Task { @MainActor in
+            // Kill any in-session reconnect loop so it can't keep reconnecting
+            // after the user has left this Mac. Safe here because the connect
+            // path tears down via `disconnectNow()`, not this method, so a
+            // reconnect's own `connect()` never cancels its loop.
+            self.reconnectTask?.cancel()
+            self.reconnectTask = nil
             self.finishDisconnectCleanup()
         }
     }
@@ -350,7 +437,14 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         // A connect() that started after this disconnect was issued owns the
         // state now — don't clobber its `.connecting`/credentials from a stale
         // queued cleanup (the transport itself was already torn down above).
+        // The in-flight connect resolves its own state when it finishes or is
+        // cancelled, so nothing is left dangling by skipping it here.
         guard connectionState != .connecting else { return }
+        resetToDisconnected()
+    }
+
+    @MainActor
+    private func resetToDisconnected() {
         connectionState = .disconnected
         currentCredentials = nil
         cancelBackgroundDisconnect()
@@ -381,7 +475,13 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         return true
     }
     
-    /// Shared connection handler that manages common connection logic
+    /// Shared connection handler used by in-session views (ControlView /
+    /// ChooseAppsView / PermissionsView) to (re)establish the connection. The
+    /// trusted host keys are resolved through `trustedHostKeyProvider`, keyed by
+    /// `host`, so a reconnect verifies against the keys currently persisted for
+    /// the Mac it is actually reconnecting to — these views never touch
+    /// `SavedConnections` directly, and the check can't reuse another Mac's
+    /// trust. The first connect and its pinning live in `ConnectionsViewModel`.
     func handleConnection(
         host: String,
         username: String,
@@ -389,9 +489,25 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
         onSuccess: @escaping () async -> Void,
         onError: @escaping (Error) -> Void
     ) {
-        Task {
+        // Supersede any previous reconnect loop (e.g. a prior view's) so at most
+        // one runs, and so leaving a screen cancels its loop rather than letting
+        // it reconnect in the background.
+        reconnectTask?.cancel()
+        reconnectTask = Task {
             if !shouldReconnect(host: host, username: username, password: password) {
                 await onSuccess()
+                return
+            }
+
+            let resolvedTrust: Set<String>?
+            if let trustedHostKeyProvider {
+                resolvedTrust = trustedHostKeyProvider(host)
+            } else {
+                resolvedTrust = []
+            }
+            guard let trusted = resolvedTrust else {
+                connectionLog("❌ Connect aborted: trusted host keys could not be resolved")
+                onError(SSHError.connectionFailed("Could not verify the Mac's identity"))
                 return
             }
 
@@ -399,13 +515,26 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
             // a transient failure (e.g. Wi-Fi not fully re-associated on
             // foreground) self-heals instead of dead-ending on the first miss.
             var attempt = 0
-            while true {
+            while !Task.isCancelled {
                 attempt += 1
                 do {
-                    try await connect(host: host, username: username, password: password)
+                    try await connect(host: host, username: username, password: password, trustedHostKeyFingerprints: trusted)
+                    if Task.isCancelled { return }
                     await onSuccess()
                     return
                 } catch {
+                    if Task.isCancelled || error is CancellationError { return }
+                    // A host-key mismatch is deterministic — the key won't change
+                    // between attempts — and security-relevant, so surface it at
+                    // once instead of re-handshaking with the suspect host. The
+                    // verify/reconnect flow takes it when it can identify the
+                    // Mac; otherwise it has to reach the caller as an error.
+                    if case SSHError.hostKeyMismatch(let observed) = error {
+                        if await hostKeyMismatchHandler?(host, observed) != true {
+                            onError(error)
+                        }
+                        return
+                    }
                     if attempt >= maxConnectAttempts {
                         connectionLog("❌ Connect failed after \(attempt) attempts: \(error.localizedDescription)")
                         onError(error)
@@ -489,11 +618,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     // MARK: - SSHClientProtocol Conformance
     
     /// Protocol-required connect method with completion handler
-    nonisolated func connect(host: String, username: String, password: String, completion: @escaping (Result<Void, Error>) -> Void) {
+    nonisolated func connect(host: String, username: String, password: String, trustedHostKeyFingerprints: Set<String>, completion: @escaping (Result<SSHHostKeyInfo, Error>) -> Void) {
         Task {
             do {
-                try await self.connect(host: host, username: username, password: password)
-                completion(.success(()))
+                let info = try await self.connect(host: host, username: username, password: password, trustedHostKeyFingerprints: trustedHostKeyFingerprints)
+                completion(.success(info))
             } catch {
                 completion(.failure(error))
             }

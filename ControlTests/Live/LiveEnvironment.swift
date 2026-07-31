@@ -104,7 +104,7 @@ struct LiveEnvironment: @unchecked Sendable {
         case .compatibility: client = LegacySSHClient()
         }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            client.connect(host: host, username: username, password: password) { cont.resume(with: $0) }
+            client.connect(host: host, username: username, password: password, trustedHostKeyFingerprints: []) { cont.resume(with: $0.map { _ in () }) }
         }
     }
 

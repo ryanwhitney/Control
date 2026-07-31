@@ -25,9 +25,10 @@ struct Connection: Identifiable, Hashable {
 extension Connection {
     static func fromNetService(_ service: NetService, lastUsername: String? = nil) -> Connection? {
         guard let hostname = service.hostName else { return nil }
-        
-        let cleanHostname = hostname.replacingOccurrences(of: ".local.", with: ".local")
-        
+
+        // Bonjour always includes the root dot; the store matches without it.
+        let cleanHostname = HostIdentityHeuristics.normalizedHostname(hostname)
+
         return Connection(
             id: "net-" + cleanHostname,
             name: service.name.replacingOccurrences(of: "\\032", with: ""),

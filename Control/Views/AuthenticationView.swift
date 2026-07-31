@@ -8,6 +8,7 @@ struct AuthenticationView: View {
     // Pass in saved info for edit mode
     let existingHost: String?
     let existingName: String?
+    let existingTrustedHostKeys: [SavedConnections.TrustedHostKey]
 
     @State private var hostname: String
     @State private var nickname: String
@@ -70,6 +71,7 @@ struct AuthenticationView: View {
     init(mode: Mode,
          existingHost: String? = nil,
          existingName: String? = nil,
+         existingTrustedHostKeys: [SavedConnections.TrustedHostKey] = [],
          username: Binding<String>,
          password: Binding<String>,
          saveCredentials: Binding<Bool>,
@@ -79,6 +81,7 @@ struct AuthenticationView: View {
         self.mode = mode
         self.existingHost = existingHost
         self.existingName = existingName
+        self.existingTrustedHostKeys = existingTrustedHostKeys
         self._hostname = State(initialValue: existingHost ?? "")
         self._nickname = State(initialValue: existingName ?? "")
         self._username = username
@@ -145,6 +148,19 @@ struct AuthenticationView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
+                    if !existingTrustedHostKeys.isEmpty {
+                        Section {
+                            NavigationLink {
+                                HostKeyVerificationView(
+                                    displayName: existingName ?? existingHost ?? "this Mac",
+                                    trustedKeys: existingTrustedHostKeys
+                                )
+                            } label: {
+                                Label("Verify This Mac", systemImage: "checkmark.shield")
+                            }
+                            .accessibilityHint("Shows this Mac's fingerprint and how to check it")
+                        }
+                    }
                 } else {
                     Section {
                         VStack(spacing: 20) {
@@ -196,7 +212,7 @@ struct AuthenticationView: View {
                                 .controlSize(.regular)
                         } else {
                             Text(mode.saveButtonTitle)
-                                .multiblur([(10,0.25), (20,0.85), (50,0.85),  (100,0.85)])
+                                .multiblur(!canSubmit || isConnecting ? [(10,0.0), (20,0.0), (50,0.0),  (100,0.0)] : [(10,0.25), (20,0.85), (50,0.85),  (100,0.85)])
                         }
                     }
                     .padding(.vertical, 11)
@@ -237,6 +253,7 @@ struct AuthenticationView: View {
             }
             .navigationBarHidden(mode == .authenticate)
         }
+        .themeTint(UserPreferences.shared.tintColorValue)
     }
 
     private var usernameHelpButton: some View {
