@@ -24,16 +24,26 @@ enum HostProvenance {
 }
 
 enum HostIdentityHeuristics {
+    /// Strips the trailing DNS root dot from a `.local` hostname, so a
+    /// hand-typed FQDN matches the dot-free form Bonjour discovery produces.
+    /// The suffix check is case-insensitive because callers compare the
+    /// result case-insensitively.
+    static func normalizedHostname(_ host: String) -> String {
+        host.lowercased().hasSuffix(".local.") ? String(host.dropLast(1)) : host
+    }
+
     /// Normalizes a Mac's display name or .local hostname so renamed
     /// duplicates match the row they diverged from: "Mac mini (2)" and
     /// "Mac-mini-2.local" both stem to "macmini". Used only to pick probe
     /// candidates; identity is decided by the pinned key, never by the name.
     static func nameStem(_ name: String) -> String {
-        var stem = name.lowercased()
-        if stem.hasSuffix(".local.") { stem = String(stem.dropLast(7)) }
+        var stem = normalizedHostname(name.lowercased())
         if stem.hasSuffix(".local") { stem = String(stem.dropLast(6)) }
+        // The separator is required: a rename suffix is always set off by one
+        // ("Mac mini (2)"), while a fused model number ("Mac Studio M1") is
+        // part of the name and must survive.
         stem = stem.replacingOccurrences(
-            of: #"[\s\-]*\(?\d+\)?$"#,
+            of: #"[\s\-]+\(?\d+\)?$"#,
             with: "",
             options: .regularExpression
         )

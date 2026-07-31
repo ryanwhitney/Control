@@ -37,4 +37,40 @@ struct NameStemTests {
                 != HostIdentityHeuristics.nameStem("MacBook Air")
         )
     }
+
+    /// A model number fused directly onto a letter, with no separator, is
+    /// part of the name and must not be read as a Bonjour rename suffix — the
+    /// digit-stripping regex previously matched it regardless.
+    @Test func modelNumbersDoNotCollide() {
+        #expect(
+            HostIdentityHeuristics.nameStem("Mac Studio M1")
+                != HostIdentityHeuristics.nameStem("Mac Studio M2")
+        )
+    }
+
+    /// The separator-before-digit case must still strip, distinguishing a
+    /// genuine rename suffix from a fused model number.
+    @Test func separatedTrailingNumbersStillStem() {
+        #expect(
+            HostIdentityHeuristics.nameStem("Steve's Mac 2")
+                == HostIdentityHeuristics.nameStem("Steve's Mac")
+        )
+    }
+}
+
+struct NormalizedHostnameTests {
+
+    @Test func stripsOnlyTheLocalRootDot() {
+        #expect(HostIdentityHeuristics.normalizedHostname("mymac.local.") == "mymac.local")
+        #expect(HostIdentityHeuristics.normalizedHostname("mymac.local") == "mymac.local")
+        #expect(HostIdentityHeuristics.normalizedHostname("home.example.com.") == "home.example.com.")
+    }
+
+    /// Callers compare the result case-insensitively, so the suffix check has
+    /// to be case-insensitive too — otherwise an uppercase FQDN keeps its
+    /// trailing dot and misses the row it should match.
+    @Test func stripsTheRootDotRegardlessOfCase() {
+        #expect(HostIdentityHeuristics.normalizedHostname("MYMAC.LOCAL.") == "MYMAC.LOCAL")
+        #expect(HostIdentityHeuristics.normalizedHostname("MyMac.Local.") == "MyMac.Local")
+    }
 }
