@@ -34,10 +34,9 @@ class ConnectionsViewModel: ObservableObject {
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
     /// Which recovery the current error alert should offer. Drives the alert's
-    /// buttons and message, and the dismissal handling. A single enum rather
-    /// than parallel optional fields, so e.g. an address-repair offer can't be
-    /// set while the alert also thinks it's showing something else — every
-    /// state the alert can be in is one value, not a combination to keep in sync.
+    /// buttons, message and dismissal handling. One enum rather than parallel
+    /// optional fields, so every state the alert can be in is a single value
+    /// rather than a combination to keep in sync.
     @Published private(set) var pendingRecovery: PendingRecovery = .none
     /// Presents the host-key review screen (reached from the alert's "Review…").
     @Published var showingHostKeyReview = false
@@ -104,6 +103,10 @@ class ConnectionsViewModel: ObservableObject {
     /// the list presents the verify/reconnect alert once it's on screen again.
     private var presentMismatchOnReturn = false
 
+    /// Long enough for a pop or an alert dismissal to finish before the next
+    /// alert is raised. SwiftUI drops one presented into a running transition.
+    private static let alertPresentationDelay: UInt64 = 400_000_000
+
     let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
     private let preferences = UserPreferences.shared
@@ -116,9 +119,7 @@ class ConnectionsViewModel: ObservableObject {
         var id: Self { self }
     }
 
-    /// The recovery the current connection-error alert offers, replacing the
-    /// old parallel bool flags so invalid combinations can't arise and stale
-    /// state can't leak into a later alert.
+    /// The recovery the current connection-error alert offers.
     enum PendingRecovery: Equatable {
         case none
         case authFailure
@@ -136,16 +137,6 @@ class ConnectionsViewModel: ObservableObject {
 
     init() {
         viewLog("ConnectionsViewModel init starting", view: "ConnectionsViewModel")
-
-        // Let in-session reconnects (handleConnection) resolve trusted keys from
-        // the store, keyed by host, without the manager holding a reference to it.
-        connectionManager.trustedHostKeyProvider = { [savedConnections] host in
-            savedConnections.trustedHostKeyFingerprints(for: host)
-        }
-        // Route in-session mismatches back into this list's verify/reconnect flow.
-        connectionManager.hostKeyMismatchHandler = { [weak self] rejectedKey in
-            await self?.handleInSessionHostKeyMismatch(rejectedKey: rejectedKey)
-        }
 
         updateSavedComputers(savedConnections.items)
         viewLog("Init: saved computers count: \(savedComputers.count)", view: "ConnectionsViewModel")
@@ -280,12 +271,13 @@ class ConnectionsViewModel: ObservableObject {
 
             // The probe proves an SSH host is there, not which one, so nothing
             // is pinned yet — the first authenticated connect establishes trust.
+            // No credentials were entered, so none are written: re-adding a Mac
+            // that's already saved must not disturb its stored login.
             savedConnections.add(
                 hostname: computer.host,
                 name: computer.name,
                 username: username.isEmpty ? nil : username,
-                password: nil,
-                saveCredentials: saveCredentials
+                saveCredentials: nil
             )
             selectedConnection = computer
             isAuthenticating = true
@@ -352,6 +344,11 @@ class ConnectionsViewModel: ObservableObject {
         }
         showingHostKeyReview = false
         clearRecoveryState()
+        // Trusting a key is not a credential change. Persist under the Mac's
+        // own stored preference rather than whatever this view model last held,
+        // which for an in-session mismatch was set by some other flow entirely
+        // and could clear a password the user never asked to remove.
+        saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
         connectWithNewCredentials(computer: computer, approvedHostKey: approvedKey)
     }
 
@@ -401,13 +398,21 @@ class ConnectionsViewModel: ObservableObject {
 
     /// A mismatch hit from ControlView or the setup flow, neither of which can
     /// reach the store. Resolves recovery here, then pops back to the list to
-    /// present it.
-    private func handleInSessionHostKeyMismatch(rejectedKey: SSHHostKeyInfo) async {
-        guard let computer = selectedConnection else { return }
+    /// present it. The Mac is resolved from the host being reconnected to
+    /// rather than `selectedConnection`, which any pop clears; returns false if
+    /// it can't be identified, so the caller surfaces the failure itself
+    /// instead of leaving the view connecting against an alert that never comes.
+    private func handleInSessionHostKeyMismatch(host: String, rejectedKey: SSHHostKeyInfo) async -> Bool {
+        func matchesHost(_ connection: Connection) -> Bool {
+            connection.host.caseInsensitiveCompare(host) == .orderedSame
+        }
+        guard let computer = savedComputers.first(where: matchesHost)
+                ?? selectedConnection.flatMap({ matchesHost($0) ? $0 : nil }) else { return false }
         await enterHostKeyMismatchRecovery(rejectedKey: rejectedKey, computer: computer)
         presentMismatchOnReturn = true
         navigateToControl = false
         showingSetupFlow = false
+        return true
     }
 
     /// Called by the list once it's back on screen after an in-session mismatch
@@ -415,17 +420,19 @@ class ConnectionsViewModel: ObservableObject {
     /// animation settles rather than racing it.
     func presentPendingMismatchAlertIfNeeded() {
         guard presentMismatchOnReturn else { return }
-        presentMismatchOnReturn = false
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 400_000_000)
+            try? await Task.sleep(nanoseconds: Self.alertPresentationDelay)
             // A tap on another Mac inside the delay would raise this Mac's
             // alert over that connect, and "Review…" would open the wrong
-            // fingerprint. Dropping it is safe — the mismatch recurs on the
-            // next attempt. The setup-flow pop leaves `selectedConnection` on
-            // the failed Mac, so only a switch to a different one disqualifies.
-            guard connectingComputer == nil,
+            // fingerprint. The flag stays set so the next return to the list
+            // presents it; `clearRecoveryState` is what retires it. The
+            // setup-flow pop leaves `selectedConnection` on the failed Mac, so
+            // only a switch to a different one disqualifies.
+            guard presentMismatchOnReturn,
+                  connectingComputer == nil,
                   !isAuthenticating,
                   selectedConnection == nil || selectedConnection?.id == recoveryComputer?.id else { return }
+            presentMismatchOnReturn = false
             showingError = true
         }
     }
@@ -452,11 +459,14 @@ class ConnectionsViewModel: ObservableObject {
         password = ""
     }
 
+    /// `hostKeyReviewContext` deliberately survives: the review sheet reads it
+    /// while it animates away, and the next mismatch overwrites it. Nothing can
+    /// reach a stale one, since every route in is gated on `pendingRecovery`.
     private func clearRecoveryState() {
         pendingRecovery = .none
         recoveryComputer = nil
         connectingComputer = nil
-        hostKeyReviewContext = nil
+        presentMismatchOnReturn = false
     }
 
     func deleteConnection(hostname: String) {
@@ -495,7 +505,22 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
+    /// Points the shared connection manager at this view model, which owns both
+    /// the store and the recovery UI an in-session mismatch needs. Installed
+    /// when the list appears rather than at init because SwiftUI may build and
+    /// discard a `@StateObject`'s initial value, and a discarded view model
+    /// must not leave its handlers behind on the manager.
+    private func installConnectionHandlers() {
+        connectionManager.trustedHostKeyProvider = { [weak self] host in
+            self?.savedConnections.trustedHostKeyFingerprints(for: host)
+        }
+        connectionManager.hostKeyMismatchHandler = { [weak self] host, rejectedKey in
+            await self?.handleInSessionHostKeyMismatch(host: host, rejectedKey: rejectedKey) ?? false
+        }
+    }
+
     func onAppear() {
+        installConnectionHandlers()
         connectionManager.disconnect()
 
         viewLog("onAppear called - starting network scan", view: "ConnectionsViewModel")
@@ -646,7 +671,7 @@ class ConnectionsViewModel: ObservableObject {
             // would repair nothing and pin nothing, so fall back to the plain
             // mismatch alert rather than quietly trusting-on-first-use.
             pendingRecovery = .hostKeyMismatch(rejectedKey: repair.rejectedKey)
-            presentAlertNextTurn()
+            presentAlertAfterDismissal()
             return
         }
         // The offer named the Mac's current Bonjour name; carry it over so the
@@ -663,13 +688,14 @@ class ConnectionsViewModel: ObservableObject {
     func declineAddressRepair() {
         guard case .addressRepair(let repair) = pendingRecovery else { return }
         pendingRecovery = .hostKeyMismatch(rejectedKey: repair.rejectedKey)
-        presentAlertNextTurn()
+        presentAlertAfterDismissal()
     }
 
-    /// Re-presents the alert after one has just been dismissed. A second alert
-    /// raised in the same turn as the first one's dismissal doesn't present.
-    private func presentAlertNextTurn() {
+    /// Re-presents the alert after one has just been dismissed. An alert raised
+    /// while the previous one's dismissal is still animating doesn't present.
+    private func presentAlertAfterDismissal() {
         Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.alertPresentationDelay)
             showingError = true
         }
     }
@@ -699,7 +725,8 @@ class ConnectionsViewModel: ObservableObject {
 
     private func updateNetworkComputersStably() {
         currentScanResults = networkScanner.services.compactMap { service in
-            Connection.fromNetService(service, lastUsername: savedConnections.lastUsername(for: service.hostName?.replacingOccurrences(of: ".local.", with: ".local") ?? ""))
+            // The store normalizes the hostname it's asked about itself.
+            Connection.fromNetService(service, lastUsername: savedConnections.lastUsername(for: service.hostName ?? ""))
         }
 
         // Build the new list locally and assign once, so the UI sees a single

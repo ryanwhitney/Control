@@ -243,7 +243,7 @@ private struct AddConnectionSheet: View {
                 mode: .add,
                 username: $viewModel.username,
                 password: $viewModel.password,
-                saveCredentials: .init(get: { true }, set: { viewModel.saveCredentials = $0 }),
+                saveCredentials: $viewModel.saveCredentials,
                 onSuccess: { hostname, nickname in
                     let newComputer = Connection(
                         id: hostname,

@@ -140,7 +140,10 @@ struct LiveRecoveryFlowTests {
         #expect(!trusted.contains(real.fingerprint))
         #expect(trusted == [Self.wrongFingerprint])
         #expect(vm.pendingRecovery == .none)
-        #expect(vm.hostKeyReviewContext == nil)
+        #expect(!vm.showingHostKeyReview)
+        // The review screen reads this while it animates away, so it outlives
+        // the recovery it belongs to; `pendingRecovery` is what gates reaching it.
+        #expect(vm.hostKeyReviewContext != nil)
     }
 
     /// Optional credentials: a reachable Mac is saved and the login is asked

@@ -87,6 +87,50 @@ struct LiveHostKeyPinningTests {
         }
     }
 
+    /// A rejection is reported by the delegate and the teardown is left to
+    /// NIOSSH, so this checks the handshake actually unwinds: each attempt has
+    /// to come back classified as a mismatch (not the generic error NIOSSH's
+    /// own teardown would surface if it won the race) and well inside the 5 s
+    /// watchdog, which is what a connection left hanging open would blow.
+    @Test func repeatedRejectionsUnwindPromptly() async throws {
+        let wrong: Set<String> = ["SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        let started = Date()
+
+        for attempt in 1...3 {
+            do {
+                _ = try await connect(trusting: wrong)
+                Issue.record("A wrong pin must not connect (attempt \(attempt))")
+            } catch let error as SSHError {
+                guard case .hostKeyMismatch = error else {
+                    Issue.record("Attempt \(attempt): expected hostKeyMismatch, got \(error)")
+                    return
+                }
+            }
+        }
+
+        #expect(Date().timeIntervalSince(started) < 10)
+    }
+
+    /// The batch probe shares one event-loop group and shuts it down when the
+    /// last host answers, so a host that never responds must hold the group up
+    /// until its connect settles rather than letting the shutdown race it.
+    @Test func probingUnreachableHostsAlongsideAReachableOneStaysClean() async throws {
+        let (host, _, _) = try credentials()
+        let observed = try await connect(trusting: [])
+        // RFC 5737 documentation addresses: routable nowhere, so these hang
+        // until the connect timeout — the case that raced the group shutdown.
+        let hosts = [host, "192.0.2.1", "192.0.2.2", "192.0.2.3"]
+
+        let started = Date()
+        let found = await SSHTransportConnector.probeHostKeys(hosts: hosts, timeout: 3.0)
+        let elapsed = Date().timeIntervalSince(started)
+
+        #expect(found[host]?.fingerprint == observed.fingerprint)
+        #expect(found.count == 1)
+        // Concurrent, so the batch costs one timeout rather than three.
+        #expect(elapsed < 6)
+    }
+
     /// The address-repair probe reads the same key the authenticated connect
     /// sees, without credentials — the property the repair offer's "this really
     /// is your Mac" claim rests on.

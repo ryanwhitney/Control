@@ -8,20 +8,23 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
     /// recovering/connected transitions, hence no `private(set)`).
     @Published var connectionState: ConnectionState = .disconnected
     /// Supplies the fingerprints trusted for a given host, read live from
-    /// `SavedConnections`. Installed once by `ConnectionsViewModel` (which owns
-    /// the store). In-session reconnects (`handleConnection`) resolve trust
-    /// through this, keyed by the host they are reconnecting to, so the check
-    /// can never reuse a different Mac's trust set.
-    var trustedHostKeyProvider: (@MainActor (String) -> Set<String>)?
+    /// `SavedConnections`. Installed by `ConnectionsViewModel` (which owns the
+    /// store) when its list appears. In-session reconnects (`handleConnection`)
+    /// resolve trust through this, keyed by the host they are reconnecting to,
+    /// so the check can never reuse a different Mac's trust set. nil means the
+    /// store is out of reach, which fails the connect — falling through to an
+    /// empty set would be trust-on-first-use against an already-pinned Mac.
+    var trustedHostKeyProvider: (@MainActor (String) -> Set<String>?)?
     /// Invoked when an in-session reconnect (`handleConnection`) hits a host-key
     /// mismatch. Installed by `ConnectionsViewModel`, which owns the recovery UI
     /// and the store; it routes the user back to the connections list and into
     /// the same verify/reconnect flow the first connect uses, so pinning stays
     /// in one place. `async` because that flow searches for a key-verified
     /// repair before presenting anything, so `handleConnection`'s retry loop
-    /// waits for that to resolve rather than moving on mid-search. When unset,
-    /// the mismatch falls through to `onError`.
-    var hostKeyMismatchHandler: (@MainActor (SSHHostKeyInfo) async -> Void)?
+    /// waits for that to resolve rather than moving on mid-search. Returns
+    /// whether it took the failure; anything else falls through to `onError`,
+    /// so a mismatch can't leave the caller waiting on an alert nobody raised.
+    var hostKeyMismatchHandler: (@MainActor (String, SSHHostKeyInfo) async -> Bool)?
     /// The in-session reconnect retry loop (`handleConnection`). Held so it can
     /// be cancelled when the connection is torn down — otherwise a loop left
     /// running after the user leaves a Mac could reconnect to it (or still be
@@ -496,7 +499,17 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                 return
             }
 
-            let trusted = trustedHostKeyProvider?(host) ?? []
+            let resolvedTrust: Set<String>?
+            if let trustedHostKeyProvider {
+                resolvedTrust = trustedHostKeyProvider(host)
+            } else {
+                resolvedTrust = []
+            }
+            guard let trusted = resolvedTrust else {
+                connectionLog("❌ Connect aborted: trusted host keys could not be resolved")
+                onError(SSHError.connectionFailed("Could not verify the Mac's identity"))
+                return
+            }
 
             // Retry a few times with short backoff before surfacing the error, so
             // a transient failure (e.g. Wi-Fi not fully re-associated on
@@ -513,13 +526,11 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                     if Task.isCancelled || error is CancellationError { return }
                     // A host-key mismatch is deterministic — the key won't change
                     // between attempts — and security-relevant, so surface it at
-                    // once instead of re-handshaking with the suspect host. Route
-                    // it to the dedicated verify/reconnect flow if one is
-                    // installed; otherwise fall back to the generic error.
+                    // once instead of re-handshaking with the suspect host. The
+                    // verify/reconnect flow takes it when it can identify the
+                    // Mac; otherwise it has to reach the caller as an error.
                     if case SSHError.hostKeyMismatch(let observed) = error {
-                        if let handler = hostKeyMismatchHandler {
-                            await handler(observed)
-                        } else {
+                        if await hostKeyMismatchHandler?(host, observed) != true {
                             onError(error)
                         }
                         return

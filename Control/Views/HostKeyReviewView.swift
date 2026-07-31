@@ -359,6 +359,10 @@ private struct HostKeyCheckContext {
     let request: HostKeyReviewRequest
     let onTrust: () -> Void
     let onDecline: () -> Void
+    /// Returns to the first page of the flow. A conclusion page offers the
+    /// retry this way because pushing the check's pages again would grow the
+    /// stack every time round, leaving Back to walk a trail of stale answers.
+    let onRestart: () -> Void
 
     var displayName: String { request.displayName }
     var host: String { request.host }
@@ -784,14 +788,10 @@ private struct HostKeyCheckNotReaching: View {
                     .glassPillLabel(tint: .accentColor)
             }
             .glassPillButtonStyle(tint: .accentColor)
-            if let keyPath = SSHHostKeyFingerprint.localVerificationPath(for: context.newKey.keyType) {
-                NavigationLink {
-                    HostKeyCheckGetFingerprint(context: context, keyPath: keyPath)
-                } label: {
-                    QuietActionLabel(title: "Check Again")
-                }
-                .buttonStyle(.borderless)
+            Button(action: context.onRestart) {
+                QuietActionLabel(title: "Check Again")
             }
+            .buttonStyle(.borderless)
         }
     }
 }
@@ -878,9 +878,19 @@ struct HostKeyReviewView: View {
 
     @State private var prototype: HostKeyFlowPrototype =
         HostKeyFlowPrototype.allCases.randomElement() ?? .decisionFirst
+    /// Identifies the current run of the flow. Changing it rebuilds the stack
+    /// from its first page, which is how a conclusion page restarts the check
+    /// without pushing a second copy of it. The prototype lives outside the
+    /// rebuilt subtree, so a restart can't re-roll which design is on screen.
+    @State private var runID = UUID()
 
     var body: some View {
-        let context = HostKeyCheckContext(request: request, onTrust: onTrust, onDecline: onDecline)
+        let context = HostKeyCheckContext(
+            request: request,
+            onTrust: onTrust,
+            onDecline: onDecline,
+            onRestart: { withAnimation { runID = UUID() } }
+        )
         NavigationStack {
             switch prototype {
             case .decisionFirst:
@@ -889,6 +899,7 @@ struct HostKeyReviewView: View {
                 HostKeyCheckStart(context: context)
             }
         }
+        .id(runID)
         .themeTint(UserPreferences.shared.tintColorValue)
     }
 }
@@ -1099,7 +1110,8 @@ private let previewContext = HostKeyCheckContext(
         similarNamedNearby: []
     ),
     onTrust: {},
-    onDecline: {}
+    onDecline: {},
+    onRestart: {}
 )
 
 private let previewContextWithNearby = HostKeyCheckContext(
@@ -1111,7 +1123,8 @@ private let previewContextWithNearby = HostKeyCheckContext(
         similarNamedNearby: ["Mac mini (2)"]
     ),
     onTrust: {},
-    onDecline: {}
+    onDecline: {},
+    onRestart: {}
 )
 
 #Preview("Design A: decision") {
