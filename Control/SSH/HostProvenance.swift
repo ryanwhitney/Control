@@ -24,12 +24,12 @@ enum HostProvenance {
 }
 
 enum HostIdentityHeuristics {
-    /// Strips the trailing DNS root dot from a `.local` hostname, so a
-    /// hand-typed FQDN matches the dot-free form Bonjour discovery produces.
-    /// The suffix check is case-insensitive because callers compare the
-    /// result case-insensitively.
+    /// Strips the trailing DNS root dot, so a hand-typed FQDN matches the
+    /// dot-free form Bonjour discovery produces. The dot is meaningless for
+    /// every DNS name, not only `.local` ones: gating it would let
+    /// `example.com.` fork a second, untrusted row beside `example.com`.
     static func normalizedHostname(_ host: String) -> String {
-        host.lowercased().hasSuffix(".local.") ? String(host.dropLast(1)) : host
+        host.hasSuffix(".") ? String(host.dropLast()) : host
     }
 
     /// Normalizes a Mac's display name or .local hostname so renamed

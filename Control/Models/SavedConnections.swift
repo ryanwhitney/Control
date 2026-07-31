@@ -50,16 +50,18 @@ class SavedConnections: ObservableObject {
         load()
     }
     
-    func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
+    /// Creates the row for `hostname`, or refreshes the fields the caller
+    /// supplied on the row that already holds it. A nil `name` or `username`
+    /// leaves the stored value alone, and a nil `saveCredentials` leaves the
+    /// Keychain entry and the preference untouched — for callers that are only
+    /// recording that the Mac exists and have no credentials to write.
+    func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool?) {
         let account: String
 
-        // Update existing connection if it exists, else create new
         if let index = index(for: hostname) {
-            items[index].username = username
-            if let name = name {
-                items[index].name = name
-            }
-            items[index].saveCredentialsPreference = saveCredentials
+            if let username { items[index].username = username }
+            if let name { items[index].name = name }
+            if let saveCredentials { items[index].saveCredentialsPreference = saveCredentials }
             account = items[index].hostname
         } else {
             var connection = SavedConnection(hostname: hostname, name: name, username: username)
@@ -69,12 +71,12 @@ class SavedConnections: ObservableObject {
         }
         save()
 
-        // Save or remove password based on preference. `account` is already
-        // resolved to the row's stored spelling, so this skips re-deriving it.
+        // `account` is already resolved to the row's stored spelling, which is
+        // what Keychain items are keyed by.
+        guard let saveCredentials else { return }
         if saveCredentials, let password = password {
             savePassword(password, forAccount: account)
         } else if !saveCredentials {
-            // Remove password if user chose not to save credentials
             removePassword(forAccount: account)
         }
     }
@@ -192,8 +194,9 @@ class SavedConnections: ObservableObject {
     /// `NetService.hostName` always includes but `Connection.fromNetService`
     /// always strips — all forms resolve to the same Mac (mDNS/DNS names are
     /// case- and root-dot-insensitive). Every lookup in this type routes
-    /// through here, so the different spellings can't end up as separate rows
-    /// with host-key trust on one and the setup state on the other.
+    /// through here, so the different spellings can't end up as separate rows,
+    /// one holding the host-key trust and the other silently trusting on first
+    /// use.
     private func index(for hostname: String) -> Int? {
         items.firstIndex { sameHost($0.hostname, hostname) }
     }
@@ -271,6 +274,30 @@ class SavedConnections: ObservableObject {
             return
         }
         items = decoded
+        normalizeStoredHostnames()
+    }
+
+    /// Rewrites rows stored under a spelling `normalizedHostname` no longer
+    /// produces, so an old row keeps matching the same Mac rather than sitting
+    /// beside it with its own trust. The Keychain entry moves with it, since
+    /// it is keyed by the stored spelling. A row whose normalized form another
+    /// row already holds is left as it is: two rows for one Mac is the state
+    /// the user already had, and merging them would pick a password for them.
+    private func normalizeStoredHostnames() {
+        var changed = false
+        for index in items.indices {
+            let normalized = HostIdentityHeuristics.normalizedHostname(items[index].hostname)
+            guard normalized != items[index].hostname,
+                  !items.contains(where: { $0.hostname == normalized }) else { continue }
+            let previous = items[index].hostname
+            if let password = password(forAccount: previous) {
+                savePassword(password, forAccount: normalized)
+                removePassword(forAccount: previous)
+            }
+            items[index].hostname = normalized
+            changed = true
+        }
+        if changed { save() }
     }
 
     private func save() {

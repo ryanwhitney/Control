@@ -39,8 +39,7 @@ struct NameStemTests {
     }
 
     /// A model number fused directly onto a letter, with no separator, is
-    /// part of the name and must not be read as a Bonjour rename suffix — the
-    /// digit-stripping regex previously matched it regardless.
+    /// part of the name and must not be read as a Bonjour rename suffix.
     @Test func modelNumbersDoNotCollide() {
         #expect(
             HostIdentityHeuristics.nameStem("Mac Studio M1")
@@ -60,17 +59,29 @@ struct NameStemTests {
 
 struct NormalizedHostnameTests {
 
-    @Test func stripsOnlyTheLocalRootDot() {
+    @Test func stripsTheRootDot() {
         #expect(HostIdentityHeuristics.normalizedHostname("mymac.local.") == "mymac.local")
         #expect(HostIdentityHeuristics.normalizedHostname("mymac.local") == "mymac.local")
-        #expect(HostIdentityHeuristics.normalizedHostname("home.example.com.") == "home.example.com.")
     }
 
-    /// Callers compare the result case-insensitively, so the suffix check has
-    /// to be case-insensitive too — otherwise an uppercase FQDN keeps its
-    /// trailing dot and misses the row it should match.
+    /// A remote hostname is as root-dot-insensitive as a .local one. If it
+    /// weren't stripped here, `home.example.com.` would miss the pinned row for
+    /// `home.example.com`, fork a second one with an empty trust set, and
+    /// silently trust whatever answered.
+    @Test func stripsTheRootDotFromRemoteHostnamesToo() {
+        #expect(HostIdentityHeuristics.normalizedHostname("home.example.com.") == "home.example.com")
+        #expect(HostIdentityHeuristics.normalizedHostname("home.example.com") == "home.example.com")
+    }
+
+    /// Callers compare the result case-insensitively, so casing must survive
+    /// untouched rather than being folded here.
     @Test func stripsTheRootDotRegardlessOfCase() {
         #expect(HostIdentityHeuristics.normalizedHostname("MYMAC.LOCAL.") == "MYMAC.LOCAL")
         #expect(HostIdentityHeuristics.normalizedHostname("MyMac.Local.") == "MyMac.Local")
+    }
+
+    /// Only the trailing dot goes: a dot inside the name is part of it.
+    @Test func leavesInteriorDotsAlone() {
+        #expect(HostIdentityHeuristics.normalizedHostname("a.local.b.local") == "a.local.b.local")
     }
 }

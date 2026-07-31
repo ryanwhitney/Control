@@ -155,8 +155,8 @@ struct SavedConnectionsCaseInsensitivityTests {
         #expect(connections.lastUsername(for: "mac-mini.local") == "ryan2")
     }
 
-    /// The defect this closes: a pin written under one spelling and setup state
-    /// read under the other used to resolve to different rows.
+    /// A pin written under one spelling and setup state read under another
+    /// have to land on the same row.
     @Test func trustAndSetupStateShareOneRowAcrossSpellings() {
         let connections = makeTestConnections()
         connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: false)
@@ -196,6 +196,20 @@ struct SavedConnectionsCaseInsensitivityTests {
         #expect(connections.trustedHostKeyFingerprints(for: "MAC-MINI.LOCAL.") == ["SHA256:abc"])
     }
 
+    /// The root dot is meaningless for every DNS name, so a remote hostname
+    /// typed with one has to land on the pinned row rather than forking a
+    /// second one that would trust whatever answered.
+    @Test func trailingRootDotResolvesToTheSameRowForARemoteHostname() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "home.example.com", name: "Mac mini", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: "home.example.com")
+
+        connections.add(hostname: "home.example.com.", name: "Mac mini", saveCredentials: false)
+
+        #expect(connections.items.count == 1)
+        #expect(connections.trustedHostKeyFingerprints(for: "home.example.com.") == ["SHA256:abc"])
+    }
+
     @Test func lookupsResolveUnderEitherSpelling() {
         let connections = makeTestConnections()
         connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: false)
@@ -230,5 +244,99 @@ struct SavedConnectionsCaseInsensitivityTests {
 
         connections.add(hostname: "taken.local", name: "Other", saveCredentials: false)
         #expect(!connections.updateHostname(from: "new.local", to: "TAKEN.local"))
+    }
+}
+
+/// `add` is reached both by a connect that has just authenticated and by the
+/// optional-credentials add, which has no login to write. What the second one
+/// omits must survive rather than being overwritten with nothing.
+struct SavedConnectionsPartialUpdateTests {
+
+    @Test func addWithoutAUsernameKeepsTheStoredOne() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: true)
+
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: nil, saveCredentials: nil)
+
+        #expect(connections.lastUsername(for: "mac-mini.local") == "ryan")
+    }
+
+    @Test func addWithoutACredentialsDecisionKeepsThePreference() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: true)
+
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: nil)
+
+        #expect(connections.connection(for: "mac-mini.local")?.saveCredentialsPreference == true)
+    }
+
+    /// Re-adding an already-saved Mac from the "+" sheet must not take its
+    /// saved login with it.
+    @Test func addWithoutACredentialsDecisionKeepsTheStoredPassword() {
+        let connections = makeTestConnections()
+        let host = "keep-password-\(UUID().uuidString).local"
+        defer { connections.remove(hostname: host) }
+        connections.add(hostname: host, name: "Mac mini", username: "ryan", password: "hunter2", saveCredentials: true)
+        #expect(connections.password(for: host) == "hunter2")
+
+        connections.add(hostname: host, name: "Mac mini", saveCredentials: nil)
+
+        #expect(connections.password(for: host) == "hunter2")
+    }
+
+    @Test func addWithCredentialsOffStillClearsTheStoredPassword() {
+        let connections = makeTestConnections()
+        let host = "clear-password-\(UUID().uuidString).local"
+        defer { connections.remove(hostname: host) }
+        connections.add(hostname: host, name: "Mac mini", username: "ryan", password: "hunter2", saveCredentials: true)
+
+        connections.add(hostname: host, name: "Mac mini", username: "ryan", saveCredentials: false)
+
+        #expect(connections.password(for: host) == nil)
+    }
+}
+
+/// Rows saved before the root dot was stripped for every hostname have to be
+/// brought forward on load, Keychain entry included — they are keyed by the
+/// stored spelling, so a rewritten row would otherwise lose its password.
+struct SavedConnectionsMigrationTests {
+
+    @Test func loadNormalizesStoredHostnamesAndCarriesThePasswordOver() {
+        let suiteName = "SavedConnectionsMigrationTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let host = "migrate-\(UUID().uuidString).example.com"
+
+        let seeded = SavedConnections(defaults: defaults)
+        seeded.add(hostname: host + ".", name: "Mac mini", username: "ryan", password: "hunter2", saveCredentials: true)
+        seeded.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: host + ".")
+        #expect(seeded.connection(for: host)?.hostname == host + ".")
+
+        let reloaded = SavedConnections(defaults: defaults)
+        defer { reloaded.remove(hostname: host) }
+
+        #expect(reloaded.items.count == 1)
+        #expect(reloaded.connection(for: host)?.hostname == host)
+        #expect(reloaded.password(for: host) == "hunter2")
+        #expect(reloaded.trustedHostKeyFingerprints(for: host) == ["SHA256:abc"])
+    }
+
+    /// Merging two rows would mean picking one Mac's password for the other,
+    /// so a row whose normalized spelling is already taken is left as it is.
+    @Test func loadLeavesARowWhoseNormalizedSpellingIsTaken() {
+        let suiteName = "SavedConnectionsMigrationTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let seeded = [
+            SavedConnections.SavedConnection(hostname: "shared.example.com", name: "First"),
+            SavedConnections.SavedConnection(hostname: "shared.example.com.", name: "Second")
+        ]
+        defaults.set(try! JSONEncoder().encode(seeded), forKey: "SavedConnections")
+
+        let reloaded = SavedConnections(defaults: defaults)
+
+        #expect(reloaded.items.count == 2)
+        #expect(reloaded.items.map(\.hostname) == ["shared.example.com", "shared.example.com."])
     }
 }
