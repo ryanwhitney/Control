@@ -121,7 +121,7 @@ struct HostKeyPinningDelegateTests {
             Issue.record("Expected hostKeyMismatch, got \(String(describing: rejections.first))")
             return
         }
-        #expect(observed?.fingerprint == testEd25519Fingerprint)
+        #expect(observed.fingerprint == testEd25519Fingerprint)
     }
 
     /// The retry flow depends on this: even a *rejected* key must still be

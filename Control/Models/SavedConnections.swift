@@ -51,6 +51,7 @@ class SavedConnections: ObservableObject {
     }
     
     func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
+        let account: String
 
         // Update existing connection if it exists, else create new
         if let index = index(for: hostname) {
@@ -59,78 +60,82 @@ class SavedConnections: ObservableObject {
                 items[index].name = name
             }
             items[index].saveCredentialsPreference = saveCredentials
-            save()
+            account = items[index].hostname
         } else {
             var connection = SavedConnection(hostname: hostname, name: name, username: username)
             connection.saveCredentialsPreference = saveCredentials
             items.append(connection)
-            save()
+            account = hostname
         }
-        
-        // Save or remove password based on preference
+        save()
+
+        // Save or remove password based on preference. `account` is already
+        // resolved to the row's stored spelling, so this skips re-deriving it.
         if saveCredentials, let password = password {
-            savePassword(password, for: hostname)
+            savePassword(password, forAccount: account)
         } else if !saveCredentials {
             // Remove password if user chose not to save credentials
-            removePassword(for: hostname)
+            removePassword(forAccount: account)
         }
     }
-    
+
     func updateLastUsername(for hostname: String, name: String? = nil, username: String, password: String? = nil, saveCredentials: Bool) {
-
-        if let index = index(for: hostname) {
-            items[index].username = username
-            if let name = name {
-                items[index].name = name
-            }
-            items[index].saveCredentialsPreference = saveCredentials
-            save()
-
-            // Save or remove password based on preference
-            if saveCredentials, let password = password {
-                savePassword(password, for: hostname)
-            } else if !saveCredentials {
-                removePassword(for: hostname)
-            } else {
-                debugLog("⏭️ saveCredentials=true but no password provided - skipping keychain operation", category: "SavedConnections")
-            }
-        } else {
+        guard let index = index(for: hostname) else {
             add(hostname: hostname, name: name, username: username, password: password, saveCredentials: saveCredentials)
+            return
+        }
+
+        items[index].username = username
+        if let name = name {
+            items[index].name = name
+        }
+        items[index].saveCredentialsPreference = saveCredentials
+        let account = items[index].hostname
+        save()
+
+        // Save or remove password based on preference
+        if saveCredentials, let password = password {
+            savePassword(password, forAccount: account)
+        } else if !saveCredentials {
+            removePassword(forAccount: account)
+        } else {
+            debugLog("⏭️ saveCredentials=true but no password provided - skipping keychain operation", category: "SavedConnections")
         }
     }
-    
+
     func lastUsername(for hostname: String) -> String? {
         return connection(for: hostname)?.username
     }
-    
-    func password(for hostname: String) -> String? {
 
+    func password(for hostname: String) -> String? {
+        password(forAccount: canonicalHostname(hostname))
+    }
+
+    private func password(forAccount account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: canonicalHostname(hostname),
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true
         ]
-        
+
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        
+
         guard status == errSecSuccess,
               let passwordData = result as? Data,
               let password = String(data: passwordData, encoding: .utf8) else {
             return nil
         }
-        
+
         return password
     }
-    
-    private func savePassword(_ password: String, for hostname: String) {
+
+    private func savePassword(_ password: String, forAccount account: String) {
 
         guard let passwordData = password.data(using: .utf8) else {
             return
         }
-        
-        let account = canonicalHostname(hostname)
 
         // First try to update existing password
         let updateQuery: [String: Any] = [
@@ -138,18 +143,18 @@ class SavedConnections: ObservableObject {
             kSecAttrService as String: "VolumeControl",
             kSecAttrAccount as String: account
         ]
-        
+
         let updateAttributes: [String: Any] = [
             kSecValueData as String: passwordData
         ]
-        
+
         let updateStatus = SecItemUpdate(updateQuery as CFDictionary, updateAttributes as CFDictionary)
 
         if updateStatus == errSecSuccess {
             debugLog("💾 Password successfully updated in keychain", category: "SavedConnections")
         } else if updateStatus == errSecItemNotFound {
             debugLog("💾 No existing password found, creating new entry", category: "SavedConnections")
-            
+
             // Create new entry since none exists
             let addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
@@ -158,7 +163,7 @@ class SavedConnections: ObservableObject {
                 kSecValueData as String: passwordData,
                 kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
             ]
-            
+
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
 
             if addStatus != errSecSuccess {
@@ -170,24 +175,33 @@ class SavedConnections: ObservableObject {
             debugLog("💾 Failed to update password in keychain: \(updateStatus)", category: "SavedConnections")
         }
     }
-    
-    private func removePassword(for hostname: String) {
+
+    private func removePassword(forAccount account: String) {
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "VolumeControl",
-            kSecAttrAccount as String: canonicalHostname(hostname)
+            kSecAttrAccount as String: account
         ]
         _ = SecItemDelete(deleteQuery as CFDictionary)
     }
     
-    /// Matches a stored connection to `hostname` case-insensitively. Bonjour
-    /// preserves the Mac's advertised capitalization while a hand-typed host is
-    /// usually lowercase, yet both resolve to the same Mac (mDNS/DNS names are
-    /// case-insensitive). Every lookup in this type routes through here, so the
-    /// two spellings can't end up as separate rows with host-key trust on one
-    /// and the setup state on the other.
+    /// Matches a stored connection to `hostname` case-insensitively and
+    /// without regard to a trailing DNS root dot. Bonjour preserves the Mac's
+    /// advertised capitalization while a hand-typed host is usually
+    /// lowercase, and a hand-typed FQDN may carry the trailing dot Bonjour's
+    /// `NetService.hostName` always includes but `Connection.fromNetService`
+    /// always strips — all forms resolve to the same Mac (mDNS/DNS names are
+    /// case- and root-dot-insensitive). Every lookup in this type routes
+    /// through here, so the different spellings can't end up as separate rows
+    /// with host-key trust on one and the setup state on the other.
     private func index(for hostname: String) -> Int? {
-        items.firstIndex { $0.hostname.caseInsensitiveCompare(hostname) == .orderedSame }
+        items.firstIndex { sameHost($0.hostname, hostname) }
+    }
+
+    /// The comparison every hostname match in this type goes through: case-
+    /// and root-dot-insensitive, per `index(for:)`'s doc comment.
+    private func sameHost(_ a: String, _ b: String) -> Bool {
+        HostIdentityHeuristics.normalizedHostname(a).caseInsensitiveCompare(HostIdentityHeuristics.normalizedHostname(b)) == .orderedSame
     }
 
     /// The spelling a row is stored under. Keychain items are keyed by an exact
@@ -265,16 +279,19 @@ class SavedConnections: ObservableObject {
     }
     
     func remove(hostname: String) {
-        // Resolve the stored spelling first: the Keychain entry is keyed by it,
-        // and it can't be looked up once the row is gone.
-        let account = canonicalHostname(hostname)
+        // Every matching spelling, resolved before the rows go: Keychain
+        // entries are keyed by them, and matching is loose enough that one
+        // host can occupy more than one row.
+        let accounts = items.filter { sameHost($0.hostname, hostname) }.map(\.hostname)
 
         // Remove from saved items
-        items.removeAll { $0.hostname.caseInsensitiveCompare(hostname) == .orderedSame }
+        items.removeAll { sameHost($0.hostname, hostname) }
         save()
 
-        // Remove password from keychain
-        removePassword(for: account)
+        // Remove passwords from keychain
+        for account in accounts {
+            removePassword(forAccount: account)
+        }
     }
 
     /// Moves a saved connection to a new hostname, carrying everything with
@@ -288,14 +305,16 @@ class SavedConnections: ObservableObject {
     @discardableResult
     func updateHostname(from oldHostname: String, to newHostname: String) -> Bool {
         guard let index = index(for: oldHostname),
-              !items.contains(where: { $0.hostname.caseInsensitiveCompare(newHostname) == .orderedSame }) else { return false }
-        let migratingPassword = password(for: items[index].hostname)
+              !items.contains(where: { sameHost($0.hostname, newHostname) }) else { return false }
+        // Accounts are passed resolved: a `for hostname:` lookup after the
+        // rename below could no longer find the old spelling.
+        let migratingPassword = password(forAccount: items[index].hostname)
         let previousHostname = items[index].hostname
         items[index].hostname = newHostname
         save()
         if let migratingPassword {
-            savePassword(migratingPassword, for: newHostname)
-            removePassword(for: previousHostname)
+            savePassword(migratingPassword, forAccount: newHostname)
+            removePassword(forAccount: previousHostname)
         }
         return true
     }

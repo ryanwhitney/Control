@@ -90,7 +90,8 @@ struct ConnectionsView: View {
                     .environmentObject(viewModel)
             }
             .alert(viewModel.alertTitle, isPresented: $viewModel.showingError) {
-                if let repair = viewModel.pendingAddressRepair {
+                switch viewModel.pendingRecovery {
+                case .addressRepair(let repair):
                     // The key-verified repair offer: the Mac's pinned identity
                     // was found at another address, so this is a routine update,
                     // not a security decision — the fingerprint already matched.
@@ -99,7 +100,7 @@ struct ConnectionsView: View {
                     Button("Update & Connect") { viewModel.acceptAddressRepair(repair) }
                         .keyboardShortcut(.defaultAction)
                     Button("Not Now", role: .cancel) { viewModel.declineAddressRepair() }
-                } else if case .hostKeyMismatch = viewModel.pendingRecovery {
+                case .hostKeyMismatch:
                     // Review opens the guided flow, which carries all the
                     // explanation and the trust decision; the alert itself
                     // offers no permanent security choices. Not Now is the safe
@@ -112,7 +113,7 @@ struct ConnectionsView: View {
                             .keyboardShortcut(.defaultAction)
                     }
                     Button("Not Now", role: .cancel) { viewModel.cancelHostKeyMismatch() }
-                } else {
+                case .none, .authFailure:
                     Button("OK", role: .cancel) { viewModel.dismissConnectionError() }
                 }
             } message: {
@@ -121,11 +122,7 @@ struct ConnectionsView: View {
             .sheet(isPresented: $viewModel.showingHostKeyReview) {
                 if let context = viewModel.hostKeyReviewContext {
                     HostKeyReviewView(
-                        displayName: context.displayName,
-                        host: context.host,
-                        newKey: context.newKey,
-                        previousKeys: context.previousKeys,
-                        similarNamedNearby: context.similarNamedNearby,
+                        request: context,
                         onTrust: { viewModel.confirmHostKeyChangeAndReconnect() },
                         onDecline: { viewModel.cancelHostKeyMismatch() }
                     )
@@ -347,7 +344,7 @@ private class MockConnectionsViewModelForPreview: ConnectionsViewModel {
     override func selectComputer(_ computer: Connection) {}
     override func deleteConnection(hostname: String) {}
     override func editConnection(_ computer: Connection) {}
-    override func connectWithCredentials(computer: Connection) {}
+    override func connectWithCredentials(computer: Connection, expecting: Set<String>?) {}
     override func connectWithNewCredentials(computer: Connection, approvedHostKey: SSHHostKeyInfo?) {}
     override func addConnection(computer: Connection) {}
     override func onAppear() {}

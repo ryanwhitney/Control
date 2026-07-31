@@ -37,8 +37,7 @@ class LegacySSHClient: SSHClientProtocol {
             disconnect()
         }
 
-        let isLocal = host.contains(".local")
-        let connectionType = isLocal ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
+        let connectionType = HostProvenance(host: host) == .localHostname ? "SSH over Bonjour (.local)" : "SSH over TCP/IP"
         sshLog("Attempting TCP connection: \(connectionType)")
 
         SSHTransportConnector.connect(

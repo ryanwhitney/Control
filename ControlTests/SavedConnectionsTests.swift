@@ -180,6 +180,22 @@ struct SavedConnectionsCaseInsensitivityTests {
         #expect(connections.items.isEmpty)
     }
 
+    /// A hand-typed FQDN carries the trailing root dot Bonjour discovery
+    /// strips, so both spellings have to resolve to the one row — otherwise
+    /// the second silently trusts-on-first-use under an empty pin set.
+    @Test func trailingRootDotResolvesToTheSameRow() {
+        let connections = makeTestConnections()
+        connections.add(hostname: "mac-mini.local", name: "Mac mini", saveCredentials: false)
+        connections.pinHostKey(SSHHostKeyInfo(fingerprint: "SHA256:abc", keyType: ed25519), for: "mac-mini.local")
+
+        connections.add(hostname: "mac-mini.local.", name: "Mac mini", saveCredentials: false)
+
+        #expect(connections.items.count == 1)
+        #expect(connections.trustedHostKeyFingerprints(for: "mac-mini.local.") == ["SHA256:abc"])
+        // Uppercase too: the dot strip must not be case-sensitive.
+        #expect(connections.trustedHostKeyFingerprints(for: "MAC-MINI.LOCAL.") == ["SHA256:abc"])
+    }
+
     @Test func lookupsResolveUnderEitherSpelling() {
         let connections = makeTestConnections()
         connections.add(hostname: "mac-mini.local", name: "Mac mini", username: "ryan", saveCredentials: false)

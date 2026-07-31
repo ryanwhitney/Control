@@ -284,9 +284,8 @@ private struct ExpectedOutputCard: View {
         let result = NSMutableAttributedString(string: "\(keyBits) ", attributes: dim)
         result.append(NSAttributedString(string: fingerprint, attributes: code))
         // The comment field is whatever the Mac stamped on the key at
-        // generation ("root@some-mac.local"), so it can't be predicted here.
-        // A placeholder keeps the sample honest: printing a literal value the
-        // Mac won't produce is what makes a careful user think it didn't match.
+        // generation ("root@some-mac.local"), so a placeholder keeps the
+        // sample from showing a value the Mac won't actually print.
         result.append(NSAttributedString(string: " … (\(keyTypeLabel))", attributes: dim))
         return result
     }
@@ -357,13 +356,15 @@ private struct InlineFingerprintCard: View {
 /// network right now whose names stem-match this one, so conclusion pages
 /// can state an observed fact instead of a hypothesis.
 private struct HostKeyCheckContext {
-    let displayName: String
-    let host: String
-    let newKey: SSHHostKeyInfo
-    let previousKeys: [SavedConnections.TrustedHostKey]
-    let similarNamedNearby: [String]
+    let request: HostKeyReviewRequest
     let onTrust: () -> Void
     let onDecline: () -> Void
+
+    var displayName: String { request.displayName }
+    var host: String { request.host }
+    var newKey: SSHHostKeyInfo { request.newKey }
+    var previousKeys: [SavedConnections.TrustedHostKey] { request.previousKeys }
+    var similarNamedNearby: [String] { request.similarNamedNearby }
 }
 
 /// The observed-fact line for the conclusion pages: a similarly named Mac is
@@ -574,8 +575,9 @@ private struct HostKeyCheckGetFingerprint: View {
                 HostKeyCheckDoesItMatch(context: context)
             } label: {
                 CheckActionLabel(title: "I Ran It")
+                    .glassPillLabel(tint: .accentColor)
             }
-            .buttonStyle(.borderedProminent)
+            .glassPillButtonStyle(tint: .accentColor)
             NavigationLink {
                 HostKeyVerifyLater(context: context)
             } label: {
@@ -649,8 +651,11 @@ private struct HostKeyCheckMatched: View {
         ) {
             EmptyView()
         } actions: {
-            Button(action: context.onTrust) { CheckActionLabel(title: "Trust & Reconnect") }
-                .buttonStyle(.borderedProminent)
+            Button(action: context.onTrust) {
+                CheckActionLabel(title: "Trust & Reconnect")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
         }
     }
 }
@@ -726,8 +731,11 @@ private struct HostKeyCheckSpoofed: View {
                     .multilineTextAlignment(.center)
             }
         } actions: {
-            Button(action: context.onDecline) { CheckActionLabel(title: "Don't Connect") }
-                .buttonStyle(.borderedProminent)
+            Button(action: context.onDecline) {
+                CheckActionLabel(title: "Don't Connect")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
         }
     }
 }
@@ -771,8 +779,11 @@ private struct HostKeyCheckNotReaching: View {
                 }
             }
         } actions: {
-            Button(action: context.onDecline) { CheckActionLabel(title: "Don't Connect") }
-                .buttonStyle(.borderedProminent)
+            Button(action: context.onDecline) {
+                CheckActionLabel(title: "Don't Connect")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
             if let keyPath = SSHHostKeyFingerprint.localVerificationPath(for: context.newKey.keyType) {
                 NavigationLink {
                     HostKeyCheckGetFingerprint(context: context, keyPath: keyPath)
@@ -802,8 +813,11 @@ private struct HostKeyVerifyLater: View {
                 .font(.callout)
                 .multilineTextAlignment(.center)
         } actions: {
-            Button(action: context.onDecline) { CheckActionLabel(title: "OK") }
-                .buttonStyle(.borderedProminent)
+            Button(action: context.onDecline) {
+                CheckActionLabel(title: "OK")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
         }
     }
 }
@@ -829,8 +843,11 @@ private struct HostKeyCheckCommandHelp: View {
                     .font(.callout)
             }
         } actions: {
-            Button(action: { dismiss() }) { CheckActionLabel(title: "Try Again") }
-                .buttonStyle(.borderedProminent)
+            Button(action: { dismiss() }) {
+                CheckActionLabel(title: "Try Again")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
             NavigationLink {
                 HostKeyVerifyLater(context: context)
             } label: {
@@ -855,11 +872,7 @@ private enum HostKeyFlowPrototype: CaseIterable {
 /// the corner, and trusting only takes effect if the reconnect it triggers
 /// actually verifies the key.
 struct HostKeyReviewView: View {
-    let displayName: String
-    let host: String
-    let newKey: SSHHostKeyInfo
-    let previousKeys: [SavedConnections.TrustedHostKey]
-    let similarNamedNearby: [String]
+    let request: HostKeyReviewRequest
     let onTrust: () -> Void
     let onDecline: () -> Void
 
@@ -867,15 +880,7 @@ struct HostKeyReviewView: View {
         HostKeyFlowPrototype.allCases.randomElement() ?? .decisionFirst
 
     var body: some View {
-        let context = HostKeyCheckContext(
-            displayName: displayName,
-            host: host,
-            newKey: newKey,
-            previousKeys: previousKeys,
-            similarNamedNearby: similarNamedNearby,
-            onTrust: onTrust,
-            onDecline: onDecline
-        )
+        let context = HostKeyCheckContext(request: request, onTrust: onTrust, onDecline: onDecline)
         NavigationStack {
             switch prototype {
             case .decisionFirst:
@@ -884,6 +889,7 @@ struct HostKeyReviewView: View {
                 HostKeyCheckStart(context: context)
             }
         }
+        .themeTint(UserPreferences.shared.tintColorValue)
     }
 }
 
@@ -905,7 +911,7 @@ private struct TrustConfirmation: ViewModifier {
             Button("Trust & Reconnect") { onTrust() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Control will replace the fingerprint it saved for \(displayName) once it reconnects.")
+            Text("Control will trust this fingerprint for \(displayName) once it reconnects.")
         }
     }
 }
@@ -942,13 +948,16 @@ private struct HostKeyDecisionPage: View {
                 }
             }
         } actions: {
-            Button(action: { confirmingTrust = true }) { CheckActionLabel(title: "Trust & Reconnect") }
-                .buttonStyle(.borderedProminent)
-                .modifier(TrustConfirmation(
-                    displayName: context.displayName,
-                    isPresented: $confirmingTrust,
-                    onTrust: context.onTrust
-                ))
+            Button(action: { confirmingTrust = true }) {
+                CheckActionLabel(title: "Trust & Reconnect")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
+            .modifier(TrustConfirmation(
+                displayName: context.displayName,
+                isPresented: $confirmingTrust,
+                onTrust: context.onTrust
+            ))
             NavigationLink {
                 HostKeyVerifyPage(context: context)
             } label: {
@@ -1061,13 +1070,16 @@ private struct HostKeyCheckExpectedChange: View {
         ) {
             EmptyView()
         } actions: {
-            Button(action: { confirmingTrust = true }) { CheckActionLabel(title: "Trust & Reconnect") }
-                .buttonStyle(.borderedProminent)
-                .modifier(TrustConfirmation(
-                    displayName: context.displayName,
-                    isPresented: $confirmingTrust,
-                    onTrust: context.onTrust
-                ))
+            Button(action: { confirmingTrust = true }) {
+                CheckActionLabel(title: "Trust & Reconnect")
+                    .glassPillLabel(tint: .accentColor)
+            }
+            .glassPillButtonStyle(tint: .accentColor)
+            .modifier(TrustConfirmation(
+                displayName: context.displayName,
+                isPresented: $confirmingTrust,
+                onTrust: context.onTrust
+            ))
             NavigationLink {
                 HostKeyCheckEntry(context: context)
             } label: {
@@ -1079,21 +1091,25 @@ private struct HostKeyCheckExpectedChange: View {
 }
 
 private let previewContext = HostKeyCheckContext(
-    displayName: "Ryan's MacBook Pro",
-    host: "Ryans-MacBook-Pro.local",
-    newKey: SSHHostKeyInfo(fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c", keyType: "ssh-ed25519"),
-    previousKeys: [.init(fingerprint: "SHA256:0ZhfeRMx5FYwJaKMXuo5um4RQoMu17SCAR2jXU5wFVY", keyType: "ssh-ed25519")],
-    similarNamedNearby: [],
+    request: HostKeyReviewRequest(
+        displayName: "Ryan's MacBook Pro",
+        host: "Ryans-MacBook-Pro.local",
+        newKey: SSHHostKeyInfo(fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c", keyType: "ssh-ed25519"),
+        previousKeys: [.init(fingerprint: "SHA256:0ZhfeRMx5FYwJaKMXuo5um4RQoMu17SCAR2jXU5wFVY", keyType: "ssh-ed25519")],
+        similarNamedNearby: []
+    ),
     onTrust: {},
     onDecline: {}
 )
 
 private let previewContextWithNearby = HostKeyCheckContext(
-    displayName: "Mac mini",
-    host: "192.168.1.50",
-    newKey: SSHHostKeyInfo(fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c", keyType: "ssh-ed25519"),
-    previousKeys: [.init(fingerprint: "SHA256:0ZhfeRMx5FYwJaKMXuo5um4RQoMu17SCAR2jXU5wFVY", keyType: "ssh-ed25519")],
-    similarNamedNearby: ["Mac mini (2)"],
+    request: HostKeyReviewRequest(
+        displayName: "Mac mini",
+        host: "192.168.1.50",
+        newKey: SSHHostKeyInfo(fingerprint: "SHA256:2Kug8N6AtOj8fzQCKPYKpH6A+7m6U6N5fia5nJY5q7c", keyType: "ssh-ed25519"),
+        previousKeys: [.init(fingerprint: "SHA256:0ZhfeRMx5FYwJaKMXuo5um4RQoMu17SCAR2jXU5wFVY", keyType: "ssh-ed25519")],
+        similarNamedNearby: ["Mac mini (2)"]
+    ),
     onTrust: {},
     onDecline: {}
 )

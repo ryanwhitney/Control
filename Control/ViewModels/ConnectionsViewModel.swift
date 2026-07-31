@@ -2,6 +2,22 @@ import SwiftUI
 import Foundation
 import Combine
 
+/// The data the host-key review screen needs to render: the Mac's name and
+/// host (the host's shape picks which conclusions apply), the new (rejected)
+/// fingerprint, the fingerprint(s) previously trusted, and any similarly
+/// named Macs visible on the network right now — observed facts the
+/// conclusion pages can state instead of hypothesizing. Shared between
+/// `ConnectionsViewModel` (which computes it once, in
+/// `makeHostKeyReviewContext`) and `HostKeyReviewView` (which renders it), so
+/// the two don't carry two independently-maintained field lists.
+struct HostKeyReviewRequest {
+    let displayName: String
+    let host: String
+    let newKey: SSHHostKeyInfo
+    let previousKeys: [SavedConnections.TrustedHostKey]
+    let similarNamedNearby: [String]
+}
+
 @MainActor
 class ConnectionsViewModel: ObservableObject {
     @Published var selectedConnection: Connection?
@@ -18,44 +34,52 @@ class ConnectionsViewModel: ObservableObject {
     @Published var activePopover: ActivePopover?
     @Published var showingWhatsNew = false
     /// Which recovery the current error alert should offer. Drives the alert's
-    /// buttons (mismatch → Verify / Cancel) and the dismissal handling.
+    /// buttons and message, and the dismissal handling. A single enum rather
+    /// than parallel optional fields, so e.g. an address-repair offer can't be
+    /// set while the alert also thinks it's showing something else — every
+    /// state the alert can be in is one value, not a combination to keep in sync.
     @Published private(set) var pendingRecovery: PendingRecovery = .none
     /// Presents the host-key review screen (reached from the alert's "Review…").
     @Published var showingHostKeyReview = false
-    /// A key-verified address repair offer: `computer`'s pinned identity
-    /// answered a credential-free probe at `replacement`'s address, so the
-    /// mismatch at the old address is a stale name or address and rebinding is
-    /// cryptographically safe. Settable by the presenting alert's binding so
-    /// dismissal can clear it without side effects; actions carry the value.
-    @Published var pendingAddressRepair: AddressRepair?
+    /// The data the host-key review screen needs, set once when a mismatch is
+    /// recorded (`enterHostKeyMismatchRecovery`) rather than recomputed on
+    /// every access — the alert and the sheet each read it independently.
+    @Published private(set) var hostKeyReviewContext: HostKeyReviewRequest?
 
-    struct AddressRepair: Identifiable {
+    struct AddressRepair: Equatable {
         let id = UUID()
         let computer: Connection
         let replacement: Connection
+        /// The key that triggered this repair search, carried so a failed
+        /// accept (the row moved or vanished mid-probe) can fall back to the
+        /// plain mismatch alert instead of losing the failure entirely.
+        let rejectedKey: SSHHostKeyInfo
+        /// The trusted fingerprint the probe actually saw at `replacement`.
+        /// The reconnect expects this one key rather than the host's whole
+        /// trusted set, so it can't land on a different machine holding some
+        /// other pinned key.
+        let verifiedFingerprint: String
 
         /// Alert copy varies by what actually changed: pure address move vs.
         /// a Bonjour rename ("Mac mini (2)").
         var message: String {
             if replacement.name.caseInsensitiveCompare(computer.name) == .orderedSame {
-                return "\(computer.name) is answering from a new address on your network. Its fingerprint matches the one Control trusts, so this really is your Mac."
+                return "\(computer.name) is answering from a new address on your network. Its fingerprint matches one Control already trusts, so this really is your Mac."
             } else {
-                return "\(computer.name) is now named “\(replacement.name)” on your network. Its fingerprint matches the one Control trusts, so this really is your Mac."
+                return "\(computer.name) is now named “\(replacement.name)” on your network. Its fingerprint matches one Control already trusts, so this really is your Mac."
             }
         }
     }
 
-    /// The list presents every connection problem through one alert: two
-    /// `.alert`s on a single view conflict, and declining the repair has to be
-    /// able to hand over to the mismatch alert. Both share `showingError` and
-    /// differ only in the content these supply.
+    /// The list presents every connection problem through one alert. Title
+    /// and message come from whichever case `pendingRecovery` is in.
     var alertTitle: String {
-        if let repair = pendingAddressRepair { return "\(repair.computer.name) Has a New Address" }
+        if case .addressRepair(let repair) = pendingRecovery { return "\(repair.computer.name) Has a New Address" }
         return connectionError?.title ?? ""
     }
 
     var alertMessage: String {
-        if let repair = pendingAddressRepair { return repair.message }
+        if case .addressRepair(let repair) = pendingRecovery { return repair.message }
         return connectionError?.message ?? ""
     }
 
@@ -98,7 +122,12 @@ class ConnectionsViewModel: ObservableObject {
     enum PendingRecovery: Equatable {
         case none
         case authFailure
-        case hostKeyMismatch(rejectedKey: SSHHostKeyInfo?)
+        case hostKeyMismatch(rejectedKey: SSHHostKeyInfo)
+        /// A key-verified address repair offer: `computer`'s pinned identity
+        /// answered a credential-free probe at `replacement`'s address, so the
+        /// mismatch at the old address is a stale name or address and
+        /// rebinding is cryptographically safe.
+        case addressRepair(AddressRepair)
     }
 
     var hasConnections: Bool {
@@ -115,7 +144,7 @@ class ConnectionsViewModel: ObservableObject {
         }
         // Route in-session mismatches back into this list's verify/reconnect flow.
         connectionManager.hostKeyMismatchHandler = { [weak self] rejectedKey in
-            self?.handleInSessionHostKeyMismatch(rejectedKey: rejectedKey)
+            await self?.handleInSessionHostKeyMismatch(rejectedKey: rejectedKey)
         }
 
         updateSavedComputers(savedConnections.items)
@@ -204,7 +233,7 @@ class ConnectionsViewModel: ObservableObject {
         }
     }
 
-    func connectWithCredentials(computer: Connection) {
+    func connectWithCredentials(computer: Connection, expecting: Set<String>? = nil) {
         viewLog("ConnectionsViewModel: Attempting connection with saved credentials", view: "ConnectionsViewModel")
 
         logConnectionAttempt(computer: computer)
@@ -212,23 +241,22 @@ class ConnectionsViewModel: ObservableObject {
 
         Task {
             do {
-                let hostKey = try await performConnection(computer: computer)
+                let hostKey = try await performConnection(computer: computer, expecting: expecting)
                 connectingComputer = nil
                 savedConnections.pinHostKey(hostKey, for: computer.host)
                 navigateToApp(computer: computer)
             } catch {
                 connectingComputer = nil
-                handleConnectionError(error: error, computer: computer)
+                await handleConnectionError(error: error, computer: computer)
             }
         }
     }
 
-    /// "Add" from the add sheet, where the username and password are optional.
-    /// With both filled in this is a normal connect. With either blank there's
-    /// nothing to authenticate with, so instead of offering empty credentials
-    /// and failing, confirm the Mac is really at that address with a
-    /// credential-free probe, save it, and ask for the login. An address that
-    /// answers nothing errors and saves no row, so a typo leaves nothing behind.
+    /// "Add", where credentials are optional. With both filled in this is a
+    /// normal connect. With either blank there is nothing to authenticate
+    /// with, so a credential-free probe confirms the Mac is really there,
+    /// saves it, and asks for the login. An address that answers nothing
+    /// errors and saves no row, so a typo leaves nothing behind.
     func addConnection(computer: Connection) {
         guard username.isEmpty || password.isEmpty else {
             connectWithNewCredentials(computer: computer)
@@ -243,7 +271,7 @@ class ConnectionsViewModel: ObservableObject {
             connectingComputer = nil
 
             guard found else {
-                handleConnectionError(
+                await handleConnectionError(
                     error: SSHError.connectionFailed("no SSH host answered at \(computer.host)"),
                     computer: computer
                 )
@@ -251,8 +279,7 @@ class ConnectionsViewModel: ObservableObject {
             }
 
             // The probe proves an SSH host is there, not which one, so nothing
-            // is pinned here: the first authenticated connect still establishes
-            // trust exactly as it does for any other new Mac.
+            // is pinned yet — the first authenticated connect establishes trust.
             savedConnections.add(
                 hostname: computer.host,
                 name: computer.name,
@@ -279,7 +306,7 @@ class ConnectionsViewModel: ObservableObject {
             do {
                 let hostKey = try await performConnection(
                     computer: computer,
-                    additionalTrustedFingerprints: approvedHostKey.map { [$0.fingerprint] } ?? []
+                    expecting: approvedHostKey.map { [$0.fingerprint] }
                 )
                 connectingComputer = nil
 
@@ -298,30 +325,9 @@ class ConnectionsViewModel: ObservableObject {
                 navigateToApp(computer: computer)
             } catch {
                 connectingComputer = nil
-                handleConnectionError(error: error, computer: computer)
+                await handleConnectionError(error: error, computer: computer)
             }
         }
-    }
-
-    /// The data the host-key review screen needs: the Mac's name and host (the
-    /// host's shape picks which conclusions apply), the new (rejected)
-    /// fingerprint, the fingerprint(s) previously trusted, and any
-    /// similarly named Macs visible on the network right now — observed facts
-    /// the conclusion pages can state instead of hypothesizing. Nil unless a
-    /// mismatch is awaiting review.
-    var hostKeyReviewContext: (displayName: String, host: String, newKey: SSHHostKeyInfo, previousKeys: [SavedConnections.TrustedHostKey], similarNamedNearby: [String])? {
-        guard let computer = recoveryComputer,
-              case .hostKeyMismatch(let rejected) = pendingRecovery,
-              let key = rejected else { return nil }
-        let stem = HostIdentityHeuristics.nameStem(computer.name)
-        let nearby = networkComputers
-            .filter {
-                $0.host.caseInsensitiveCompare(computer.host) != .orderedSame
-                    && !stem.isEmpty
-                    && HostIdentityHeuristics.nameStem($0.name) == stem
-            }
-            .map(\.name)
-        return (computer.name, computer.host, key, savedConnections.trustedHostKeys(for: computer.host), nearby)
     }
 
     /// The user tapped "Verify" on the host-key-change alert — open the review
@@ -338,8 +344,12 @@ class ConnectionsViewModel: ObservableObject {
     /// `selectedConnection` — is set in every flow, including add-connection.
     func confirmHostKeyChangeAndReconnect() {
         guard let computer = recoveryComputer else { return }
-        var approvedKey: SSHHostKeyInfo?
-        if case .hostKeyMismatch(let rejected) = pendingRecovery { approvedKey = rejected }
+        let approvedKey: SSHHostKeyInfo?
+        if case .hostKeyMismatch(let rejected) = pendingRecovery {
+            approvedKey = rejected
+        } else {
+            approvedKey = nil
+        }
         showingHostKeyReview = false
         clearRecoveryState()
         connectWithNewCredentials(computer: computer, approvedHostKey: approvedKey)
@@ -350,21 +360,51 @@ class ConnectionsViewModel: ObservableObject {
     func cancelHostKeyMismatch() {
         showingHostKeyReview = false
         clearRecoveryState()
-        selectedConnection = nil
-        username = ""
-        password = ""
+        resetSelection()
     }
 
-    /// An in-session reconnect (ControlView / setup flow) hit a mismatch. Rather
-    /// than trust or reconnect from a screen that can't reach the store, capture
-    /// the failure, pop back to the connections list, and present the same
-    /// verify/reconnect alert there — one recovery path for both entry points.
-    private func handleInSessionHostKeyMismatch(rejectedKey: SSHHostKeyInfo?) {
-        guard let computer = selectedConnection else { return }
+    /// Records the failure and the review screen's data, then resolves the
+    /// address-repair search before returning, so callers present an outcome
+    /// rather than a pending state. Shared by both mismatch entry points so
+    /// they can't drift in what they offer for the same failure.
+    private func enterHostKeyMismatchRecovery(rejectedKey: SSHHostKeyInfo, computer: Connection) async {
         recoveryComputer = computer
         pendingRecovery = .hostKeyMismatch(rejectedKey: rejectedKey)
+        hostKeyReviewContext = makeHostKeyReviewContext(rejectedKey: rejectedKey, computer: computer)
         let formatted = SSHError.hostKeyMismatch(observed: rejectedKey).formatError(displayName: computer.name)
         connectionError = (formatted.title, formatted.message)
+        await attemptAddressRepair(for: computer, rejectedKey: rejectedKey)
+    }
+
+    /// The Mac's name and host (the host's shape picks which conclusions
+    /// apply), the new (rejected) fingerprint, the fingerprint(s) previously
+    /// trusted, and any similarly named Macs visible on the network right
+    /// now — observed facts the conclusion pages can state instead of
+    /// hypothesizing.
+    private func makeHostKeyReviewContext(rejectedKey: SSHHostKeyInfo, computer: Connection) -> HostKeyReviewRequest {
+        let stem = HostIdentityHeuristics.nameStem(computer.name)
+        let nearby = networkComputers
+            .filter {
+                $0.host.caseInsensitiveCompare(computer.host) != .orderedSame
+                    && !stem.isEmpty
+                    && HostIdentityHeuristics.nameStem($0.name) == stem
+            }
+            .map(\.name)
+        return HostKeyReviewRequest(
+            displayName: computer.name,
+            host: computer.host,
+            newKey: rejectedKey,
+            previousKeys: savedConnections.trustedHostKeys(for: computer.host),
+            similarNamedNearby: nearby
+        )
+    }
+
+    /// A mismatch hit from ControlView or the setup flow, neither of which can
+    /// reach the store. Resolves recovery here, then pops back to the list to
+    /// present it.
+    private func handleInSessionHostKeyMismatch(rejectedKey: SSHHostKeyInfo) async {
+        guard let computer = selectedConnection else { return }
+        await enterHostKeyMismatchRecovery(rejectedKey: rejectedKey, computer: computer)
         presentMismatchOnReturn = true
         navigateToControl = false
         showingSetupFlow = false
@@ -378,15 +418,13 @@ class ConnectionsViewModel: ObservableObject {
         presentMismatchOnReturn = false
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 400_000_000)
-            // Only present if nothing else has started. A tap on another Mac
-            // inside the delay would otherwise raise this Mac's alert over that
-            // connect, and "Review…" would open the wrong Mac's fingerprint.
-            // Dropping it is safe: the mismatch recurs on the next attempt.
-            // `selectedConnection` is still the failed Mac when the setup flow
-            // popped us back, so only a switch to a *different* one disqualifies.
+            // A tap on another Mac inside the delay would raise this Mac's
+            // alert over that connect, and "Review…" would open the wrong
+            // fingerprint. Dropping it is safe — the mismatch recurs on the
+            // next attempt. The setup-flow pop leaves `selectedConnection` on
+            // the failed Mac, so only a switch to a different one disqualifies.
             guard connectingComputer == nil,
                   !isAuthenticating,
-                  pendingAddressRepair == nil,
                   selectedConnection == nil || selectedConnection?.id == recoveryComputer?.id else { return }
             showingError = true
         }
@@ -401,16 +439,24 @@ class ConnectionsViewModel: ObservableObject {
             password = ""
             isAuthenticating = true
         } else {
-            selectedConnection = nil
-            username = ""
-            password = ""
+            resetSelection()
         }
+    }
+
+    /// Backs out of the current selection entirely: no computer, no entered
+    /// credentials. Shared by every dismissal that isn't re-prompting for
+    /// the same computer.
+    private func resetSelection() {
+        selectedConnection = nil
+        username = ""
+        password = ""
     }
 
     private func clearRecoveryState() {
         pendingRecovery = .none
         recoveryComputer = nil
         connectingComputer = nil
+        hostKeyReviewContext = nil
     }
 
     func deleteConnection(hostname: String) {
@@ -485,14 +531,14 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     /// Connects and returns the host key the server presented (for pinning).
-    /// `additionalTrustedFingerprints` is empty for a normal connect; on a
-    /// user-approved reconnect after a host-key change it carries the newly
-    /// approved key so this one attempt accepts it.
-    private func performConnection(computer: Connection, additionalTrustedFingerprints: Set<String> = []) async throws -> SSHHostKeyInfo {
+    /// `expecting` narrows the connect to one specific key the user or a probe
+    /// just verified, instead of the host's whole trusted set — so a reconnect
+    /// meant for that key can't be satisfied by a different machine whose key
+    /// also happens to be pinned.
+    private func performConnection(computer: Connection, expecting: Set<String>? = nil) async throws -> SSHHostKeyInfo {
         // `connect()` tears down any existing connection itself, so there's no
         // pre-disconnect step here.
-        var trusted = savedConnections.trustedHostKeyFingerprints(for: computer.host)
-        trusted.formUnion(additionalTrustedFingerprints)
+        let trusted = expecting ?? savedConnections.trustedHostKeyFingerprints(for: computer.host)
         let hostKey = try await connectionManager.connect(
             host: computer.host,
             username: username,
@@ -504,23 +550,25 @@ class ConnectionsViewModel: ObservableObject {
         return hostKey
     }
 
-    private func handleConnectionError(error: Error, computer: Connection) {
+    private func handleConnectionError(error: Error, computer: Connection) async {
         isAuthenticating = false
+
+        if case SSHError.hostKeyMismatch(let observed) = error {
+            await enterHostKeyMismatchRecovery(rejectedKey: observed, computer: computer)
+            showingError = true
+            return
+        }
 
         if let sshError = error as? SSHError {
             viewLog("✅ Successfully handled SSHError: \(sshError)", view: "ConnectionsViewModel")
             let formattedError = sshError.formatError(displayName: computer.name)
             connectionError = (formattedError.title, formattedError.message)
 
-            // Pick the recovery the alert should offer: re-prompt for
-            // credentials (auth failure), the verify/cancel choice
-            // (host-key mismatch), or a plain dismissal for anything else.
-            switch sshError {
-            case .authenticationFailed:
+            // Re-prompt for credentials on an auth failure; a plain dismissal
+            // for anything else (mismatch is handled above and returns early).
+            if case .authenticationFailed = sshError {
                 pendingRecovery = .authFailure
-            case .hostKeyMismatch(let observed):
-                pendingRecovery = .hostKeyMismatch(rejectedKey: observed)
-            default:
+            } else {
                 pendingRecovery = .none
             }
         } else {
@@ -536,47 +584,44 @@ class ConnectionsViewModel: ObservableObject {
             pendingRecovery = .none
         }
         recoveryComputer = computer
-        if case .hostKeyMismatch(let rejected) = pendingRecovery, rejected != nil {
-            Task { await attemptAddressRepairThenPresent(for: computer) }
-        } else {
-            showingError = true
-        }
+        showingError = true
     }
 
-    /// After a mismatch, searches the network for the Mac's pinned identity
-    /// at another address before alarming the user: a Bonjour host with the
-    /// same name stem may be the same Mac renamed or re-addressed. Probes are
-    /// key-exchange only, so no credentials are ever offered to anything.
-    /// Exactly one verified match becomes a repair offer; zero or several
-    /// (several means cloned keys, where only the user knows which box they
-    /// mean) fall through to the standard mismatch alert.
-    private func attemptAddressRepairThenPresent(for computer: Connection) async {
+    /// After a mismatch, searches the network for the Mac's pinned identity at
+    /// another address: a Bonjour host with the same name stem may be the same
+    /// Mac renamed or re-addressed. Probes are key-exchange only, so no
+    /// credentials are ever offered to anything. Exactly one verified match
+    /// moves `pendingRecovery` to the repair offer; zero or several (several
+    /// means cloned keys, where only the user knows which box they mean)
+    /// leave `pendingRecovery` at the plain mismatch this was called with.
+    private func attemptAddressRepair(for computer: Connection, rejectedKey: SSHHostKeyInfo) async {
         let pinned = savedConnections.trustedHostKeyFingerprints(for: computer.host)
-        let candidates = addressRepairCandidates(for: computer)
-        guard !pinned.isEmpty, !candidates.isEmpty else {
-            showingError = true
-            return
-        }
+        // Bounded generously: probing runs concurrently against a shared
+        // event-loop group, so a batch is cheap, but an unusually large LAN
+        // result shouldn't spawn an unbounded number of simultaneous probes.
+        let candidates = Array(addressRepairCandidates(for: computer).prefix(6))
+        guard !pinned.isEmpty, !candidates.isEmpty else { return }
 
         // Keep the row's spinner up while probing so the pause reads as work,
         // and so a second tap can't start a competing connect.
         connectingComputer = computer
-        var matches: [Connection] = []
-        for candidate in candidates.prefix(2) {
-            if let observed = await SSHTransportConnector.probeHostKey(host: candidate.host, timeout: 3.0),
-               pinned.contains(observed.fingerprint) {
-                matches.append(candidate)
-            }
-        }
+        let observed = await SSHTransportConnector.probeHostKeys(hosts: candidates.map(\.host), timeout: 3.0)
         connectingComputer = nil
 
-        if matches.count == 1, let match = matches.first {
-            viewLog("Address repair: pinned key for \(computer.host.redacted()) verified at \(match.host.redacted())", view: "ConnectionsViewModel")
-            pendingAddressRepair = AddressRepair(computer: computer, replacement: match)
-            showingError = true
-        } else {
-            showingError = true
+        let matches = candidates.compactMap { candidate -> (Connection, String)? in
+            guard let fingerprint = observed[candidate.host]?.fingerprint,
+                  pinned.contains(fingerprint) else { return nil }
+            return (candidate, fingerprint)
         }
+        guard matches.count == 1, let (match, verified) = matches.first else { return }
+
+        viewLog("Address repair: pinned key for \(computer.host.redacted()) verified at \(match.host.redacted())", view: "ConnectionsViewModel")
+        pendingRecovery = .addressRepair(AddressRepair(
+            computer: computer,
+            replacement: match,
+            rejectedKey: rejectedKey,
+            verifiedFingerprint: verified
+        ))
     }
 
     /// Discovered hosts that could be `computer` under a new name or address:
@@ -596,11 +641,11 @@ class ConnectionsViewModel: ObservableObject {
     /// password, preferences) to the verified address and reconnect. Trust
     /// carries over because the key at the new address already matched it.
     func acceptAddressRepair(_ repair: AddressRepair) {
-        pendingAddressRepair = nil
         guard savedConnections.updateHostname(from: repair.computer.host, to: repair.replacement.host) else {
             // The row moved or vanished while the probe ran. Connecting now
-            // would repair nothing and pin nothing, so fall back to the
-            // mismatch rather than quietly trusting-on-first-use.
+            // would repair nothing and pin nothing, so fall back to the plain
+            // mismatch alert rather than quietly trusting-on-first-use.
+            pendingRecovery = .hostKeyMismatch(rejectedKey: repair.rejectedKey)
             presentAlertNextTurn()
             return
         }
@@ -608,7 +653,7 @@ class ConnectionsViewModel: ObservableObject {
         // list doesn't keep showing the one the alert just superseded.
         savedConnections.updateName(repair.replacement.name, for: repair.replacement.host)
         clearRecoveryState()
-        connectWithCredentials(computer: repair.replacement)
+        connectWithCredentials(computer: repair.replacement, expecting: [repair.verifiedFingerprint])
     }
 
     /// "Not Now" on the repair offer: nothing moves and nothing is trusted, but
@@ -616,7 +661,8 @@ class ConnectionsViewModel: ObservableObject {
     /// alert rather than returning to a list that looks untroubled. That alert
     /// carries the explanation and the route to the fingerprint review.
     func declineAddressRepair() {
-        pendingAddressRepair = nil
+        guard case .addressRepair(let repair) = pendingRecovery else { return }
+        pendingRecovery = .hostKeyMismatch(rejectedKey: repair.rejectedKey)
         presentAlertNextTurn()
     }
 
@@ -645,8 +691,7 @@ class ConnectionsViewModel: ObservableObject {
     }
 
     private func logConnectionAttempt(computer: Connection) {
-        let isLocal = computer.host.contains(".local")
-        let connectionType = isLocal ? "Bonjour (.local)" : "Manual IP"
+        let connectionType = HostProvenance(host: computer.host) == .localHostname ? "Bonjour (.local)" : "Manual IP"
         viewLog("Connection type: \(connectionType)", view: "ConnectionsViewModel")
         viewLog("Computer name: \(computer.name.redacted())", view: "ConnectionsViewModel")
         viewLog("Host: \(computer.host.redacted())", view: "ConnectionsViewModel")

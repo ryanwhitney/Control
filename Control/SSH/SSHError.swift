@@ -13,7 +13,9 @@ enum SSHError: Error {
     /// successful connection. `observed` carries the key actually presented
     /// (for internal logging and for re-pinning if the user chooses to
     /// reconnect anyway) — never surfaced in `formatError`'s user-facing copy.
-    case hostKeyMismatch(observed: SSHHostKeyInfo?)
+    /// Always non-nil: the one construction site (`HostKeyPinningDelegate`)
+    /// only reaches this case after successfully computing the presented key.
+    case hostKeyMismatch(observed: SSHHostKeyInfo)
 
     /// Single connection-error classifier shared by both transports, so the same
     /// network failure maps to the same `SSHError` (and user-facing message)
