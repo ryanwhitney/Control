@@ -281,24 +281,3 @@ private struct PlatformControlPreviewHost: View {
         )
     }
 }
-
-// TEMPORARILY DISABLED to verify a build during host-key-pinning work: this
-// preview crashes the Swift frontend ("failed to produce diagnostic for
-// expression; please submit a bug report") independent of that change —
-// reproduces even after removing the connect() signature update and the
-// pre-existing `return` issue. Pre-existing/unrelated; needs its own look.
-// #Preview {
-//     let client = SSHClient()
-//     client.connect(
-//         host: ProcessInfo.processInfo.environment["ENV_HOST"] ?? "",
-//         username: ProcessInfo.processInfo.environment["ENV_USER"] ?? "",
-//         password: ProcessInfo.processInfo.environment["ENV_PASS"] ?? "",
-//         trustedHostKeyFingerprints: []
-//     ) { _ in }
-//     let controller = AppController(sshClient: client, platformRegistry: PlatformRegistry())
-//
-//     PlatformControlPreviewHost()
-//         .environmentObject(controller)
-//         .padding()
-//         .preferredColorScheme(.dark)
-// }
