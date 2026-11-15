@@ -68,16 +68,16 @@ struct KeyPadControl: View {
     /// The utility strip pivoted for landscape: same cells, top-to-bottom.
     private func utilityColumn(capSize: CGFloat) -> some View {
         VStack(spacing: spacing) {
-            ForEach(Array(layoutStore.layout.utility.cells.enumerated()), id: \.offset) { _, command in
-                cellView(command, capSize: capSize)
+            ForEach(Array(layoutStore.layout.utility.cells.enumerated()), id: \.offset) { _, cell in
+                cellView(cell, capSize: capSize)
             }
         }
     }
 
     @ViewBuilder
-    private func cellView(_ command: PadCommand?, capSize: CGFloat) -> some View {
-        if let command {
-            commandButton(command, capSize: capSize)
+    private func cellView(_ cell: PadCell?, capSize: CGFloat) -> some View {
+        if let cell {
+            cellButton(cell, capSize: capSize)
                 .clipShape(RoundedRectangle(cornerRadius: 20.0))
         } else {
             // Sized, not `gridCellUnsizedAxes`: an empty row or column must
@@ -92,12 +92,12 @@ struct KeyPadControl: View {
         min(capSize * 0.6, 50 * sizeScale)
     }
 
-    private func commandButton(_ command: PadCommand, capSize: CGFloat) -> some View {
-        PadKeyButton(command: command, size: capSize, fontSize: glyphFontSize(for: capSize)) {
+    private func cellButton(_ cell: PadCell, capSize: CGFloat) -> some View {
+        PadKeyButton(cell: cell, size: capSize, fontSize: glyphFontSize(for: capSize)) {
             // Independent, so a run of presses is limited only by the
             // connection. `updateState`'s 2 s dedupe caps the refreshes.
             Task {
-                await controller.executeActionWithoutStatus(platform: platform, action: command.action)
+                await controller.executeActionWithoutStatus(platform: platform, action: cell.action)
             }
             Task {
                 await controller.updateState(for: platform)
@@ -109,22 +109,36 @@ struct KeyPadControl: View {
 /// One live pad key. Takes no controller or store, so the "Key caps" preview
 /// can render every shape directly.
 struct PadKeyButton: View {
-    let command: PadCommand
+    let cell: PadCell
     var size: CGFloat = 60
     var fontSize: CGFloat = 36
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            // By font, not a resizable frame: these glyphs don't share an aspect
-            // ratio, and a uniform square renders the wide ones tiny.
-            KeyCapGlyph(glyph: command.glyph, wrapsLongText: true)
-                .accessibilityLabel(command.label)
+            if let hint = cell.keyHint {
+                // Smaller than a bare glyph, so the icon and hint together
+                // still fit the cap.
+                VStack(spacing: size * 0.04) {
+                    KeyCapGlyph(glyph: cell.glyph)
+                        .font(.system(size: fontSize * 0.7))
+                    Text(hint)
+                        .font(.system(size: max(10, size * 0.15), weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                }
+            } else {
+                // By font, not a resizable frame: these glyphs don't share an
+                // aspect ratio, and a uniform square renders the wide ones tiny.
+                KeyCapGlyph(glyph: cell.glyph, wrapsLongText: true)
+            }
         }
         // Don't pad: a cap's footprint must stay exactly `size` — the pad's
         // sizing and its empty-cell placeholders assume it.
         .buttonStyle(IconButtonStyle(width: size, height: size, fontSize: fontSize))
-        .accessibilityInputLabels(command.inputLabels)
+        .accessibilityLabel(cell.label)
+        .accessibilityInputLabels(cell.inputLabels)
     }
 }
 
@@ -186,7 +200,7 @@ struct KeyCapGlyph: View {
         VStack(spacing: 24) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
                 ForEach(caps) { cap in
-                    PadKeyButton(command: .key(cap)) {}
+                    PadKeyButton(cell: .key(cap)) {}
                 }
             }
             Text("Compact (phone landscape)")
@@ -194,7 +208,7 @@ struct KeyCapGlyph: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 6) {
                 ForEach(caps) { cap in
-                    PadKeyButton(command: .key(cap), size: 44, fontSize: 26) {}
+                    PadKeyButton(cell: .key(cap), size: 44, fontSize: 26) {}
                 }
             }
         }

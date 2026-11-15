@@ -46,6 +46,97 @@ enum PadCommand: Equatable {
         case .shortcut(let shortcut): return [shortcut.spokenText]
         }
     }
+
+    /// The shortest text naming what's sent, for under an icon. Spoken names
+    /// for symbol keys ("Space"), but the cap itself for characters: "`", not
+    /// "Grave".
+    var compactText: String {
+        switch self {
+        case .key(let key):
+            if case .character(let cap) = key.glyph { return cap }
+            return key.label
+        case .shortcut(let shortcut):
+            return shortcut.capText
+        }
+    }
+}
+
+/// A filled pad cell: the command it sends, and optionally an icon drawn in
+/// place of the command's own cap. Views render through the properties here so
+/// the icon's fallback rules live in one place.
+struct PadCell: Equatable {
+    var command: PadCommand
+    /// An SF Symbol name. Belongs to the cell, not the command: two cells
+    /// sending the same key can look different.
+    var icon: String?
+
+    static func key(_ key: RemoteKey) -> PadCell {
+        PadCell(command: .key(key))
+    }
+
+    static func shortcut(_ shortcut: KeyShortcut) -> PadCell {
+        PadCell(command: .shortcut(shortcut))
+    }
+
+    var action: AppAction { command.action }
+
+    /// nil if this iOS lacks the symbol (stored by a newer version), so the
+    /// cell shows its key's cap instead of nothing.
+    var drawableIcon: String? {
+        guard let icon, PadIcon.isDrawable(icon) else { return nil }
+        return icon
+    }
+
+    var glyph: RemoteKey.Glyph {
+        drawableIcon.map(RemoteKey.Glyph.symbol) ?? command.glyph
+    }
+
+    /// Under an icon on the live pad, so the key it sends stays visible. nil
+    /// without one: the cap already shows it.
+    var keyHint: String? {
+        drawableIcon == nil ? nil : command.compactText
+    }
+
+    /// Under the cap in the editor. An icon never names the key, so an iconed
+    /// character key gains the caption it otherwise goes without.
+    var caption: String? {
+        drawableIcon == nil ? command.caption : (command.caption ?? command.compactText)
+    }
+
+    private var iconName: String? {
+        drawableIcon.flatMap(PadIcon.withID)?.name
+    }
+
+    /// The icon's name leads, since it's what's on screen, but the key always
+    /// follows: it's what actually happens.
+    var label: String {
+        iconName.map { "\($0), \(command.label)" } ?? command.label
+    }
+
+    var inputLabels: [String] {
+        command.inputLabels + (iconName.map { [$0] } ?? [])
+    }
+}
+
+/// Flat on the wire — the command's own fields plus `icon` — so v1 cells
+/// without an icon are unchanged, and a version that predates icons reads an
+/// iconed cell as its bare command.
+extension PadCell: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case icon
+    }
+
+    init(from decoder: Decoder) throws {
+        command = try PadCommand(from: decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        icon = try? container.decodeIfPresent(String.self, forKey: .icon)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try command.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(icon, forKey: .icon)
+    }
 }
 
 extension PadCommand: Codable {
@@ -95,16 +186,16 @@ extension PadCommand: Codable {
 /// so a version that widens a zone doesn't strand older data.
 struct CellGrid: Equatable {
     var columns: Int
-    var cells: [PadCommand?]
+    var cells: [PadCell?]
 
-    init(columns: Int, cells: [PadCommand?]) {
+    init(columns: Int, cells: [PadCell?]) {
         self.columns = max(1, columns)
         self.cells = Self.paddedToWholeRows(cells, columns: self.columns)
     }
 
     var rowCount: Int { cells.count / columns }
 
-    subscript(row: Int, column: Int) -> PadCommand? {
+    subscript(row: Int, column: Int) -> PadCell? {
         get { cells[row * columns + column] }
         set { cells[row * columns + column] = newValue }
     }
@@ -114,7 +205,7 @@ struct CellGrid: Equatable {
     func reflowed(toColumns newColumns: Int) -> CellGrid {
         let newColumns = max(1, newColumns)
         guard newColumns != columns else { return self }
-        var reflowed: [PadCommand?] = []
+        var reflowed: [PadCell?] = []
         for row in 0..<rowCount {
             for column in 0..<newColumns {
                 reflowed.append(column < columns ? self[row, column] : nil)
@@ -123,7 +214,7 @@ struct CellGrid: Equatable {
         return CellGrid(columns: newColumns, cells: reflowed)
     }
 
-    private static func paddedToWholeRows(_ cells: [PadCommand?], columns: Int) -> [PadCommand?] {
+    private static func paddedToWholeRows(_ cells: [PadCell?], columns: Int) -> [PadCell?] {
         var cells = cells
         if cells.isEmpty {
             return Array(repeating: nil, count: columns)
@@ -144,19 +235,19 @@ extension CellGrid: Codable {
     /// An entry this version can't read becomes an empty cell, rather than
     /// failing the whole layout back to `standard`.
     private struct LossyCell: Codable {
-        let command: PadCommand?
+        let cell: PadCell?
 
-        init(_ command: PadCommand?) {
-            self.command = command
+        init(_ cell: PadCell?) {
+            self.cell = cell
         }
 
         init(from decoder: Decoder) {
-            command = try? PadCommand(from: decoder)
+            cell = try? PadCell(from: decoder)
         }
 
         func encode(to encoder: Encoder) throws {
-            if let command {
-                try command.encode(to: encoder)
+            if let cell {
+                try cell.encode(to: encoder)
             } else {
                 var container = encoder.singleValueContainer()
                 try container.encodeNil()
@@ -170,7 +261,7 @@ extension CellGrid: Codable {
         guard columns > 0 else {
             throw DecodingError.dataCorruptedError(forKey: .columns, in: container, debugDescription: "Non-positive column count")
         }
-        let cells = try container.decode([LossyCell].self, forKey: .cells).map(\.command)
+        let cells = try container.decode([LossyCell].self, forKey: .cells).map(\.cell)
         self.init(columns: columns, cells: cells)
     }
 
@@ -218,8 +309,8 @@ struct KeyPadLayout: Equatable {
         ]),
         pad: CellGrid(columns: 3, cells: [
             .key(RemoteKey.withID("a")!),      .key(RemoteKey.withID("f12")!), .key(RemoteKey.withID("`")!),
-            .key(.left),                       .key(.space),                   .key(.right),
-            .shortcut(KeyShortcut.presets[4]), .key(.down),                    .key(RemoteKey.withID("7")!),
+            .key(.left),                       PadCell(command: .key(.space), icon: "playpause.fill"), .key(.right),
+            .shortcut(KeyShortcut.presets[4]), .key(.down),                    PadCell(command: .shortcut(KeyShortcut.presets[1]), icon: "arrow.uturn.forward"),
         ])
     )
 
@@ -238,12 +329,12 @@ struct KeyPadLayout: Equatable {
         }
     }
 
-    subscript(address: CellAddress) -> PadCommand? {
+    subscript(address: CellAddress) -> PadCell? {
         get { self[address.zone].cells[address.index] }
         set { self[address.zone].cells[address.index] = newValue }
     }
 
-    mutating func swapCommands(_ a: CellAddress, _ b: CellAddress) {
+    mutating func swapCells(_ a: CellAddress, _ b: CellAddress) {
         let held = self[a]
         self[a] = self[b]
         self[b] = held

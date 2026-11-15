@@ -102,6 +102,59 @@ struct KeyPadLayoutTests {
         #expect(grid[1, 0] == .key(.right))
     }
 
+    // MARK: Icons
+
+    /// Flat on the wire: an icon is one extra field beside the command's own,
+    /// so v1 data needs no migration and older versions read the bare command.
+    @Test func iconsAreAnAdditiveFieldOnTheCell() throws {
+        let cell = PadCell(command: .key(.space), icon: "playpause.fill")
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cell)) as? [String: String]
+        #expect(object == ["type": "key", "key": "space", "icon": "playpause.fill"])
+        let bare = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PadCell.key(.space))) as? [String: String]
+        #expect(bare == ["type": "key", "key": "space"])
+    }
+
+    @Test func iconedLayoutSurvivesACodableRoundTrip() throws {
+        var layout = KeyPadLayout.standard
+        layout[CellAddress(zone: .pad, index: 4)]?.icon = "playpause.fill"
+        layout[CellAddress(zone: .utility, index: 1)] = PadCell(command: .shortcut(KeyShortcut.presets[0]), icon: "arrow.uturn.backward")
+        let decoded = try JSONDecoder().decode(KeyPadLayout.self, from: JSONEncoder().encode(layout))
+        #expect(decoded == layout)
+    }
+
+    /// A symbol this iOS lacks (stored by a newer version) falls back to the
+    /// key's own cap rather than drawing nothing.
+    @Test func undrawableIconsFallBackToTheKeysCap() {
+        let cell = PadCell(command: .key(.space), icon: "not.a.real.symbol")
+        #expect(cell.glyph == RemoteKey.space.glyph)
+        #expect(cell.keyHint == nil)
+        #expect(cell.label == "Space")
+    }
+
+    /// The key stays visible under an icon: the cap for characters, the name
+    /// for symbol keys, the chord for shortcuts.
+    @Test func iconedCellsHintTheKeyTheySend() {
+        #expect(PadCell(command: .key(.space), icon: "play.fill").keyHint == "Space")
+        #expect(PadCell(command: .key(RemoteKey.withID("`")!), icon: "star.fill").keyHint == "`")
+        #expect(PadCell(command: .shortcut(KeyShortcut.presets[0]), icon: "arrow.uturn.backward").keyHint == "⌘Z")
+        #expect(PadCell.key(.space).keyHint == nil)
+    }
+
+    @Test func iconedCellsSpeakTheIconThenTheKey() {
+        let cell = PadCell(command: .key(.space), icon: "play.fill")
+        #expect(cell.label == "Play, Space")
+        #expect(cell.inputLabels.contains("Play"))
+        #expect(cell.inputLabels.contains("Spacebar"))
+    }
+
+    @Test func everyCatalogIconExistsAndIsUnique() {
+        let ids = PadIcon.all.map(\.id)
+        #expect(Set(ids).count == ids.count)
+        for id in ids {
+            #expect(PadIcon.isDrawable(id), "\(id) isn't an SF Symbol on this iOS")
+        }
+    }
+
     @Test func catalogIDsAreUnique() {
         let ids = RemoteKey.all.map(\.id)
         #expect(Set(ids).count == ids.count)

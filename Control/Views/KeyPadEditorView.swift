@@ -45,7 +45,7 @@ struct KeyPadEditorContent: View {
     
     private struct DragState {
         let source: CellAddress
-        let command: PadCommand
+        let cell: PadCell
         /// Keeps the cap under the same point of the finger that grabbed it.
         var grabOffset: CGSize?
         var target: DropTarget?
@@ -56,7 +56,7 @@ struct KeyPadEditorContent: View {
     private struct DisplacedCap {
         /// Hidden in the grid while its overlay flies to the source cell.
         let address: CellAddress
-        let command: PadCommand
+        let cell: PadCell
     }
     
     /// Swaps the settle flights for instant commits. The drag itself is direct
@@ -159,7 +159,7 @@ struct KeyPadEditorContent: View {
     }
     
     private func cell(at address: CellAddress) -> some View {
-        let command = store.layout[address]
+        let padCell = store.layout[address]
         // Airborne = the real cap is an overlay in flight, so this cell draws
         // no glyph: the lift source, a displaced cap, or a settling target.
         let isSettling = drag?.isSettling ?? false
@@ -176,7 +176,7 @@ struct KeyPadEditorContent: View {
         let isHovered = isDropTarget && !isSettling
         // Interactive glass reacts through a presented sheet, so pressing the
         // picker's caps would light up the editor's beneath it.
-        return KeyCapCell(command: capIsAirborne ? nil : command, isSelected: isHovered, hidesPlus: hidesPlus, isInteractive: editingCell == nil, isPressed: pressedCell == address)
+        return KeyCapCell(cell: capIsAirborne ? nil : padCell, isSelected: isHovered, hidesPlus: hidesPlus, isInteractive: editingCell == nil, isPressed: pressedCell == address)
         // An empty cell's transparent fill isn't hit-testable on its own.
             .contentShape(.rect(cornerRadius: 14))
             .onGeometryChange(for: CGRect.self) { proxy in
@@ -194,23 +194,23 @@ struct KeyPadEditorContent: View {
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .updating($pressedCell) { _, state, _ in
-                        if command == nil { state = address }
+                        if padCell == nil { state = address }
                     }
             )
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(command?.label ?? "Empty space")
+            .accessibilityLabel(padCell?.label ?? "Empty space")
         // The grid is positional; VoiceOver needs the coordinates sighted users
         // read off the layout.
             .accessibilityValue(store.layout.accessibilityPosition(of: address))
             .accessibilityHint("Chooses the key for this space")
-            .accessibilityInputLabels(command?.inputLabels ?? ["Empty space"])
+            .accessibilityInputLabels(padCell?.inputLabels ?? ["Empty space"])
             .accessibilityAction {
                 editingCell = address
             }
             .accessibilityActions {
                 // Parity with drag-to-remove, which assistive tech can't do.
-                if command != nil {
+                if padCell != nil {
                     Button("Remove Key") {
                         store.layout[address] = nil
                         // Rotor actions give no feedback of their own.
@@ -225,7 +225,7 @@ struct KeyPadEditorContent: View {
     @ViewBuilder
     private var liftedOverlays: some View {
         if let drag {
-            KeyCapCell(command: drag.command)
+            KeyCapCell(cell: drag.cell)
                 .frame(width: cellFrames[drag.source]?.width)
                 .scaleEffect(liftedScale)
                 .opacity(liftedOpacity)
@@ -235,7 +235,7 @@ struct KeyPadEditorContent: View {
                 .accessibilityHidden(true)
         }
         if let displaced {
-            KeyCapCell(command: displaced.command)
+            KeyCapCell(cell: displaced.cell)
                 .frame(width: cellFrames[displaced.address]?.width)
                 .position(displacedCenter)
                 .allowsHitTesting(false)
@@ -305,9 +305,9 @@ struct KeyPadEditorContent: View {
     
     private func beginDrag(from address: CellAddress) {
         guard drag == nil,
-              let command = store.layout[address],
+              let cell = store.layout[address],
               let frame = cellFrames[address] else { return }
-        drag = DragState(source: address, command: command)
+        drag = DragState(source: address, cell: cell)
         liftedCenter = frame.center
         liftedOpacity = 1
         if reduceMotion {
@@ -361,14 +361,14 @@ struct KeyPadEditorContent: View {
             let source = drag.source
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             if reduceMotion {
-                store.layout.swapCommands(source, target)
+                store.layout.swapCells(source, target)
                 finishDrag()
                 return
             }
-            if let displacedCommand = store.layout[target],
+            if let displacedCell = store.layout[target],
                let targetFrame = cellFrames[target],
                let sourceFrame = cellFrames[source] {
-                displaced = DisplacedCap(address: target, command: displacedCommand)
+                displaced = DisplacedCap(address: target, cell: displacedCell)
                 displacedCenter = targetFrame.center
                 withAnimation(Self.settleSpring) {
                     displacedCenter = sourceFrame.center
@@ -382,7 +382,7 @@ struct KeyPadEditorContent: View {
             } completion: {
                 // Same transaction, so the grid takes over where the overlays
                 // stopped and nothing jumps.
-                store.layout.swapCommands(source, target)
+                store.layout.swapCells(source, target)
                 finishDrag()
             }
         case .remove:
@@ -466,7 +466,7 @@ private struct KeyPickerView: View {
     let address: CellAddress
     @Environment(\.dismiss) private var dismiss
     
-    private var current: PadCommand? {
+    private var current: PadCell? {
         store.layout[address]
     }
     
@@ -475,15 +475,19 @@ private struct KeyPickerView: View {
     }
     
     @State private var showingShortcutBuilder = false
-    
+    @State private var showingIconPicker = false
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    if let current {
+                        iconSection(current)
+                    }
                     shortcutsSection
                     // Nothing on screen says what selecting does.
                     KeyCatalogGrid(
-                        isSelected: { current == .key($0) },
+                        isSelected: { current?.command == .key($0) },
                         accessibilityHint: "Assigns this key to \(positionDescription)"
                     ) { key in
                         assign(.key(key))
@@ -511,6 +515,11 @@ private struct KeyPickerView: View {
                     dismiss()
                 }
             }
+            .navigationDestination(isPresented: $showingIconPicker) {
+                IconPickerView(store: store, address: address) {
+                    dismiss()
+                }
+            }
         }
         .themeTint(UserPreferences.shared.tintColorValue)
         .presentationBackground(.thickMaterial)
@@ -518,8 +527,11 @@ private struct KeyPickerView: View {
         .presentationDragIndicator(.visible)
     }
     
+    /// A different key drops the cell's icon, which described what the old one
+    /// did. Re-choosing the same key keeps it.
     private func assign(_ command: PadCommand) {
-        store.layout[address] = command
+        let keptIcon = current?.command == command ? current?.icon : nil
+        store.layout[address] = PadCell(command: command, icon: keptIcon)
         // Let the tap's selected state show; dismissing in the same instant
         // reads as a no-op.
         Task {
@@ -528,8 +540,43 @@ private struct KeyPickerView: View {
         }
     }
     
+    // MARK: Icon row
+
+    /// Only for a filled cell: an icon stands in for a key, so there must be one.
+    /// The preview is the cell as the editor draws it, key caption included.
+    private func iconSection(_ cell: PadCell) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Icon")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Button {
+                showingIconPicker = true
+            } label: {
+                HStack(spacing: 14) {
+                    KeyCapCell(cell: cell, usesGlass: false)
+                        .frame(width: 88)
+                    Text(cell.drawableIcon == nil ? "Choose Icon" : "Change Icon")
+                        .foregroundStyle(.tint)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(8)
+                .padding(.trailing, 8)
+                .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
+                .contentShape(.rect(cornerRadius: 18))
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(cell.drawableIcon == nil ? "Choose Icon" : "Change Icon")
+            .accessibilityValue(cell.drawableIcon.flatMap(PadIcon.withID)?.name ?? "None")
+            .accessibilityHint("Shows an icon in place of the key")
+            .accessibilityAddTraits(.isButton)
+        }
+    }
+
     // MARK: Shortcuts row
-    
+
     private var shortcutsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Shortcuts")
@@ -545,19 +592,18 @@ private struct KeyPickerView: View {
     }
     
     private func shortcutButton(_ shortcut: KeyShortcut) -> some View {
-        let command = PadCommand.shortcut(shortcut)
         // By content, not `==`: a hand-built chord is stored name-less and
         // wouldn't match the same chord as a preset.
         let isSelected: Bool
-        if case .shortcut(let currentShortcut) = current {
+        if case .shortcut(let currentShortcut) = current?.command {
             isSelected = currentShortcut.contentID == shortcut.contentID
         } else {
             isSelected = false
         }
         return Button {
-            assign(command)
+            assign(.shortcut(shortcut))
         } label: {
-            KeyCapCell(command: command, isSelected: isSelected, usesGlass: false)
+            KeyCapCell(cell: .shortcut(shortcut), isSelected: isSelected, usesGlass: false)
         }
         .buttonStyle(PickerKeyStyle())
         .contextMenu {
@@ -624,7 +670,7 @@ private struct KeyCatalogGrid: View {
                             Button {
                                 onTap(key)
                             } label: {
-                                KeyCapCell(command: .key(key), isSelected: isSelected(key), usesGlass: false)
+                                KeyCapCell(cell: .key(key), isSelected: isSelected(key), usesGlass: false)
                             }
                             .buttonStyle(PickerKeyStyle())
                             .accessibilityLabel(key.label)
@@ -635,6 +681,83 @@ private struct KeyCatalogGrid: View {
                 }
             }
         }
+    }
+}
+
+/// Chooses an icon to draw in place of a cell's key. The key stays what's sent,
+/// and the pad still shows it in small type beneath the icon.
+private struct IconPickerView: View {
+    @ObservedObject var store: KeyPadLayoutStore
+    let address: CellAddress
+    /// Dismisses the whole picker sheet, like choosing a key does.
+    let onChosen: () -> Void
+
+    private var cell: PadCell? {
+        store.layout[address]
+    }
+
+    var body: some View {
+        ScrollView {
+            if let cell {
+                VStack(alignment: .leading, spacing: 24) {
+                    iconGrid(title: "Default") {
+                        // The key's own cap, captioned as the editor draws it.
+                        tile(
+                            PadCell(command: cell.command),
+                            label: "No Icon",
+                            hint: "Shows the key itself",
+                            isSelected: cell.drawableIcon == nil,
+                            icon: nil
+                        )
+                    }
+                    ForEach(PadIcon.sections) { section in
+                        iconGrid(title: section.title) {
+                            ForEach(section.icons) { icon in
+                                tile(
+                                    PadCell(command: cell.command, icon: icon.id),
+                                    label: icon.name,
+                                    hint: "Shows this icon in place of the key",
+                                    isSelected: cell.icon == icon.id,
+                                    icon: icon.id,
+                                    showsCaption: false
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .navigationTitle("Choose Icon")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func iconGrid<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
+                content()
+            }
+        }
+    }
+
+    private func tile(_ preview: PadCell, label: String, hint: String, isSelected: Bool, icon: String?, showsCaption: Bool = true) -> some View {
+        Button {
+            store.layout[address]?.icon = icon
+            // Let the tap's selected state show before the sheet goes.
+            Task {
+                try? await Task.sleep(for: .milliseconds(180))
+                onChosen()
+            }
+        } label: {
+            KeyCapCell(cell: preview, isSelected: isSelected, usesGlass: false, showsCaption: showsCaption)
+        }
+        .buttonStyle(PickerKeyStyle())
+        .accessibilityLabel(label)
+        .accessibilityHint(hint)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -791,7 +914,7 @@ private struct ShortcutBuilderView: View {
 /// One key cap tile, captioned when the cap doesn't name itself, or a
 /// plus-marked socket when empty.
 private struct KeyCapCell: View {
-    let command: PadCommand?
+    let cell: PadCell?
     var isSelected: Bool = false
     /// So the plus can't flash under a chip settling into this cell.
     var hidesPlus: Bool = false
@@ -801,6 +924,9 @@ private struct KeyCapCell: View {
     var usesGlass: Bool = true
     /// Empty sockets only; filled caps get theirs from the interactive glass.
     var isPressed: Bool = false
+    /// Off for the icon picker's tiles, where every caption would repeat the
+    /// same key.
+    var showsCaption: Bool = true
     
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.keyTilePressed) private var tilePressed
@@ -815,7 +941,7 @@ private struct KeyCapCell: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14)
                         .fill(.black)
-                        .opacity(command == nil ? 0.25 : 0)
+                        .opacity(cell == nil ? 0.25 : 0)
                     RoundedRectangle(cornerRadius: 14)
                         .fill(.tint)
                         .opacity(pressed ? 0.25 : 0)
@@ -823,7 +949,7 @@ private struct KeyCapCell: View {
             )
         // On the content, not a pane in front of it, so the glyph rides on the
         // glass instead of being refracted through it.
-            .capSurface(usesGlass: usesGlass, isVisible: command != nil || isSelected, interactive: isInteractive, selected: isSelected)
+            .capSurface(usesGlass: usesGlass, isVisible: cell != nil || isSelected, interactive: isInteractive, selected: isSelected)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.1), value: isSelected)
             .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: pressed)
     }
@@ -831,8 +957,8 @@ private struct KeyCapCell: View {
     private var capContent: some View {
         VStack(spacing: 4) {
             Group {
-                if let command {
-                    KeyCapGlyph(glyph: command.glyph)
+                if let cell {
+                    KeyCapGlyph(glyph: cell.glyph)
                         .foregroundStyle(.tint)
                 } else if !hidesPlus {
                     Image(systemName: "plus")
@@ -842,7 +968,7 @@ private struct KeyCapCell: View {
             .font(.system(size: 28))
             .frame(height: 34)
             
-            if let caption = command?.caption {
+            if showsCaption, let caption = cell?.caption {
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -917,12 +1043,12 @@ private extension View {
 
 #Preview("Editor cells") {
     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 3), spacing: 12) {
-        KeyCapCell(command: .key(.escape))
-        KeyCapCell(command: .key(RemoteKey.withID("a")!))
-        KeyCapCell(command: .key(RemoteKey.withID("f12")!))
-        KeyCapCell(command: .key(RemoteKey.withID("\\")!))
-        KeyCapCell(command: .key(.space), isSelected: true)
-        KeyCapCell(command: nil)
+        KeyCapCell(cell: .key(.escape))
+        KeyCapCell(cell: .key(RemoteKey.withID("a")!))
+        KeyCapCell(cell: .key(RemoteKey.withID("f12")!))
+        KeyCapCell(cell: .key(RemoteKey.withID("\\")!))
+        KeyCapCell(cell: .key(.space), isSelected: true)
+        KeyCapCell(cell: nil)
     }
     .padding(24)
     .preferredColorScheme(.dark)
@@ -938,6 +1064,13 @@ private extension View {
 #Preview("Shortcut builder") {
     NavigationStack {
         ShortcutBuilderView(store: .preview(), address: CellAddress(zone: .pad, index: 1)) {}
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Icon picker") {
+    NavigationStack {
+        IconPickerView(store: .preview(.glyphSampler), address: CellAddress(zone: .pad, index: 4)) {}
     }
     .preferredColorScheme(.dark)
 }
