@@ -482,7 +482,7 @@ private struct KeyPickerView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if let current {
-                        iconSection(current)
+                        currentKeyHeader(current)
                     }
                     shortcutsSection
                     // Nothing on screen says what selecting does.
@@ -540,39 +540,39 @@ private struct KeyPickerView: View {
         }
     }
     
-    // MARK: Icon row
+    // MARK: Current key header
 
     /// Only for a filled cell: an icon stands in for a key, so there must be one.
-    /// The preview is the cell as the editor draws it, key caption included.
-    private func iconSection(_ cell: PadCell) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Icon")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
+    /// The cap is the cell as the editor draws it, key caption included, so the
+    /// catalog below reads as what would replace it.
+    private func currentKeyHeader(_ cell: PadCell) -> some View {
+        let hasIcon = cell.drawableIcon != nil
+        return VStack(spacing: 12) {
+            // Glass and sized like the shortcut builder's chord preview.
+            KeyCapCell(cell: cell, isInteractive: false, usesGlass: false)
+                .frame(width: 132)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Current Key")
+                .accessibilityValue(cell.label)
             Button {
                 showingIconPicker = true
-            } label: {
-                HStack(spacing: 14) {
-                    KeyCapCell(cell: cell, usesGlass: false)
-                        .frame(width: 88)
-                    Text(cell.drawableIcon == nil ? "Choose Icon" : "Change Icon")
-                        .foregroundStyle(.tint)
-                    Spacer()
+            } label: {      
+                HStack(spacing: 6) {
+                    Text(hasIcon ? "Change Icon" : "Choose Icon")
                     Image(systemName: "chevron.right")
-                        .foregroundStyle(.tertiary)
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityHidden(true)
                 }
-                .padding(8)
-                .padding(.trailing, 8)
-                .background(RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial))
-                .contentShape(.rect(cornerRadius: 18))
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .glassPillLabel(tint: .accentColor)
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(cell.drawableIcon == nil ? "Choose Icon" : "Change Icon")
+            .glassPillButtonStyle()
             .accessibilityValue(cell.drawableIcon.flatMap(PadIcon.withID)?.name ?? "None")
             .accessibilityHint("Shows an icon in place of the key")
-            .accessibilityAddTraits(.isButton)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Shortcuts row
