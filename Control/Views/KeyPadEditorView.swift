@@ -488,7 +488,8 @@ private struct KeyPickerView: View {
                     // Nothing on screen says what selecting does.
                     KeyCatalogGrid(
                         isSelected: { current?.command == .key($0) },
-                        accessibilityHint: "Assigns this key to \(positionDescription)"
+                        accessibilityHint: "Assigns this key to \(positionDescription)",
+                        specialExtras: { softKeyboardButton }
                     ) { key in
                         assign(.key(key))
                     }
@@ -575,6 +576,19 @@ private struct KeyPickerView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var softKeyboardButton: some View {
+        let isSelected = current?.command == .softKeyboard
+        return Button {
+            assign(.softKeyboard)
+        } label: {
+            KeyCapCell(cell: PadCell(command: .softKeyboard), isSelected: isSelected, usesGlass: false)
+        }
+        .buttonStyle(PickerKeyStyle())
+        .accessibilityLabel(PadCommand.softKeyboard.label)
+        .accessibilityHint("Assigns a key that shows your keyboard for typing on the Mac to \(positionDescription)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
     // MARK: Shortcuts row
 
     private var shortcutsSection: some View {
@@ -652,9 +666,12 @@ private struct PickerKeyStyle: ButtonStyle {
 }
 
 /// The sectioned key catalog, shared by the picker and the shortcut builder.
-private struct KeyCatalogGrid: View {
+private struct KeyCatalogGrid<SpecialExtras: View>: View {
     let isSelected: (RemoteKey) -> Bool
     let accessibilityHint: String
+    /// Tiles after the first section's keys, for pad commands that aren't keys.
+    /// The picker's alone: the shortcut builder needs a key to chord.
+    @ViewBuilder var specialExtras: () -> SpecialExtras
     let onTap: (RemoteKey) -> Void
     
     var body: some View {
@@ -677,10 +694,19 @@ private struct KeyCatalogGrid: View {
                             .accessibilityHint(accessibilityHint)
                             .accessibilityAddTraits(isSelected(key) ? .isSelected : [])
                         }
+                        if section.id == RemoteKey.sections.first?.id {
+                            specialExtras()
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+extension KeyCatalogGrid where SpecialExtras == EmptyView {
+    init(isSelected: @escaping (RemoteKey) -> Bool, accessibilityHint: String, onTap: @escaping (RemoteKey) -> Void) {
+        self.init(isSelected: isSelected, accessibilityHint: accessibilityHint, specialExtras: { EmptyView() }, onTap: onTap)
     }
 }
 

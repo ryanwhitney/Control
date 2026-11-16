@@ -177,6 +177,116 @@ struct KeyPadLayoutTests {
         #expect(script.contains(#"keystroke "\\""#))
     }
 
+    // MARK: Soft keyboard
+
+    /// Additive to v1: older builds read it as an unknown type, which costs
+    /// that one cell.
+    @Test func softKeyboardCellHasAStableWireFormat() throws {
+        let data = try JSONEncoder().encode(PadCell(command: .softKeyboard))
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json == ["type": "softKeyboard"])
+        let decoded = try JSONDecoder().decode(PadCell.self, from: Data(#"{"type": "softKeyboard", "icon": "keyboard"}"#.utf8))
+        #expect(decoded == PadCell(command: .softKeyboard, icon: "keyboard"))
+    }
+
+    @Test func softKeyboardIsHandledOnThePhone() {
+        #expect(PadCommand.softKeyboard.action == nil)
+    }
+
+    @Test func typingSendsPrintableTextAsOneKeystroke() {
+        #expect(KeyboardApp.typingStatements(for: "Hello world") == [#"tell application "System Events" to keystroke "Hello world""#])
+    }
+
+    @Test func typingEscapesQuotesAndBackslashes() {
+        #expect(KeyboardApp.typingStatements(for: #"say "a\b""#) == [#"tell application "System Events" to keystroke "say \"a\\b\"""#])
+    }
+
+    @Test func typingSendsReturnTabAndDeleteAsKeyCodes() {
+        let statements = KeyboardApp.typingStatements(for: "a\r\nb\tc" + KeyboardApp.deleteBackward)
+        #expect(statements == [
+            #"tell application "System Events" to keystroke "a""#,
+            #"tell application "System Events" to key code 36 -- return"#,
+            #"tell application "System Events" to keystroke "b""#,
+            #"tell application "System Events" to key code 48 -- tab"#,
+            #"tell application "System Events" to keystroke "c""#,
+            #"tell application "System Events" to key code 51 -- delete"#,
+        ])
+    }
+
+    /// `keystroke` types a layout miss as "a", so non-ASCII goes as Unicode
+    /// key events, by UTF-16 code unit.
+    @Test func typingSendsNonASCIIAsUnicodeEvents() {
+        let statements = KeyboardApp.typingStatements(for: "caf\u{E9}\u{1F44D}!")
+        #expect(statements.count == 3)
+        #expect(statements[0] == #"tell application "System Events" to keystroke "caf""#)
+        #expect(statements[1].contains(#"run script ""#))
+        #expect(statements[1].contains("[[233,55357,56397]]"))
+        #expect(statements[2] == #"tell application "System Events" to keystroke "!""#)
+    }
+
+    /// The JavaScript nests in an AppleScript literal, so it can't hold a
+    /// double quote or backslash of its own, and the wire stays ASCII.
+    @Test func unicodeStatementsNeedNoEscaping() throws {
+        let statement = try #require(KeyboardApp.typingStatements(for: "\u{1F44D}").first)
+        let line = try #require(statement.split(separator: "\n").first { $0.hasPrefix("run script") })
+        let js = line.dropFirst(#"run script ""#.count).dropLast(#"" in "JavaScript""#.count)
+        #expect(!js.contains("\""))
+        #expect(!js.contains("\\"))
+        #expect(statement.allSatisfy { $0.isASCII })
+    }
+
+    /// One event carries at most 20 UTF-16 units, and a grapheme never splits
+    /// across two.
+    @Test func unicodeChunksStayWithinTheEventLimit() throws {
+        let statement = try #require(KeyboardApp.typingStatements(for: String(repeating: "\u{1F44D}\u{1F3FD}", count: 6)).first)
+        // Four units each: five fit in an event, the sixth starts the next.
+        let five = Array(repeating: "55357,56397,55356,57341", count: 5).joined(separator: ",")
+        #expect(statement.contains("[[\(five)],[55357,56397,55356,57341]]"))
+    }
+
+    /// The PTY would act on these, and nothing on a key cap produces them.
+    @Test func typingDropsOtherControlCharacters() {
+        #expect(KeyboardApp.typingStatements(for: "a\u{03}\u{1B}b") == [#"tell application "System Events" to keystroke "ab""#])
+        #expect(KeyboardApp.typingStatements(for: "\u{04}").isEmpty)
+    }
+
+    /// Canonical-mode PTY input silently truncates lines near 1024 bytes.
+    @Test func longTypingSplitsIntoShortLines() {
+        let text = String(repeating: "\u{E9}", count: 300) + String(repeating: "x", count: 2000) + String(repeating: "\u{1F44D}", count: 300)
+        let lines = KeyboardApp.typingStatements(for: text).flatMap { $0.split(separator: "\n") }
+        #expect(lines.count > 3)
+        #expect(lines.allSatisfy { $0.utf8.count < 1024 })
+    }
+
+    // MARK: Typing echo
+
+    @MainActor @Test func echoDeleteRemovesWhatItCanSee() {
+        let echo = TypingEcho()
+        echo.record("ab" + KeyboardApp.deleteBackward)
+        #expect(echo.tokens == [.character("a")])
+    }
+
+    /// Past what's on screen, a delete still reached the Mac, so it shows.
+    @MainActor @Test func echoMarksDeletesItCantSee() {
+        let echo = TypingEcho()
+        echo.record(KeyboardApp.deleteBackward + "a\n" + KeyboardApp.deleteBackward)
+        #expect(echo.tokens == [.mark(.delete), .character("a"), .mark(.return), .mark(.delete)])
+    }
+
+    @MainActor @Test func echoKeepsCombiningSequencesAsOneCharacter() {
+        let echo = TypingEcho()
+        echo.record("e\u{301}👍\u{1F3FD}")
+        #expect(echo.tokens == [.character("é"), .character("👍🏽")])
+        echo.record(KeyboardApp.deleteBackward)
+        #expect(echo.tokens == [.character("é")])
+    }
+
+    @MainActor @Test func echoTreatsCRLFAsOneReturn() {
+        let echo = TypingEcho()
+        echo.record("a\r\n")
+        #expect(echo.tokens == [.character("a"), .mark(.return)])
+    }
+
     // MARK: Shortcuts
 
     @Test func chordsSendTheirModifiersInAUsingClause() {

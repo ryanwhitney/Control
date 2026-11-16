@@ -392,6 +392,9 @@ struct ControlView: View, SSHConnectedView {
         // Landscape gives its vertical margins to the pages.
         .padding(.vertical, isPhoneLandscape ? 0 : 16)
         .padding(.bottom, isPhoneLandscape ? 8 : 0)
+        // The key pad's soft keyboard covers the lower controls rather than
+        // squeezing the pager into the space above it.
+        .ignoresSafeArea(.keyboard)
         .navigationTitle("")
         .toolbarTitleDisplayMode(.inline)
         .toolbarRole(.editor)

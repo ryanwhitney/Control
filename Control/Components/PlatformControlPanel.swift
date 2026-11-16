@@ -220,7 +220,12 @@ struct PlatformControl: View {
                 case .transport:
                     transportRow
                 case .keyPad:
-                    KeyPadControl(platform: platform, isCompact: isPhoneLandscape, sizeScale: controlScale)
+                    KeyPadControl(
+                        platform: platform,
+                        isCompact: isPhoneLandscape,
+                        sizeScale: controlScale,
+                        isVisible: selectedIndex == pageIndex && !showingKeyPadEditor && permissionHelpKind == nil
+                    )
                 }
             }
             // Landscape: the controls take the remaining height, the key pad

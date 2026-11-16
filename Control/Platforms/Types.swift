@@ -15,6 +15,9 @@ enum AppAction: Identifiable, Equatable {
     case closeApp(String)
     case key(RemoteKey)
     case shortcut(KeyShortcut)
+    /// From the soft keyboard. Return, tab and `KeyboardApp.deleteBackward`
+    /// stand for those keys.
+    case typeText(String)
 
     var id: String {
         switch self {
@@ -26,6 +29,7 @@ enum AppAction: Identifiable, Equatable {
         case .closeApp: return "closeApp"
         case .key(let key): return "key_\(key.id)"
         case .shortcut(let shortcut): return "shortcut_\(shortcut.contentID)"
+        case .typeText: return "typeText"
         }
     }
 
@@ -47,6 +51,8 @@ enum AppAction: Identifiable, Equatable {
             return key.label
         case .shortcut(let shortcut):
             return shortcut.spokenText
+        case .typeText:
+            return "Typed text"
         }
     }
 
@@ -57,6 +63,7 @@ enum AppAction: Identifiable, Equatable {
         switch self {
         case .key: return "key press"
         case .shortcut: return "shortcut"
+        case .typeText: return "typing"
         default: return label
         }
     }
@@ -80,6 +87,8 @@ enum AppAction: Identifiable, Equatable {
             return key.inputLabels
         case .shortcut(let shortcut):
             return [shortcut.spokenText]
+        case .typeText:
+            return []
         }
     }
 }

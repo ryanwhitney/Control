@@ -6,11 +6,15 @@ import Foundation
 enum PadCommand: Equatable {
     case key(RemoteKey)
     case shortcut(KeyShortcut)
+    /// Raises and lowers the phone's own keyboard, whose typing goes to the
+    /// Mac. Handled on the phone, so it has no action of its own.
+    case softKeyboard
 
-    var action: AppAction {
+    var action: AppAction? {
         switch self {
         case .key(let key): return .key(key)
         case .shortcut(let shortcut): return .shortcut(shortcut)
+        case .softKeyboard: return nil
         }
     }
 
@@ -18,6 +22,7 @@ enum PadCommand: Equatable {
         switch self {
         case .key(let key): return key.label
         case .shortcut(let shortcut): return shortcut.spokenText
+        case .softKeyboard: return "Keyboard"
         }
     }
 
@@ -25,6 +30,7 @@ enum PadCommand: Equatable {
         switch self {
         case .key(let key): return key.glyph
         case .shortcut(let shortcut): return .character(shortcut.capText)
+        case .softKeyboard: return .symbol("keyboard")
         }
     }
 
@@ -37,6 +43,8 @@ enum PadCommand: Equatable {
             return nil
         case .shortcut(let shortcut):
             return shortcut.captionText
+        case .softKeyboard:
+            return label
         }
     }
 
@@ -44,6 +52,7 @@ enum PadCommand: Equatable {
         switch self {
         case .key(let key): return key.inputLabels
         case .shortcut(let shortcut): return [shortcut.spokenText]
+        case .softKeyboard: return ["Keyboard", "Show keyboard", "Type"]
         }
     }
 
@@ -57,6 +66,8 @@ enum PadCommand: Equatable {
             return key.label
         case .shortcut(let shortcut):
             return shortcut.capText
+        case .softKeyboard:
+            return label
         }
     }
 }
@@ -78,7 +89,7 @@ struct PadCell: Equatable {
         PadCell(command: .shortcut(shortcut))
     }
 
-    var action: AppAction { command.action }
+    var action: AppAction? { command.action }
 
     /// nil if this iOS lacks the symbol (stored by a newer version), so the
     /// cell shows its key's cap instead of nothing.
@@ -145,7 +156,7 @@ extension PadCommand: Codable {
     }
 
     private enum Kind: String, Codable {
-        case key, shortcut
+        case key, shortcut, softKeyboard
     }
 
     init(from decoder: Decoder) throws {
@@ -164,6 +175,8 @@ extension PadCommand: Codable {
             }
             let name = try container.decodeIfPresent(String.self, forKey: .name)
             self = .shortcut(KeyShortcut(name: name, presses: presses))
+        case .softKeyboard:
+            self = .softKeyboard
         }
     }
 
@@ -177,6 +190,8 @@ extension PadCommand: Codable {
             try container.encode(Kind.shortcut, forKey: .type)
             try container.encodeIfPresent(shortcut.name, forKey: .name)
             try container.encode(shortcut.presses, forKey: .presses)
+        case .softKeyboard:
+            try container.encode(Kind.softKeyboard, forKey: .type)
         }
     }
 }

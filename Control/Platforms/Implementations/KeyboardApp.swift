@@ -117,6 +117,10 @@ struct KeyboardApp: AppPlatform {
             statements = [pressStatement(for: key, modifiers: [])]
         case .shortcut(let shortcut):
             statements = shortcut.presses.map { pressStatement(for: $0.key, modifiers: $0.modifiers) }
+        case .typeText(let text):
+            // Top-level statements, not inside the tell: the Unicode path's
+            // `run script` must run here, not be sent to System Events.
+            return Self.typingStatements(for: text).joined(separator: "\n")
         default:
             return ""
         }
@@ -140,6 +144,113 @@ struct KeyboardApp: AppPlatform {
         case .character(let character):
             return "keystroke \"\(character.replacingOccurrences(of: "\\", with: "\\\\"))\"\(using)"
         }
+    }
+
+    /// Stands for the soft keyboard's delete key in `.typeText`, which
+    /// deletes rather than inserting a character.
+    static let deleteBackward = "\u{7F}"
+
+    /// Past this, a statement is split: the streaming PTY runs in canonical
+    /// mode, which silently truncates input lines near 1024 bytes.
+    private static let maxTypingLineLength = 400
+
+    /// `CGEventKeyboardSetUnicodeString` carries at most 20 UTF-16 units.
+    private static let maxUnitsPerEvent = 20
+
+    /// Return, tab and delete go as key codes, printable ASCII through
+    /// `keystroke` so the Mac's layout resolves it. Anything else — emoji,
+    /// accents, other scripts — `keystroke` can't type: it looks each
+    /// character up on the layout and sends key code 0 ("a") for a miss. Those
+    /// go as Unicode key events instead (see `unicodeStatement`). Control
+    /// characters are dropped: in canonical mode the PTY would act on them.
+    ///
+    /// Each statement is top-level and one line, so the script stays ASCII and
+    /// every line stays short.
+    static func typingStatements(for text: String) -> [String] {
+        var statements: [String] = []
+        var literal = ""
+        var chunks: [[UInt16]] = []
+        var chunkTextLength = 0
+
+        func flushLiteral() {
+            guard !literal.isEmpty else { return }
+            statements.append(systemEvents("keystroke \"\(literal)\""))
+            literal = ""
+        }
+        func flushUnicode() {
+            guard !chunks.isEmpty else { return }
+            statements.append(unicodeStatement(chunks))
+            chunks = []
+            chunkTextLength = 0
+        }
+        func keyCode(_ code: Int, _ name: String) {
+            flushLiteral()
+            flushUnicode()
+            statements.append(systemEvents("key code \(code) -- \(name)"))
+        }
+
+        for character in text {
+            switch character {
+            case "\r\n", "\r", "\n":
+                keyCode(36, "return")
+            case "\t":
+                keyCode(48, "tab")
+            case "\u{7F}":
+                keyCode(51, "delete")
+            default:
+                let scalars = character.unicodeScalars
+                if scalars.count == 1, let scalar = scalars.first, (0x20...0x7E).contains(scalar.value) {
+                    flushUnicode()
+                    literal += scalar == "\"" || scalar == "\\" ? "\\\(scalar)" : String(scalar)
+                    if literal.count >= maxTypingLineLength { flushLiteral() }
+                } else {
+                    let units = String(String.UnicodeScalarView(scalars.filter(isTypeable))).utf16
+                    guard !units.isEmpty else { continue }
+                    flushLiteral()
+                    // A grapheme never splits across events: half an emoji
+                    // would type as garbage.
+                    if let last = chunks.last, last.count + units.count <= maxUnitsPerEvent {
+                        chunks[chunks.count - 1] += units
+                    } else {
+                        chunks.append(Array(units))
+                    }
+                    chunkTextLength += units.map { String($0).count + 1 }.reduce(0, +)
+                    if chunkTextLength >= maxTypingLineLength { flushUnicode() }
+                }
+            }
+        }
+        flushLiteral()
+        flushUnicode()
+        return statements
+    }
+
+    private static func isTypeable(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value >= 0xA0 || (0x20...0x7E).contains(scalar.value)
+    }
+
+    private static func systemEvents(_ statement: String) -> String {
+        "tell application \"System Events\" to \(statement)"
+    }
+
+    /// Posts each chunk as a key down/up pair carrying the text itself, which
+    /// apps insert as typed. JavaScript because AppleScript can't call
+    /// C functions; run in this interpreter, so the posting process is the one
+    /// Accessibility was granted to. The buffer parameter is rebound as
+    /// `void *`: the bridge won't pass `NSData.bytes` as `UniChar *`, nor a JS
+    /// string or array. Code units go as numbers, so the source needs no
+    /// escaping, and single quotes only, so it nests in the AppleScript literal.
+    /// In a `try`: a failure here must not fail the typing around it.
+    private static func unicodeStatement(_ chunks: [[UInt16]]) -> String {
+        let data = chunks.map { "[" + $0.map(String.init).joined(separator: ",") + "]" }.joined(separator: ",")
+        let js = "ObjC.import('Cocoa');"
+            + "ObjC.bindFunction('CGEventKeyboardSetUnicodeString',['void',['void *','unsigned long','void *']]);"
+            + "[\(data)].forEach(function(c){"
+            + "var d=$(String.fromCharCode.apply(null,c)).dataUsingEncoding($.NSUTF16LittleEndianStringEncoding);"
+            + "[true,false].forEach(function(k){"
+            + "var e=$.CGEventCreateKeyboardEvent(null,0,k);"
+            + "$.CGEventKeyboardSetUnicodeString(e,c.length,d.bytes);"
+            + "$.CGEventPost(0,e)})})"
+        return "try\nrun script \"\(js)\" in \"JavaScript\"\nend try"
     }
 
     /// Unused by the pad. Concatenated rather than injected, since
