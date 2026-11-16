@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 @testable import Control
 
 /// The layout is user data that outlives app versions, so two contracts matter:
@@ -194,29 +195,39 @@ struct KeyPadLayoutTests {
     }
 
     @Test func typingSendsPrintableTextAsOneKeystroke() {
-        #expect(KeyboardApp.typingStatements(for: "Hello world") == [#"tell application "System Events" to keystroke "Hello world""#])
+        #expect(KeyboardApp.textStatements(for: "Hello world") == [#"tell application "System Events" to keystroke "Hello world""#])
     }
 
     @Test func typingEscapesQuotesAndBackslashes() {
-        #expect(KeyboardApp.typingStatements(for: #"say "a\b""#) == [#"tell application "System Events" to keystroke "say \"a\\b\"""#])
+        #expect(KeyboardApp.textStatements(for: #"say "a\b""#) == [#"tell application "System Events" to keystroke "say \"a\\b\"""#])
     }
 
-    @Test func typingSendsReturnTabAndDeleteAsKeyCodes() {
-        let statements = KeyboardApp.typingStatements(for: "a\r\nb\tc" + KeyboardApp.deleteBackward)
+    @Test func typingSendsReturnAndTabAsKeyCodes() {
+        let statements = KeyboardApp.textStatements(for: "a\r\nb\tc")
         #expect(statements == [
             #"tell application "System Events" to keystroke "a""#,
             #"tell application "System Events" to key code 36 -- return"#,
             #"tell application "System Events" to keystroke "b""#,
             #"tell application "System Events" to key code 48 -- tab"#,
             #"tell application "System Events" to keystroke "c""#,
+        ])
+    }
+
+    /// A run of presses is one loop, not a line per press.
+    @Test func deletesAndMovesSendAsKeyPresses() {
+        let statements = KeyboardApp.typingStatements(for: [.deleteBackward(1), .moveLeft(3), .moveRight(1), .text("x")])
+        #expect(statements == [
             #"tell application "System Events" to key code 51 -- delete"#,
+            "tell application \"System Events\"\nrepeat 3 times\nkey code 123 -- left\nend repeat\nend tell",
+            #"tell application "System Events" to key code 124 -- right"#,
+            #"tell application "System Events" to keystroke "x""#,
         ])
     }
 
     /// `keystroke` types a layout miss as "a", so non-ASCII goes as Unicode
     /// key events, by UTF-16 code unit.
     @Test func typingSendsNonASCIIAsUnicodeEvents() {
-        let statements = KeyboardApp.typingStatements(for: "caf\u{E9}\u{1F44D}!")
+        let statements = KeyboardApp.textStatements(for: "caf\u{E9}\u{1F44D}!")
         #expect(statements.count == 3)
         #expect(statements[0] == #"tell application "System Events" to keystroke "caf""#)
         #expect(statements[1].contains(#"run script ""#))
@@ -227,7 +238,7 @@ struct KeyPadLayoutTests {
     /// The JavaScript nests in an AppleScript literal, so it can't hold a
     /// double quote or backslash of its own, and the wire stays ASCII.
     @Test func unicodeStatementsNeedNoEscaping() throws {
-        let statement = try #require(KeyboardApp.typingStatements(for: "\u{1F44D}").first)
+        let statement = try #require(KeyboardApp.textStatements(for: "\u{1F44D}").first)
         let line = try #require(statement.split(separator: "\n").first { $0.hasPrefix("run script") })
         let js = line.dropFirst(#"run script ""#.count).dropLast(#"" in "JavaScript""#.count)
         #expect(!js.contains("\""))
@@ -238,7 +249,7 @@ struct KeyPadLayoutTests {
     /// One event carries at most 20 UTF-16 units, and a grapheme never splits
     /// across two.
     @Test func unicodeChunksStayWithinTheEventLimit() throws {
-        let statement = try #require(KeyboardApp.typingStatements(for: String(repeating: "\u{1F44D}\u{1F3FD}", count: 6)).first)
+        let statement = try #require(KeyboardApp.textStatements(for: String(repeating: "\u{1F44D}\u{1F3FD}", count: 6)).first)
         // Four units each: five fit in an event, the sixth starts the next.
         let five = Array(repeating: "55357,56397,55356,57341", count: 5).joined(separator: ",")
         #expect(statement.contains("[[\(five)],[55357,56397,55356,57341]]"))
@@ -246,14 +257,14 @@ struct KeyPadLayoutTests {
 
     /// The PTY would act on these, and nothing on a key cap produces them.
     @Test func typingDropsOtherControlCharacters() {
-        #expect(KeyboardApp.typingStatements(for: "a\u{03}\u{1B}b") == [#"tell application "System Events" to keystroke "ab""#])
-        #expect(KeyboardApp.typingStatements(for: "\u{04}").isEmpty)
+        #expect(KeyboardApp.textStatements(for: "a\u{03}\u{1B}b") == [#"tell application "System Events" to keystroke "ab""#])
+        #expect(KeyboardApp.textStatements(for: "\u{04}").isEmpty)
     }
 
     /// Canonical-mode PTY input silently truncates lines near 1024 bytes.
     @Test func longTypingSplitsIntoShortLines() {
         let text = String(repeating: "\u{E9}", count: 300) + String(repeating: "x", count: 2000) + String(repeating: "\u{1F44D}", count: 300)
-        let lines = KeyboardApp.typingStatements(for: text).flatMap { $0.split(separator: "\n") }
+        let lines = KeyboardApp.textStatements(for: text).flatMap { $0.split(separator: "\n") }
         #expect(lines.count > 3)
         #expect(lines.allSatisfy { $0.utf8.count < 1024 })
     }
@@ -262,29 +273,141 @@ struct KeyPadLayoutTests {
 
     @MainActor @Test func echoDeleteRemovesWhatItCanSee() {
         let echo = TypingEcho()
-        echo.record("ab" + KeyboardApp.deleteBackward)
+        echo.apply([.text("ab"), .deleteBackward(1)])
         #expect(echo.tokens == [.character("a")])
     }
 
     /// Past what's on screen, a delete still reached the Mac, so it shows.
     @MainActor @Test func echoMarksDeletesItCantSee() {
         let echo = TypingEcho()
-        echo.record(KeyboardApp.deleteBackward + "a\n" + KeyboardApp.deleteBackward)
+        echo.apply([.deleteBackward(1), .text("a\n"), .deleteBackward(1)])
         #expect(echo.tokens == [.mark(.delete), .character("a"), .mark(.return), .mark(.delete)])
     }
 
     @MainActor @Test func echoKeepsCombiningSequencesAsOneCharacter() {
         let echo = TypingEcho()
-        echo.record("e\u{301}👍\u{1F3FD}")
+        echo.apply([.text("e\u{301}👍\u{1F3FD}")])
         #expect(echo.tokens == [.character("é"), .character("👍🏽")])
-        echo.record(KeyboardApp.deleteBackward)
+        echo.apply([.deleteBackward(1)])
         #expect(echo.tokens == [.character("é")])
     }
 
     @MainActor @Test func echoTreatsCRLFAsOneReturn() {
         let echo = TypingEcho()
-        echo.record("a\r\n")
+        echo.apply([.text("a\r\n")])
         #expect(echo.tokens == [.character("a"), .mark(.return)])
+    }
+
+    /// Once the caret moves, the tail shown no longer ends where typing lands.
+    @MainActor @Test func echoClearsWhenTheCaretMoves() {
+        let echo = TypingEcho()
+        echo.apply([.text("abc"), .moveLeft(1)])
+        #expect(echo.tokens.isEmpty)
+    }
+
+    @MainActor @Test func echoHoldsWhileComposing() {
+        let echo = TypingEcho()
+        echo.setComposing("ni")
+        #expect(echo.isShowing)
+        echo.setComposing("")
+        #expect(!echo.isShowing)
+    }
+
+    // MARK: Typing document
+
+    @Test func typingAtTheEndSendsTheText() {
+        var document = TypingDocument()
+        #expect(document.insert("hi") == [.text("hi")])
+        #expect(document.insert(" there") == [.text(" there")])
+        #expect(document.text == "hi there")
+    }
+
+    @Test func deleteRemovesOneCharacterHere() {
+        var document = TypingDocument()
+        _ = document.insert("a👍🏽")
+        #expect(document.deleteBackward() == [.deleteBackward(1)])
+        #expect(document.text == "a")
+    }
+
+    /// Before the copy starts, the Mac still has text the phone can't see.
+    @Test func deleteAtTheStartStillReachesTheMac() {
+        var document = TypingDocument()
+        #expect(document.deleteBackward() == [.deleteBackward(1)])
+        #expect(document.text.isEmpty)
+    }
+
+    /// The space-bar trackpad: caret moves become arrows, by character.
+    @Test func movingTheCaretSendsArrowsByCharacter() {
+        var document = TypingDocument()
+        _ = document.insert("a👍🏽b")
+        #expect(document.select(NSRange(location: 1, length: 0)) == [.moveLeft(2)])
+        #expect(document.insert("x") == [.text("x")])
+        #expect(document.text == "ax👍🏽b")
+        #expect(document.select(NSRange(location: document.length, length: 0)) == [.moveRight(2)])
+    }
+
+    /// A ranged selection isn't mirrored on the Mac; replacing it moves the
+    /// caret to its end and deletes back.
+    @Test func replacingASelectionDeletesItOnTheMac() {
+        var document = TypingDocument()
+        _ = document.insert("hello world")
+        #expect(document.select(NSRange(location: 0, length: 5)).isEmpty)
+        #expect(document.insert("bye") == [.moveLeft(6), .deleteBackward(5), .text("bye")])
+        #expect(document.text == "bye world")
+    }
+
+    /// Composing (pinyin, kana) stays on the phone until it's committed.
+    @Test func compositionIsSentOnlyWhenCommitted() {
+        var document = TypingDocument()
+        _ = document.insert("a")
+        #expect(document.setMarked("ni", selectedRange: NSRange(location: 2, length: 0)).isEmpty)
+        #expect(document.setMarked("nihao", selectedRange: NSRange(location: 5, length: 0)).isEmpty)
+        #expect(document.markedText == "nihao")
+        #expect(document.insert("你好") == [.text("你好")])
+        #expect(document.text == "a你好")
+        #expect(document.markedRange == nil)
+    }
+
+    @Test func unmarkingCommitsTheCompositionAsIs() {
+        var document = TypingDocument()
+        _ = document.setMarked("かな", selectedRange: NSRange(location: 2, length: 0))
+        #expect(document.commitMarked() == [.text("かな")])
+        #expect(document.insert("!") == [.text("!")])
+    }
+
+    /// The Mac's caret is tracked in committed text, so composing after moving
+    /// back commits at the right place.
+    @Test func compositionCommitsWhereTheCaretWas() {
+        var document = TypingDocument()
+        _ = document.insert("ab")
+        _ = document.select(NSRange(location: 1, length: 0))
+        _ = document.setMarked("x", selectedRange: NSRange(location: 1, length: 0))
+        #expect(document.insert("X") == [.text("X")])
+        #expect(document.text == "aXb")
+        #expect(document.select(NSRange(location: 3, length: 0)) == [.moveRight(1)])
+    }
+
+    @Test func deleteInsideACompositionStaysLocal() {
+        var document = TypingDocument()
+        _ = document.setMarked("ni", selectedRange: NSRange(location: 2, length: 0))
+        #expect(document.deleteBackward().isEmpty)
+        #expect(document.markedText == "n")
+    }
+
+    // MARK: Typist
+
+    @Test func typistMergesNeighboursAndNetsArrows() {
+        let merged = RemoteTypist.merged([
+            .text("a"), .text("b"), .deleteBackward(1), .deleteBackward(2),
+            .moveLeft(3), .moveRight(1), .moveRight(2), .moveRight(1),
+        ])
+        #expect(merged == [.text("ab"), .deleteBackward(3), .moveRight(1)])
+    }
+
+    @Test func typistSplitsLongTextByCharacter() {
+        let (head, rest) = RemoteTypist.split([.text("ab👍🏽cd"), .moveLeft(1)], maxText: 3)
+        #expect(head == [.text("ab👍🏽")])
+        #expect(rest == [.text("cd"), .moveLeft(1)])
     }
 
     // MARK: Shortcuts
@@ -322,5 +445,62 @@ struct KeyPadLayoutTests {
         #expect(undo.captionText == "Cmd + Z")
         // The chord, never the preset's name: nothing on screen shows the name.
         #expect(undo.spokenText == "Command Z")
+    }
+}
+
+/// The input view as UIKit drives it: these calls are what the keyboard makes.
+@MainActor
+struct SoftKeyboardInputViewTests {
+    private func makeView() -> (SoftKeyboardInput.KeyInputView, () -> [TypingEdit]) {
+        let view = SoftKeyboardInput.KeyInputView()
+        var sent: [TypingEdit] = []
+        view.onEdits = { sent += $0 }
+        return (view, { defer { sent = [] }; return sent })
+    }
+
+    @Test func typingAndDeletingReachTheMac() {
+        let (view, sent) = makeView()
+        view.insertText("hey")
+        view.deleteBackward()
+        #expect(sent() == [.text("hey"), .deleteBackward(1)])
+        #expect(view.text(in: view.textRange(from: view.beginningOfDocument, to: view.endOfDocument)!) == "he")
+    }
+
+    /// A drag of two character widths left is two left arrows.
+    @Test func spaceBarTrackpadSendsArrows() {
+        let (view, sent) = makeView()
+        view.insertText("abcd")
+        _ = sent()
+        view.beginFloatingCursor(at: CGPoint(x: 100, y: 10))
+        view.updateFloatingCursor(at: CGPoint(x: 100 - 9, y: 10))
+        view.updateFloatingCursor(at: CGPoint(x: 100 - 18, y: 30))
+        view.endFloatingCursor()
+        #expect(sent() == [.moveLeft(1), .moveLeft(1)])
+        view.insertText("X")
+        #expect(sent() == [.text("X")])
+        #expect(view.text(in: view.textRange(from: view.beginningOfDocument, to: view.endOfDocument)!) == "abXcd")
+    }
+
+    @Test func compositionWaitsForCommit() {
+        let (view, sent) = makeView()
+        view.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0))
+        view.setMarkedText("nihao", selectedRange: NSRange(location: 5, length: 0))
+        #expect(sent().isEmpty)
+        #expect(view.markedTextRange != nil)
+        view.insertText("你好")
+        #expect(sent() == [.text("你好")])
+        #expect(view.markedTextRange == nil)
+    }
+
+    /// A pad press moved the Mac's caret, so the copy starts over; a later
+    /// trackpad drag can't walk back into text it no longer lines up with.
+    @Test func resetForgetsTheCopy() {
+        let (view, sent) = makeView()
+        view.insertText("abc")
+        view.resetDocument()
+        _ = sent()
+        view.beginFloatingCursor(at: .zero)
+        view.updateFloatingCursor(at: CGPoint(x: -30, y: 0))
+        #expect(sent().isEmpty)
     }
 }

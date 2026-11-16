@@ -15,9 +15,8 @@ enum AppAction: Identifiable, Equatable {
     case closeApp(String)
     case key(RemoteKey)
     case shortcut(KeyShortcut)
-    /// From the soft keyboard. Return, tab and `KeyboardApp.deleteBackward`
-    /// stand for those keys.
-    case typeText(String)
+    /// From the soft keyboard, replayed in order.
+    case typing([TypingEdit])
 
     var id: String {
         switch self {
@@ -29,7 +28,7 @@ enum AppAction: Identifiable, Equatable {
         case .closeApp: return "closeApp"
         case .key(let key): return "key_\(key.id)"
         case .shortcut(let shortcut): return "shortcut_\(shortcut.contentID)"
-        case .typeText: return "typeText"
+        case .typing: return "typing"
         }
     }
 
@@ -51,7 +50,7 @@ enum AppAction: Identifiable, Equatable {
             return key.label
         case .shortcut(let shortcut):
             return shortcut.spokenText
-        case .typeText:
+        case .typing:
             return "Typed text"
         }
     }
@@ -63,7 +62,7 @@ enum AppAction: Identifiable, Equatable {
         switch self {
         case .key: return "key press"
         case .shortcut: return "shortcut"
-        case .typeText: return "typing"
+        case .typing: return "typing"
         default: return label
         }
     }
@@ -87,10 +86,20 @@ enum AppAction: Identifiable, Equatable {
             return key.inputLabels
         case .shortcut(let shortcut):
             return [shortcut.spokenText]
-        case .typeText:
+        case .typing:
             return []
         }
     }
+}
+
+/// One step of soft-keyboard editing, made on the Mac with the keys every text
+/// field understands: typing, delete, and the left and right arrows.
+enum TypingEdit: Equatable {
+    /// Line breaks and tabs in it go as Return and Tab.
+    case text(String)
+    case deleteBackward(Int)
+    case moveLeft(Int)
+    case moveRight(Int)
 }
 
 struct ActionConfig: Identifiable {

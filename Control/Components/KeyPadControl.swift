@@ -17,6 +17,9 @@ struct KeyPadControl: View {
     @ObservedObject var layoutStore: KeyPadLayoutStore = .shared
     @State private var isTyping = false
     @State private var typist = RemoteTypist()
+    /// Bumped by pad presses while typing: they move the Mac's caret, so the
+    /// keyboard's copy of what was typed has to start over.
+    @State private var keyboardContext = 0
 
     /// Uniform within and between zones, so the pad reads as one grid. The whole
     /// gap lives here — caps carry no padding — so the sizing below is exact.
@@ -25,10 +28,8 @@ struct KeyPadControl: View {
     var body: some View {
         pad
             .background {
-                SoftKeyboardInput(isActive: $isTyping) { text in
-                    typist.type(text) { chunk in
-                        await controller.executeActionWithoutStatus(platform: platform, action: .typeText(chunk))
-                    }
+                SoftKeyboardInput(isActive: $isTyping, contextVersion: keyboardContext) { edits in
+                    typist.send(.typing(edits), via: perform)
                 }
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
@@ -124,15 +125,28 @@ struct KeyPadControl: View {
                 if isKeyboardToggle { isTyping.toggle() }
                 return
             }
-            // Independent, so a run of presses is limited only by the
-            // connection. `updateState`'s 2 s dedupe caps the refreshes.
-            Task {
-                await controller.executeActionWithoutStatus(platform: platform, action: action)
+            if isTyping {
+                // Behind any typing still on its way, or an arrow could land
+                // before the text it was meant to move through.
+                keyboardContext += 1
+                typist.send(action, via: perform)
+            } else {
+                // Independent, so a run of presses is limited only by the
+                // connection. `updateState`'s 2 s dedupe caps the refreshes.
+                Task {
+                    await perform(action)
+                }
             }
             Task {
                 await controller.updateState(for: platform)
             }
         }
+    }
+}
+
+extension KeyPadControl {
+    private func perform(_ action: AppAction) async {
+        await controller.executeActionWithoutStatus(platform: platform, action: action)
     }
 }
 
@@ -216,30 +230,95 @@ struct KeyCapGlyph: View {
 }
 
 /// Sends soft-keyboard typing in order, one command in flight. Whatever is
-/// typed meanwhile goes in the next send, so fast typing costs fewer round
-/// trips and never overflows the channel's bounded queue — independent sends
-/// could drop keys there, or land out of order.
+/// typed meanwhile is merged into the next send, so fast typing costs fewer
+/// round trips and never overflows the channel's bounded queue — independent
+/// sends could drop keys there, or land out of order. Pad presses made while
+/// typing join the same line.
 @MainActor
 final class RemoteTypist {
-    /// Bounds one command's script, which `typingStatements` splits into lines.
-    private static let maxChunk = 500
+    /// Bounds one command's script, which `textStatements` splits into lines.
+    private static let maxTextPerSend = 500
 
-    private var pending = ""
+    private var pending: [AppAction] = []
     private var isSending = false
 
-    func type(_ text: String, send: @escaping (String) async -> Void) {
-        pending += text
+    func send(_ action: AppAction, via perform: @escaping (AppAction) async -> Void) {
+        if case .typing(let edits) = action, case .typing(let queued)? = pending.last {
+            pending[pending.count - 1] = .typing(Self.merged(queued + edits))
+        } else {
+            pending.append(action)
+        }
         guard !isSending else { return }
         isSending = true
         Task {
-            while !pending.isEmpty {
-                // By Character, so a CRLF or an emoji is never split.
-                let chunk = String(pending.prefix(Self.maxChunk))
-                pending.removeFirst(chunk.count)
-                await send(chunk)
+            while let next = takeNext() {
+                await perform(next)
             }
             isSending = false
         }
+    }
+
+    private func takeNext() -> AppAction? {
+        guard !pending.isEmpty else { return nil }
+        let first = pending.removeFirst()
+        guard case .typing(let edits) = first else { return first }
+        let (head, rest) = Self.split(edits, maxText: Self.maxTextPerSend)
+        if !rest.isEmpty { pending.insert(.typing(rest), at: 0) }
+        return .typing(head)
+    }
+
+    /// Joins neighbours of a kind, and nets opposing arrow runs, which have no
+    /// effect but the caret's position.
+    nonisolated static func merged(_ edits: [TypingEdit]) -> [TypingEdit] {
+        var result: [TypingEdit] = []
+        for edit in edits {
+            guard let last = result.last else {
+                result.append(edit)
+                continue
+            }
+            switch (last, edit) {
+            case (.text(let a), .text(let b)):
+                result[result.count - 1] = .text(a + b)
+            case (.deleteBackward(let a), .deleteBackward(let b)):
+                result[result.count - 1] = .deleteBackward(a + b)
+            case (.moveLeft(let a), .moveLeft(let b)):
+                result[result.count - 1] = .moveLeft(a + b)
+            case (.moveRight(let a), .moveRight(let b)):
+                result[result.count - 1] = .moveRight(a + b)
+            case (.moveLeft(let a), .moveRight(let b)), (.moveRight(let b), .moveLeft(let a)):
+                // Net leftward steps; which case matched decides the sign.
+                let left = a - b
+                result.removeLast()
+                if left > 0 { result.append(.moveLeft(left)) }
+                if left < 0 { result.append(.moveRight(-left)) }
+            default:
+                result.append(edit)
+            }
+        }
+        return result
+    }
+
+    /// The first edits holding at most `maxText` characters, splitting a long
+    /// text by Character so a CRLF or an emoji is never cut.
+    nonisolated static func split(_ edits: [TypingEdit], maxText: Int) -> (head: [TypingEdit], rest: [TypingEdit]) {
+        var head: [TypingEdit] = []
+        var budget = maxText
+        for (index, edit) in edits.enumerated() {
+            guard case .text(let text) = edit else {
+                head.append(edit)
+                continue
+            }
+            if text.count <= budget {
+                head.append(edit)
+                budget -= text.count
+                continue
+            }
+            let taken = String(text.prefix(budget))
+            if !taken.isEmpty { head.append(.text(taken)) }
+            let rest = [TypingEdit.text(String(text.dropFirst(taken.count)))] + edits[(index + 1)...]
+            return (head, Array(rest))
+        }
+        return (head, [])
     }
 }
 

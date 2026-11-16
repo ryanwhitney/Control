@@ -117,10 +117,10 @@ struct KeyboardApp: AppPlatform {
             statements = [pressStatement(for: key, modifiers: [])]
         case .shortcut(let shortcut):
             statements = shortcut.presses.map { pressStatement(for: $0.key, modifiers: $0.modifiers) }
-        case .typeText(let text):
+        case .typing(let edits):
             // Top-level statements, not inside the tell: the Unicode path's
             // `run script` must run here, not be sent to System Events.
-            return Self.typingStatements(for: text).joined(separator: "\n")
+            return Self.typingStatements(for: edits).joined(separator: "\n")
         default:
             return ""
         }
@@ -146,10 +146,6 @@ struct KeyboardApp: AppPlatform {
         }
     }
 
-    /// Stands for the soft keyboard's delete key in `.typeText`, which
-    /// deletes rather than inserting a character.
-    static let deleteBackward = "\u{7F}"
-
     /// Past this, a statement is split: the streaming PTY runs in canonical
     /// mode, which silently truncates input lines near 1024 bytes.
     private static let maxTypingLineLength = 400
@@ -157,7 +153,28 @@ struct KeyboardApp: AppPlatform {
     /// `CGEventKeyboardSetUnicodeString` carries at most 20 UTF-16 units.
     private static let maxUnitsPerEvent = 20
 
-    /// Return, tab and delete go as key codes, printable ASCII through
+    /// Deletes and caret moves are key presses, repeated in a loop when there
+    /// are several so the line stays short.
+    static func typingStatements(for edits: [TypingEdit]) -> [String] {
+        edits.flatMap { edit -> [String] in
+            switch edit {
+            case .text(let text): return textStatements(for: text)
+            case .deleteBackward(let count): return repeatedKey(51, "delete", count)
+            case .moveLeft(let count): return repeatedKey(123, "left", count)
+            case .moveRight(let count): return repeatedKey(124, "right", count)
+            }
+        }
+    }
+
+    private static func repeatedKey(_ code: Int, _ name: String, _ count: Int) -> [String] {
+        switch count {
+        case ..<1: return []
+        case 1: return [systemEvents("key code \(code) -- \(name)")]
+        default: return ["tell application \"System Events\"\nrepeat \(count) times\nkey code \(code) -- \(name)\nend repeat\nend tell"]
+        }
+    }
+
+    /// Return and tab go as key codes, printable ASCII through
     /// `keystroke` so the Mac's layout resolves it. Anything else — emoji,
     /// accents, other scripts — `keystroke` can't type: it looks each
     /// character up on the layout and sends key code 0 ("a") for a miss. Those
@@ -166,7 +183,7 @@ struct KeyboardApp: AppPlatform {
     ///
     /// Each statement is top-level and one line, so the script stays ASCII and
     /// every line stays short.
-    static func typingStatements(for text: String) -> [String] {
+    static func textStatements(for text: String) -> [String] {
         var statements: [String] = []
         var literal = ""
         var chunks: [[UInt16]] = []
@@ -195,8 +212,6 @@ struct KeyboardApp: AppPlatform {
                 keyCode(36, "return")
             case "\t":
                 keyCode(48, "tab")
-            case "\u{7F}":
-                keyCode(51, "delete")
             default:
                 let scalars = character.unicodeScalars
                 if scalars.count == 1, let scalar = scalars.first, (0x20...0x7E).contains(scalar.value) {
