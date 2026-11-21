@@ -190,18 +190,19 @@ struct AuthenticationView: View {
                         .submitLabel(.done)
 
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
-                    // Opening at launch needs the saved login to skip the prompt.
-                    if let opensOnLaunch, saveCredentials {
-                        Toggle("Open on launch", isOn: opensOnLaunch)
-                    }
-                } footer: {
-                    if opensOnLaunch != nil, saveCredentials {
-                        Text("Control will go straight to this Mac when it opens.")
-                    }
                 }
                 .onChange(of: saveCredentials) { _, saved in
                     if !saved { opensOnLaunch?.wrappedValue = false }
                 }
+                // Opening at launch needs the saved login to skip the prompt.
+                if let opensOnLaunch, saveCredentials {
+                    Section {
+                        Toggle("Open on launch", isOn: opensOnLaunch)
+                    } footer: {
+                        Text("Control will go straight to this Mac when it opens.")
+                    }
+                }
+                
                 Button {
                     handleSubmit()
                 } label: {
