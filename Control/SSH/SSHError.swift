@@ -6,6 +6,9 @@ enum SSHError: Error {
     case channelNotConnected
     case invalidChannelType
     case authenticationFailed
+    /// The Mac only offers other login methods (keys, usually): no password
+    /// can work, so this mustn't send the user back to the password prompt.
+    case passwordLoginDisabled
     case connectionFailed(String)
     case timeout
     case channelError(String)
@@ -88,6 +91,11 @@ enum SSHError: Error {
             return (
                 "Authentication Failed",
                 "The username or password provided was incorrect. Please check your credentials and try again."
+            )
+        case .passwordLoginDisabled:
+            return (
+                "Password login is off",
+                "\(displayName) only accepts SSH key authentiaction, but Control signs in with your Mac’s password."
             )
         case .connectionFailed(_):
             return (
