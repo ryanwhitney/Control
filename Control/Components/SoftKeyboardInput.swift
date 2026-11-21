@@ -55,10 +55,45 @@ struct SoftKeyboardInput: UIViewRepresentable {
         private static let characterWidth: CGFloat = 9
         private static let lineHeight: CGFloat = 20
 
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(inputModeDidChange),
+                name: UITextInputMode.currentInputModeDidChangeNotification,
+                object: nil
+            )
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("Not built from a storyboard")
+        }
+
         override var canBecomeFirstResponder: Bool { true }
 
+        /// Dictation shows as its own input mode. Also checked at each edit,
+        /// so a missed change notification can't leave typing held.
+        private var isDictating: Bool {
+            textInputMode?.primaryLanguage == "dictation"
+        }
+
+        /// Holds dictation on the phone until it ends, then sends the result
+        /// once, instead of every revision it makes along the way.
+        private func updateDictationHold() {
+            if isDictating {
+                document.beginHolding()
+            } else if document.isHolding {
+                send(document.endHolding())
+            }
+        }
+
+        @objc private func inputModeDidChange() {
+            guard isFirstResponder else { return }
+            updateDictationHold()
+        }
+
         private func send(_ edits: [TypingEdit]) {
-            echo.setComposing(document.markedText)
+            echo.setComposing(document.isHolding ? document.heldInsertion : document.markedText)
             guard !edits.isEmpty else { return }
             echo.apply(edits)
             onEdits?(edits)
@@ -67,7 +102,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
         /// Starts a fresh copy, committing any composition first. Notifies the
         /// keyboard, which otherwise keeps working from the old text.
         func resetDocument() {
-            let commit = document.commitMarked()
+            let commit = document.commitMarked() + document.endHolding()
             inputDelegate?.selectionWillChange(self)
             inputDelegate?.textWillChange(self)
             document = TypingDocument()
@@ -78,7 +113,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
 
         @discardableResult
         override func resignFirstResponder() -> Bool {
-            send(document.commitMarked())
+            send(document.commitMarked() + document.endHolding())
             let resigned = super.resignFirstResponder()
             if resigned {
                 document = TypingDocument()
@@ -95,6 +130,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
         var hasText: Bool { true }
 
         func insertText(_ text: String) {
+            updateDictationHold()
             send(document.insert(text))
             // Return may submit, and Tab moves focus, so the Mac's caret is
             // somewhere this copy can't follow. After this call returns, so
@@ -105,6 +141,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
         }
 
         func deleteBackward() {
+            updateDictationHold()
             send(document.deleteBackward())
         }
 
@@ -121,6 +158,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
 
         func replace(_ range: UITextRange, withText text: String) {
             guard let range = range as? DocumentRange else { return }
+            updateDictationHold()
             send(document.replace(range.nsRange, with: text))
         }
 
@@ -128,6 +166,7 @@ struct SoftKeyboardInput: UIViewRepresentable {
             get { DocumentRange(document.selection) }
             set {
                 guard let range = newValue as? DocumentRange else { return }
+                updateDictationHold()
                 send(document.select(range.nsRange))
             }
         }
@@ -137,10 +176,12 @@ struct SoftKeyboardInput: UIViewRepresentable {
         }
 
         func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+            updateDictationHold()
             send(document.setMarked(markedText ?? "", selectedRange: selectedRange))
         }
 
         func unmarkText() {
+            updateDictationHold()
             send(document.commitMarked())
         }
 

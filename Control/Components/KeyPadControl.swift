@@ -20,6 +20,7 @@ struct KeyPadControl: View {
     /// Bumped by pad presses while typing: they move the Mac's caret, so the
     /// keyboard's copy of what was typed has to start over.
     @State private var keyboardContext = 0
+    @State private var showingKeyboardIntro = false
 
     /// Uniform within and between zones, so the pad reads as one grid. The whole
     /// gap lives here — caps carry no padding — so the sizing below is exact.
@@ -39,6 +40,11 @@ struct KeyPadControl: View {
             }
             .onDisappear {
                 isTyping = false
+            }
+            // However it's closed: tapping the key meant "let me type".
+            .sheet(isPresented: $showingKeyboardIntro, onDismiss: { isTyping = true }) {
+                SoftKeyboardIntroSheet()
+                    .onAppear { UserPreferences.shared.hasSeenSoftKeyboardIntro = true }
             }
     }
 
@@ -122,7 +128,14 @@ struct KeyPadControl: View {
         let isKeyboardToggle = cell.command == .softKeyboard
         return PadKeyButton(cell: cell, size: capSize, fontSize: glyphFontSize(for: capSize), isOn: isKeyboardToggle && isTyping) {
             guard let action = cell.action else {
-                if isKeyboardToggle { isTyping.toggle() }
+                guard isKeyboardToggle else { return }
+                // At the moment of use rather than when the key is placed: the
+                // limits only mean something once you're about to type.
+                if !isTyping, !UserPreferences.shared.hasSeenSoftKeyboardIntro {
+                    showingKeyboardIntro = true
+                } else {
+                    isTyping.toggle()
+                }
                 return
             }
             if isTyping {

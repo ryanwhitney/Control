@@ -16,6 +16,17 @@ struct TypingDocument {
     /// Where the Mac's caret is, in committed text. Moved lazily: a ranged
     /// selection isn't mirrored, and the edit that replaces it moves the caret.
     private var macCaret = 0
+    /// The Mac's state when holding began. While set, edits stay on the phone
+    /// and `endHolding` sends their net effect: dictation revises its guesses
+    /// as you speak, and sending each revision is a storm of deletes.
+    private var held: Held?
+
+    private struct Held {
+        let text: String
+        let macCaret: Int
+        /// Deletes past the copy's start, which change no text here to diff.
+        var leadingDeletes = 0
+    }
 
     /// Well past any burst; trimmed so a long session doesn't grow without end.
     private static let maxLength = 4000
@@ -24,6 +35,15 @@ struct TypingDocument {
 
     var markedText: String {
         markedRange.map { substring($0) } ?? ""
+    }
+
+    var isHolding: Bool { held != nil }
+
+    /// What `endHolding` would type, for showing while it's held.
+    var heldInsertion: String {
+        guard let held else { return "" }
+        let change = Self.change(from: held.text, to: committedText)
+        return String(change.inserted)
     }
 
     func substring(_ range: NSRange) -> String {
@@ -43,7 +63,7 @@ struct TypingDocument {
         if !string.isEmpty { edits.append(.text(string)) }
         caret(at: marked.location + string.utf16.count)
         trimIfNeeded()
-        return edits
+        return emit(edits)
     }
 
     mutating func replace(_ range: NSRange, with string: String) -> [TypingEdit] {
@@ -59,7 +79,7 @@ struct TypingDocument {
         if !string.isEmpty { edits.append(.text(string)) }
         caret(at: range.location + string.utf16.count)
         trimIfNeeded()
-        return edits
+        return emit(edits)
     }
 
     mutating func deleteBackward() -> [TypingEdit] {
@@ -81,7 +101,8 @@ struct TypingDocument {
             // Before anything typed here: the Mac has text the phone can't see.
             var edits = moveMac(to: 0)
             edits.append(.deleteBackward(1))
-            return edits
+            held?.leadingDeletes += 1
+            return emit(edits)
         }
         let previous = (text as NSString).rangeOfComposedCharacterSequence(at: selection.location - 1)
         return replace(NSRange(location: previous.location, length: selection.location - previous.location), with: "")
@@ -106,7 +127,7 @@ struct TypingDocument {
         let start = min(max(0, selectedRange.location), markedLength)
         let end = min(start + max(0, selectedRange.length), markedLength)
         selection = NSRange(location: target.location + start, length: end - start)
-        return edits
+        return emit(edits)
     }
 
     mutating func commitMarked() -> [TypingEdit] {
@@ -116,13 +137,64 @@ struct TypingDocument {
         markedRange = nil
         if !composed.isEmpty { edits.append(.text(composed)) }
         macCaret = NSMaxRange(marked)
-        return edits
+        return emit(edits)
     }
 
     mutating func select(_ range: NSRange) -> [TypingEdit] {
         selection = clamped(range)
         guard markedRange == nil, selection.length == 0 else { return [] }
-        return moveMac(to: selection.location)
+        return emit(moveMac(to: selection.location))
+    }
+
+    // MARK: Holding
+
+    mutating func beginHolding() {
+        guard held == nil else { return }
+        held = Held(text: committedText, macCaret: macCaret)
+    }
+
+    /// One replacement for everything that changed while held: from the
+    /// Mac's real caret, over to the changed span, delete it, type the new.
+    mutating func endHolding() -> [TypingEdit] {
+        guard let held else { return [] }
+        self.held = nil
+        let old = held.text
+        let change = Self.change(from: old, to: committedText)
+        var caretCharacters = characterCount(in: old, from: 0, to: held.macCaret)
+        var edits: [TypingEdit] = []
+        if held.leadingDeletes > 0 {
+            if caretCharacters > 0 { edits.append(.moveLeft(caretCharacters)) }
+            edits.append(.deleteBackward(held.leadingDeletes))
+            caretCharacters = 0
+        }
+        guard !change.removed.isEmpty || !change.inserted.isEmpty else {
+            macCaret = held.leadingDeletes > 0 ? 0 : held.macCaret
+            return edits
+        }
+        // From where the Mac really is over to the span's end.
+        let spanEnd = Array(old).count - change.suffixCount
+        if spanEnd > caretCharacters { edits.append(.moveRight(spanEnd - caretCharacters)) }
+        if spanEnd < caretCharacters { edits.append(.moveLeft(caretCharacters - spanEnd)) }
+        if !change.removed.isEmpty { edits.append(.deleteBackward(change.removed.count)) }
+        if !change.inserted.isEmpty { edits.append(.text(String(change.inserted))) }
+        let newCharacters = Array(committedText)
+        macCaret = String(newCharacters[..<(newCharacters.count - change.suffixCount)]).utf16.count
+        return edits
+    }
+
+    /// The differing middle between two texts, by character, after their
+    /// common start and end.
+    private static func change(from old: String, to new: String) -> (removed: ArraySlice<Character>, inserted: ArraySlice<Character>, suffixCount: Int) {
+        let a = Array(old), b = Array(new)
+        var prefix = 0
+        while prefix < min(a.count, b.count), a[prefix] == b[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < min(a.count, b.count) - prefix, a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
+        return (a[prefix..<(a.count - suffix)], b[prefix..<(b.count - suffix)], suffix)
+    }
+
+    private func emit(_ edits: [TypingEdit]) -> [TypingEdit] {
+        isHolding ? [] : edits
     }
 
     // MARK: Characters

@@ -11,6 +11,7 @@ struct HelpSheet<Content: View, Explainer: View>: View {
     /// Prose below the reply separator, which the sheet supplies in full.
     private let mailBody: String
     private let detents: Set<PresentationDetent>
+    private let ctaText: String
     private let content: Content
     private let explainer: Explainer
 
@@ -24,6 +25,7 @@ struct HelpSheet<Content: View, Explainer: View>: View {
         mailSubject: String,
         mailBody: String,
         detents: Set<PresentationDetent> = [.medium, .large],
+        ctaText: String = "OK",
         @ViewBuilder content: () -> Content,
         @ViewBuilder explainer: () -> Explainer
     ) {
@@ -32,6 +34,7 @@ struct HelpSheet<Content: View, Explainer: View>: View {
         self.mailSubject = mailSubject
         self.mailBody = mailBody
         self.detents = detents
+        self.ctaText = ctaText
         self.content = content()
         self.explainer = explainer()
     }
@@ -86,7 +89,7 @@ struct HelpSheet<Content: View, Explainer: View>: View {
                 dismiss()
             } label: {
                 HStack {
-                    Text("OK")
+                    Text(ctaText)
                         .multiblur([(10, 0.25), (50, 0.35)])
                 }
                 .padding(.vertical, 11)
@@ -121,6 +124,7 @@ extension HelpSheet where Explainer == EmptyView {
         mailSubject: String,
         mailBody: String,
         detents: Set<PresentationDetent> = [.medium, .large],
+        ctaText: String = "OK",
         @ViewBuilder content: () -> Content
     ) {
         self.init(
@@ -129,6 +133,7 @@ extension HelpSheet where Explainer == EmptyView {
             mailSubject: mailSubject,
             mailBody: mailBody,
             detents: detents,
+            ctaText: ctaText,
             content: content,
             explainer: { EmptyView() }
         )

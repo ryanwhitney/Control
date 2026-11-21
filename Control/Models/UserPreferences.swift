@@ -52,6 +52,11 @@ class UserPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(hasSeenKeyboardHintChooseApps, forKey: "hasSeenKeyboardHintChooseApps") }
     }
 
+    /// The soft keyboard's first-use explainer, shown once before it first rises.
+    @Published var hasSeenSoftKeyboardIntro: Bool {
+        didSet { UserDefaults.standard.set(hasSeenSoftKeyboardIntro, forKey: "hasSeenSoftKeyboardIntro") }
+    }
+
     static let shared = UserPreferences()
 
     private init() {
@@ -60,6 +65,7 @@ class UserPreferences: ObservableObject {
         self.connectionMethod = ConnectionMethod(rawValue: UserDefaults.standard.string(forKey: "connectionMethod") ?? "") ?? .streaming
         self.hasSeenKeyboardHintManageApps = UserDefaults.standard.bool(forKey: "hasSeenKeyboardHintManageApps")
         self.hasSeenKeyboardHintChooseApps = UserDefaults.standard.bool(forKey: "hasSeenKeyboardHintChooseApps")
+        self.hasSeenSoftKeyboardIntro = UserDefaults.standard.bool(forKey: "hasSeenSoftKeyboardIntro")
     }
     
     /// The single source for the theme pickers and `tintColorValue`.
@@ -98,10 +104,11 @@ class UserPreferences: ObservableObject {
         if !hasSeenKeyboardHintChooseApps { hasSeenKeyboardHintChooseApps = true }
     }
 
-    /// Debug-only: re-arms the hint dots.
+    /// Debug-only: re-arms the hint dots and the soft keyboard explainer.
     func resetKeyboardHints() {
         hasSeenKeyboardHintManageApps = false
         hasSeenKeyboardHintChooseApps = false
+        hasSeenSoftKeyboardIntro = false
     }
 
     /// Debug-only: shows What's New again on the next launch.

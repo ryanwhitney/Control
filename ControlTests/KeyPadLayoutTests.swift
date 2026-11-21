@@ -394,6 +394,48 @@ struct KeyPadLayoutTests {
         #expect(document.markedText == "n")
     }
 
+    // MARK: Holding (dictation)
+
+    /// Dictation's revisions stay on the phone; only the final text goes out.
+    @Test func heldRevisionsSendOnceAsTheFinalText() {
+        var document = TypingDocument()
+        _ = document.insert("Note: ")
+        document.beginHolding()
+        #expect(document.insert("call") == [])
+        #expect(document.replace(NSRange(location: 6, length: 4), with: "Call mom") == [])
+        #expect(document.insert(" at 5") == [])
+        #expect(document.heldInsertion == "Call mom at 5")
+        #expect(document.endHolding() == [.text("Call mom at 5")])
+        #expect(document.insert("!") == [.text("!")])
+    }
+
+    /// A revision reaching back into text the Mac already has: one move,
+    /// one delete run, one insertion.
+    @Test func heldChangesToEarlierTextBecomeOneReplacement() {
+        var document = TypingDocument()
+        _ = document.insert("their going")
+        document.beginHolding()
+        _ = document.replace(NSRange(location: 0, length: 5), with: "they're")
+        #expect(document.endHolding() == [.moveLeft(6), .deleteBackward(2), .text("y're")])
+        #expect(document.select(NSRange(location: document.length, length: 0)) == [.moveRight(6)])
+    }
+
+    @Test func heldDeletesPastTheStartStillReachTheMac() {
+        var document = TypingDocument()
+        document.beginHolding()
+        _ = document.deleteBackward()
+        _ = document.insert("hi")
+        #expect(document.endHolding() == [.deleteBackward(1), .text("hi")])
+    }
+
+    @Test func endingAnUnchangedHoldSendsNothing() {
+        var document = TypingDocument()
+        _ = document.insert("abc")
+        document.beginHolding()
+        #expect(document.endHolding().isEmpty)
+        #expect(document.insert("d") == [.text("d")])
+    }
+
     // MARK: Typist
 
     @Test func typistMergesNeighboursAndNetsArrows() {
