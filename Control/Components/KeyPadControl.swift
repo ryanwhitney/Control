@@ -13,8 +13,6 @@ struct KeyPadControl: View {
     /// False when paged away or under a sheet, which lowers the soft keyboard:
     /// its typing would otherwise reach the Mac from a page that isn't showing.
     var isVisible = true
-    /// Opens the pad's editor, on holding any cell; nil leaves holds inert.
-    var onCustomize: (() -> Void)?
     @EnvironmentObject var controller: AppController
     @ObservedObject var layoutStore: KeyPadLayoutStore = .shared
     @State private var isTyping = false
@@ -23,7 +21,6 @@ struct KeyPadControl: View {
     /// keyboard's copy of what was typed has to start over.
     @State private var keyboardContext = 0
     @State private var showingKeyboardIntro = false
-    @State private var customizeRequests = 0
 
     /// Uniform within and between zones, so the pad reads as one grid. The whole
     /// gap lives here — caps carry no padding — so the sizing below is exact.
@@ -49,15 +46,6 @@ struct KeyPadControl: View {
                 SoftKeyboardIntroSheet()
                     .onAppear { UserPreferences.shared.hasSeenSoftKeyboardIntro = true }
             }
-            .sensoryFeedback(.impact(weight: .medium), trigger: customizeRequests)
-    }
-
-    private var customizeAction: (() -> Void)? {
-        guard let onCustomize else { return nil }
-        return {
-            customizeRequests += 1
-            onCustomize()
-        }
     }
 
     @ViewBuilder
@@ -127,10 +115,6 @@ struct KeyPadControl: View {
             // Sized, not `gridCellUnsizedAxes`: an empty row or column must
             // keep its footprint or key positions shift from the editor's.
             Color.clear.frame(width: capSize, height: capSize)
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: PadKeyButton.customizeHoldDuration) {
-                    customizeAction?()
-                }
         }
     }
 
@@ -142,13 +126,7 @@ struct KeyPadControl: View {
 
     private func cellButton(_ cell: PadCell, capSize: CGFloat) -> some View {
         let isKeyboardToggle = cell.command == .softKeyboard
-        return PadKeyButton(
-            cell: cell,
-            size: capSize,
-            fontSize: glyphFontSize(for: capSize),
-            isOn: isKeyboardToggle && isTyping,
-            onLongPress: customizeAction
-        ) {
+        return PadKeyButton(cell: cell, size: capSize, fontSize: glyphFontSize(for: capSize), isOn: isKeyboardToggle && isTyping) {
             guard let action = cell.action else {
                 guard isKeyboardToggle else { return }
                 // At the moment of use rather than when the key is placed: the
@@ -193,14 +171,7 @@ struct PadKeyButton: View {
     var fontSize: CGFloat = 36
     /// A toggle cap's on state: the soft keyboard is up.
     var isOn = false
-    var onLongPress: (() -> Void)?
     let action: () -> Void
-
-    static let customizeHoldDuration = 0.5
-    /// Set when a hold fires, so the release that ends it isn't also a press.
-    /// Cleared at the next touch-down too, in case presenting the editor
-    /// cancelled the touch and no release ever came.
-    @State private var heldLong = false
 
     /// The keyboard symbol is wide and dense, so at full size it outweighs the
     /// letter caps beside it. A custom icon in its place keeps the usual size.
@@ -209,13 +180,7 @@ struct PadKeyButton: View {
     }
 
     var body: some View {
-        Button {
-            if heldLong {
-                heldLong = false
-                return
-            }
-            action()
-        } label: {
+        Button(action: action) {
             if let hint = cell.keyHint {
                 // Smaller than a bare glyph, so the icon and hint together
                 // still fit the cap.
@@ -241,23 +206,8 @@ struct PadKeyButton: View {
         .background(RoundedRectangle(cornerRadius: 20).fill(.tint.opacity(isOn ? 0.2 : 0)))
         .animation(.easeOut(duration: 0.12), value: isOn)
         .accessibilityAddTraits(isOn ? .isSelected : [])
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: Self.customizeHoldDuration)
-                .onChanged { _ in heldLong = false }
-                .onEnded { _ in
-                    guard let onLongPress else { return }
-                    heldLong = true
-                    onLongPress()
-                },
-            including: onLongPress == nil ? .subviews : .all
-        )
         .accessibilityLabel(cell.label)
         .accessibilityInputLabels(cell.inputLabels)
-        .accessibilityActions {
-            if let onLongPress {
-                Button("Customize Keys", action: onLongPress)
-            }
-        }
     }
 }
 

@@ -224,8 +224,7 @@ struct PlatformControl: View {
                         platform: platform,
                         isCompact: isPhoneLandscape,
                         sizeScale: controlScale,
-                        isVisible: selectedIndex == pageIndex && !showingKeyPadEditor && permissionHelpKind == nil,
-                        onCustomize: { showingKeyPadEditor = true }
+                        isVisible: selectedIndex == pageIndex && !showingKeyPadEditor && permissionHelpKind == nil
                     )
                 }
             }
