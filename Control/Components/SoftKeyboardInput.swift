@@ -457,8 +457,9 @@ final class TypingEcho: ObservableObject {
 /// Floats above the keyboard: the typing echo, and the hide button iPhone
 /// keyboards lack.
 struct SoftKeyboardAccessory: View {
-    /// Bar plus the gap that lifts it off the keyboard.
-    static let height: CGFloat = 60
+    /// Lifts the bar off the keyboard's top edge.
+    static let keyboardGap: CGFloat = 24
+    static let height: CGFloat = 44 + keyboardGap
 
     @ObservedObject var echo: TypingEcho
     let onHide: () -> Void
@@ -477,7 +478,6 @@ struct SoftKeyboardAccessory: View {
             .accessibilityLabel("Hide Keyboard")
         }
         .padding(.horizontal, 12)
-        .padding(.bottom, 10)
         .frame(height: Self.height, alignment: .top)
         .themeTint(UserPreferences.shared.tintColorValue)
     }
