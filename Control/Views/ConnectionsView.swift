@@ -113,7 +113,7 @@ struct ConnectionsView: View {
                 }
             }
             .sheet(isPresented: $viewModel.showingWhatsNew) {
-                WhatsNewView(hasSavedConnections: !viewModel.savedConnections.items.isEmpty) {
+                WhatsNewView {
                     viewModel.showingWhatsNew = false
                 }
                 .presentationBackground(.black)
