@@ -465,6 +465,15 @@ private struct KeyPickerView: View {
     @ObservedObject var store: KeyPadLayoutStore
     let address: CellAddress
     @Environment(\.dismiss) private var dismiss
+    /// Fixed at opening, so removing or assigning a key doesn't retitle the
+    /// sheet as it closes.
+    private let title: String
+
+    init(store: KeyPadLayoutStore, address: CellAddress) {
+        self.store = store
+        self.address = address
+        title = store.layout[address] == nil ? "Choose Key" : "Update Key"
+    }
     
     private var current: PadCell? {
         store.layout[address]
@@ -496,7 +505,7 @@ private struct KeyPickerView: View {
                 }
                 .padding(20)
             }
-            .navigationTitle("Choose Key")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if current != nil {
@@ -644,7 +653,7 @@ private struct KeyPickerView: View {
                     .frame(height: 34)
                 Text("Add")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tint)
             }
             .frame(maxWidth: .infinity, minHeight: 76)
             .glassRect()
@@ -669,7 +678,7 @@ private struct PickerKeyStyle: ButtonStyle {
 private struct KeyCatalogGrid<SpecialExtras: View>: View {
     let isSelected: (RemoteKey) -> Bool
     let accessibilityHint: String
-    /// Tiles after the first section's keys, for pad commands that aren't keys.
+    /// Tiles ahead of the first section's keys, for pad commands that aren't keys.
     /// The picker's alone: the shortcut builder needs a key to chord.
     @ViewBuilder var specialExtras: () -> SpecialExtras
     let onTap: (RemoteKey) -> Void
@@ -683,6 +692,9 @@ private struct KeyCatalogGrid<SpecialExtras: View>: View {
                     // ~70 keys is too many to swipe without rotor section jumps.
                         .accessibilityAddTraits(.isHeader)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
+                        if section.id == RemoteKey.sections.first?.id {
+                            specialExtras()
+                        }
                         ForEach(section.keys) { key in
                             Button {
                                 onTap(key)
@@ -693,9 +705,6 @@ private struct KeyCatalogGrid<SpecialExtras: View>: View {
                             .accessibilityLabel(key.label)
                             .accessibilityHint(accessibilityHint)
                             .accessibilityAddTraits(isSelected(key) ? .isSelected : [])
-                        }
-                        if section.id == RemoteKey.sections.first?.id {
-                            specialExtras()
                         }
                     }
                 }
