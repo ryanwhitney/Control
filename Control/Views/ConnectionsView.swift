@@ -77,7 +77,7 @@ struct ConnectionsView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
-                    .accessibilityLabel("Settings")
+                    .accessibilityLabel("Preferences")
                 }
             }
             .navigationTitle("")
