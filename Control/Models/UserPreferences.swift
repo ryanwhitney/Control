@@ -87,7 +87,7 @@ class UserPreferences: ObservableObject {
     }
     
     /// Bump to show the What's New screen again.
-    private let whatsNewContentVersion = "2.1.0"
+    private let whatsNewContentVersion = "2.2.0"
 
     var shouldShowWhatsNew: Bool {
         return lastSeenWhatsNewVersion != whatsNewContentVersion
