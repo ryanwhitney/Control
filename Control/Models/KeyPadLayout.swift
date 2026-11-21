@@ -313,7 +313,7 @@ struct KeyPadLayout: Equatable {
         pad: CellGrid(columns: 3, cells: [
             nil,         .key(.up),    nil,
             .key(.left), .key(.space), .key(.right),
-            nil,         .key(.down),  nil,
+            PadCell(command: .softKeyboard), .key(.down), nil,
         ])
     )
 

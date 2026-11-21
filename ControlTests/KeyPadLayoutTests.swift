@@ -7,7 +7,7 @@ import UIKit
 /// tolerance (an unreadable entry costs that cell, never the whole layout) and
 /// wire-format stability (a refactor must fail here, not in the field).
 struct KeyPadLayoutTests {
-    @Test func standardLayoutMatchesTheOriginalPad() {
+    @Test func standardLayout() {
         let layout = KeyPadLayout.standard
         #expect(layout.utility.columns == 3)
         #expect(layout.utility.cells == [.key(.escape), nil, .key(.return)])
@@ -17,8 +17,9 @@ struct KeyPadLayoutTests {
         #expect(layout.pad[1, 0] == .key(.left))
         #expect(layout.pad[1, 1] == .key(.space))
         #expect(layout.pad[1, 2] == .key(.right))
+        #expect(layout.pad[2, 0] == PadCell(command: .softKeyboard))
         #expect(layout.pad[2, 1] == .key(.down))
-        #expect(layout.pad.cells.compactMap { $0 }.count == 5)
+        #expect(layout.pad.cells.compactMap { $0 }.count == 6)
     }
 
     @Test func layoutSurvivesACodableRoundTrip() throws {
@@ -44,9 +45,16 @@ struct KeyPadLayoutTests {
             null, {"type": "key", "key": "down"}, null]}}
         """
         let layout = try JSONDecoder().decode(KeyPadLayout.self, from: Data(fixture.utf8))
-        var expected = KeyPadLayout.standard
-        expected[CellAddress(zone: .pad, index: 4)] = .shortcut(
-            KeyShortcut(name: nil, presses: [KeyPress(key: RemoteKey.withID("z")!, modifiers: [.command])])
+        // Spelled out rather than derived from `.standard`, which changes.
+        let expected = KeyPadLayout(
+            utility: CellGrid(columns: 3, cells: [.key(.escape), nil, .key(.return)]),
+            pad: CellGrid(columns: 3, cells: [
+                nil, .key(.up), nil,
+                .key(.left),
+                .shortcut(KeyShortcut(name: nil, presses: [KeyPress(key: RemoteKey.withID("z")!, modifiers: [.command])])),
+                .key(.right),
+                nil, .key(.down), nil,
+            ])
         )
         #expect(layout == expected)
     }
