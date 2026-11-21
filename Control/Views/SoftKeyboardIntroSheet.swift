@@ -6,27 +6,27 @@ struct SoftKeyboardIntroSheet: View {
     var body: some View {
         HelpSheet(
             title: "Heads up: your Mac may adjust what you type",
-            subtitle: "Here's how this works:",
+            subtitle: "Here’s how this works:",
             mailSubject: "📱 Keyboard typing help/question",
             mailBody: "Let me know what’s happening above and I’ll get back to you as soon as possible.",
-            // Four explained points: too long to open at `.medium`.
+            // Too long to open at `.medium`.
             detents: [.large]
         ) {
             Section {
                 point(
                     "keyboard.macwindow",
-                    title: "This keyboard sends exactly what you type.",
+                    title: "Control’s keyboard sends exactly what you type.",
                     detail: "Just like an external keyboard."
                 )
                 point(
                     "textformat.abc",
                     title: "Your Mac may autocorrect words along the way.",
-                    detail: "Depending on what app you're typing into."
+                    detail: "Depending on what app is active."
                 )
                 point(
                     "text.bubble",
-                    title: "Autocorrect changes won't be visible within Control.",
-                    detail: "Instead, we'll show a preview bubble of what you've typed here."
+                    title: "Autocorrect changes won’t be visible within Control.",
+                    detail: "Instead, we’ll show a preview bubble of what you’ve typed here."
                 )
             }
         }
