@@ -18,6 +18,8 @@ struct AuthenticationView: View {
     @Binding var username: String
     @Binding var password: String
     @Binding var saveCredentials: Bool
+    /// Edit mode's "Open on launch" toggle; nil hides it.
+    private let opensOnLaunch: Binding<Bool>?
 
     @State private var showLoginUsernameHelpSheet = false
 
@@ -73,6 +75,7 @@ struct AuthenticationView: View {
          username: Binding<String>,
          password: Binding<String>,
          saveCredentials: Binding<Bool>,
+         opensOnLaunch: Binding<Bool>? = nil,
          onSuccess: @escaping (String, String?) -> Void,
          onCancel: @escaping () -> Void)
     {
@@ -84,6 +87,7 @@ struct AuthenticationView: View {
         self._username = username
         self._password = password
         self._saveCredentials = saveCredentials
+        self.opensOnLaunch = opensOnLaunch
         self.onSuccess = onSuccess
         self.onCancel = onCancel
     }
@@ -186,6 +190,17 @@ struct AuthenticationView: View {
                         .submitLabel(.done)
 
                     Toggle("Save for one-tap connect", isOn: $saveCredentials)
+                    // Opening at launch needs the saved login to skip the prompt.
+                    if let opensOnLaunch, saveCredentials {
+                        Toggle("Open on launch", isOn: opensOnLaunch)
+                    }
+                } footer: {
+                    if opensOnLaunch != nil, saveCredentials {
+                        Text("Control will go straight to this Mac when it opens.")
+                    }
+                }
+                .onChange(of: saveCredentials) { _, saved in
+                    if !saved { opensOnLaunch?.wrappedValue = false }
                 }
                 Button {
                     handleSubmit()

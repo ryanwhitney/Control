@@ -11,6 +11,7 @@ import Network
 
 @main
 struct VolumeControlApp: App {
+    @UIApplicationDelegateAdaptor(ControlAppDelegate.self) private var appDelegate
     @StateObject private var networkPermissions = NetworkPermissions()
     @StateObject private var preferences = UserPreferences.shared
 

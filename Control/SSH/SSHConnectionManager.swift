@@ -406,7 +406,10 @@ class SSHConnectionManager: ObservableObject, SSHClientProtocol {
                     await onSuccess()
                     return
                 } catch {
-                    if attempt >= maxConnectAttempts {
+                    // Retrying can't turn password login on.
+                    let isPermanent: Bool
+                    if case SSHError.passwordLoginDisabled = error { isPermanent = true } else { isPermanent = false }
+                    if isPermanent || attempt >= maxConnectAttempts {
                         connectionLog("❌ Connect failed after \(attempt) attempts: \(error.localizedDescription)")
                         onError(error)
                         return

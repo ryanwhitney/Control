@@ -138,7 +138,8 @@ struct PasswordAuthDelegateTests {
         defer { try? loop.syncShutdownGracefully() }
         let delegate = PasswordAuthDelegate(username: "user", password: "pw")
         var authFailureFired = false
-        delegate.onAuthFailure = { authFailureFired = true }
+        var reportedError: SSHError?
+        delegate.onAuthFailure = { authFailureFired = true; reportedError = $0 }
 
         // First challenge: the password is offered.
         let first = loop.makePromise(of: NIOSSHUserAuthenticationOffer?.self)
@@ -153,6 +154,9 @@ struct PasswordAuthDelegateTests {
         #expect(try second.futureResult.wait() == nil)
         #expect(delegate.authFailed == true)
         #expect(authFailureFired == true)
+        if case .authenticationFailed = reportedError {} else {
+            Issue.record("a rejected password should report authenticationFailed, got \(String(describing: reportedError))")
+        }
     }
 
     @Test func passwordMethodUnavailableFailsImmediately() throws {
@@ -160,12 +164,17 @@ struct PasswordAuthDelegateTests {
         defer { try? loop.syncShutdownGracefully() }
         let delegate = PasswordAuthDelegate(username: "user", password: "pw")
         var authFailureFired = false
-        delegate.onAuthFailure = { authFailureFired = true }
+        var reportedError: SSHError?
+        delegate.onAuthFailure = { authFailureFired = true; reportedError = $0 }
 
         let promise = loop.makePromise(of: NIOSSHUserAuthenticationOffer?.self)
         delegate.nextAuthenticationType(availableMethods: .publicKey, nextChallengePromise: promise)
         #expect(try promise.futureResult.wait() == nil)
         #expect(delegate.authFailed == true)
         #expect(authFailureFired == true)
+        // Not `authenticationFailed`: that re-prompts for a password, which can't help.
+        if case .passwordLoginDisabled = reportedError {} else {
+            Issue.record("password login being off should report passwordLoginDisabled, got \(String(describing: reportedError))")
+        }
     }
 }

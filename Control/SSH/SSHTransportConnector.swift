@@ -43,10 +43,10 @@ enum SSHTransportConnector {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: timeout)
 
         let authDelegate = PasswordAuthDelegate(username: username, password: password)
-        authDelegate.onAuthFailure = {
-            attempt.finish(.failure(SSHError.authenticationFailed)) {
+        authDelegate.onAuthFailure = { error in
+            attempt.finish(.failure(error)) {
                 timeout.cancel()
-                sshLog("❌ [\(connectionId)] Authentication failed")
+                sshLog("❌ [\(connectionId)] Authentication failed: \(error)")
             }
         }
 
@@ -173,7 +173,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     private let password: String
     private var authAttempts = 0
     private(set) var authFailed = false
-    var onAuthFailure: (() -> Void)?
+    var onAuthFailure: ((SSHError) -> Void)?
 
     init(username: String, password: String) {
         self.username = username
@@ -188,7 +188,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         if !availableMethods.contains(.password) {
             sshLog("Password authentication not available on server")
             authFailed = true
-            onAuthFailure?()
+            onAuthFailure?(.passwordLoginDisabled)
             nextChallengePromise.succeed(nil)
             return
         }
@@ -201,7 +201,7 @@ class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
         guard authAttempts == 1 else {
             sshLog("Password rejected by server")
             authFailed = true
-            onAuthFailure?()
+            onAuthFailure?(.authenticationFailed)
             nextChallengePromise.succeed(nil)
             return
         }

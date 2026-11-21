@@ -3,7 +3,11 @@ import Security
 
 class SavedConnections: ObservableObject {
     @Published private(set) var items: [SavedConnection] = []
+    /// The one Mac Control opens straight to on launch, if any. One hostname
+    /// rather than a flag per connection, so two can never both claim it.
+    @Published private(set) var launchHost: String?
     private let saveKey = "SavedConnections"
+    private let launchHostKey = "LaunchConnectionHost"
     
     struct SavedConnection: Codable, Identifiable {
         let id: UUID
@@ -31,6 +35,7 @@ class SavedConnections: ObservableObject {
     
     init() {
         load()
+        launchHost = UserDefaults.standard.string(forKey: launchHostKey)
     }
     
     func add(hostname: String, name: String? = nil, username: String? = nil, password: String? = nil, saveCredentials: Bool) {
@@ -56,6 +61,7 @@ class SavedConnections: ObservableObject {
         } else if !saveCredentials {
             // Remove password if user chose not to save credentials
             removePassword(for: hostname)
+            setOpensOnLaunch(false, for: hostname)
         }
     }
     
@@ -74,6 +80,7 @@ class SavedConnections: ObservableObject {
                 savePassword(password, for: hostname)
             } else if !saveCredentials {
                 removePassword(for: hostname)
+                setOpensOnLaunch(false, for: hostname)
             } else {
                 debugLog("⏭️ saveCredentials=true but no password provided - skipping keychain operation", category: "SavedConnections")
             }
@@ -199,6 +206,26 @@ class SavedConnections: ObservableObject {
 
         // Remove password from keychain
         removePassword(for: hostname)
+        setOpensOnLaunch(false, for: hostname)
+    }
+
+    func setOpensOnLaunch(_ opensOnLaunch: Bool, for hostname: String) {
+        if opensOnLaunch {
+            launchHost = hostname
+        } else if launchHost == hostname {
+            launchHost = nil
+        } else {
+            return
+        }
+        UserDefaults.standard.set(launchHost, forKey: launchHostKey)
+    }
+
+    /// Set up and with a saved login: can skip the list and the login prompt.
+    func canOpenDirectly(_ hostname: String) -> Bool {
+        guard let connection = items.first(where: { $0.hostname == hostname }),
+              connection.hasConnectedBefore,
+              !(connection.username ?? "").isEmpty else { return false }
+        return !(password(for: hostname) ?? "").isEmpty
     }
     
     func markAsConnected(_ hostname: String) {

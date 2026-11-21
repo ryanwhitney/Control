@@ -9,6 +9,8 @@ class ConnectionsViewModel: ObservableObject {
     @Published var username: String = ""
     @Published var password: String = ""
     @Published var saveCredentials = false
+    /// The edit sheet's "Open on launch" toggle.
+    @Published var opensOnLaunch = false
     @Published var isAuthenticating = false
     @Published var connectionError: (title: String, message: String)?
     @Published var showingAddDialog = false
@@ -29,6 +31,10 @@ class ConnectionsViewModel: ObservableObject {
     private var scanStartTime: Date?
     private var scanCompletionTimer: Timer?
     private var scanUpdateTimer: Timer?
+    /// Launch routing waits for the root view, which disconnects on appear.
+    private var hasAppeared = false
+    /// A Mac to open once the screen in the way has been popped.
+    private var pendingOpenHost: String?
 
     let savedConnections = SavedConnections()
     private let connectionManager = SSHConnectionManager.shared
@@ -94,6 +100,15 @@ class ConnectionsViewModel: ObservableObject {
         savedConnections.$items
             .sink { [weak self] items in
                 self?.updateSavedComputers(items)
+            }
+            .store(in: &cancellables)
+
+        HomeScreenQuickActions.shared.$requestedHost
+            .compactMap { $0 }
+            .sink { [weak self] host in
+                guard let self, hasAppeared else { return }
+                HomeScreenQuickActions.shared.requestedHost = nil
+                open(host: host)
             }
             .store(in: &cancellables)
     }
@@ -191,10 +206,11 @@ class ConnectionsViewModel: ObservableObject {
         let existingPassword = savedConnections.password(for: computer.host)
         password = existingPassword != nil ? "•••••" : ""
         saveCredentials = savedConnections.getSaveCredentialsPreference(for: computer.host)
+        opensOnLaunch = savedConnections.launchHost == computer.host
         showingAddDialog = true
     }
 
-    func updateCredentials(hostname: String, name: String?, username: String, password: String?, saveCredentials: Bool) {
+    func updateCredentials(hostname: String, name: String?, username: String, password: String?, saveCredentials: Bool, opensOnLaunch: Bool) {
         let passwordToSave: String?
         if saveCredentials {
             passwordToSave = password == "•••••" ? savedConnections.password(for: hostname) : password
@@ -209,6 +225,62 @@ class ConnectionsViewModel: ObservableObject {
             password: passwordToSave,
             saveCredentials: saveCredentials
         )
+        savedConnections.setOpensOnLaunch(saveCredentials && opensOnLaunch, for: hostname)
+    }
+
+    // MARK: Opening a Mac directly
+
+    /// Opens a saved Mac from outside the list: at launch, or from a Home
+    /// Screen quick action. With a saved login it goes straight to the
+    /// controls, connecting there; otherwise it takes the list's own path,
+    /// prompting for a login or running first-time setup.
+    func open(host: String) {
+        guard let saved = savedConnections.items.first(where: { $0.hostname == host }) else { return }
+        let computer = Connection.fromSavedConnection(saved)
+        if (navigateToControl || showingSetupFlow) && selectedConnection?.host == host { return }
+        // A connect already under way from the list lands on its own Mac.
+        guard connectingComputer == nil else { return }
+
+        activePopover = nil
+        showingAddDialog = false
+        isAuthenticating = false
+
+        if navigateToControl || showingSetupFlow {
+            // The pop's own cleanup disconnects and clears the selection;
+            // `resumePendingOpen` picks this up after it.
+            pendingOpenHost = host
+            withoutAnimation {
+                navigateToControl = false
+                showingSetupFlow = false
+            }
+            return
+        }
+
+        guard savedConnections.canOpenDirectly(host) else {
+            selectComputer(computer)
+            return
+        }
+        selectedConnection = computer
+        username = saved.username ?? ""
+        password = savedConnections.password(for: host) ?? ""
+        saveCredentials = true
+        withoutAnimation { navigateToControl = true }
+    }
+
+    /// Called by the root view once a screen popped for `open` is gone.
+    func resumePendingOpen() {
+        guard let host = pendingOpenHost else { return }
+        pendingOpenHost = nil
+        // Pushing in the same update as the pop gets dropped.
+        Task { @MainActor in
+            open(host: host)
+        }
+    }
+
+    private func withoutAnimation(_ changes: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, changes)
     }
 
     func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
@@ -238,6 +310,15 @@ class ConnectionsViewModel: ObservableObject {
             }
         }
         
+        if !hasAppeared {
+            hasAppeared = true
+            let quickActionHost = HomeScreenQuickActions.shared.requestedHost
+            HomeScreenQuickActions.shared.requestedHost = nil
+            if let host = quickActionHost ?? savedConnections.launchHost {
+                open(host: host)
+            }
+        }
+
         if preferences.shouldShowWhatsNew {
             Task {
                 try await Task.sleep(nanoseconds: 500_000_000)
@@ -349,6 +430,7 @@ class ConnectionsViewModel: ObservableObject {
         savedComputers = items
             .map(Connection.fromSavedConnection)
             .sorted { $0.name < $1.name }
+        HomeScreenQuickActions.shared.update(for: savedComputers)
     }
 
     private func handleScanningStateChange(_ isScanning: Bool) {

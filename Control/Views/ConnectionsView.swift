@@ -149,6 +149,7 @@ struct ConnectionsView: View {
             if !newVal {
                 viewModel.connectingComputer = nil
                 viewModel.selectedConnection = nil
+                viewModel.resumePendingOpen()
             }
         }
         .onChange(of: viewModel.showingSetupFlow) { _, newValue in
@@ -163,6 +164,7 @@ struct ConnectionsView: View {
                     viewLog("ConnectionsView: setup flow dismissed, disconnected active SSH session", view: "ConnectionsView")
                 }
                 viewModel.connectingComputer = nil
+                viewModel.resumePendingOpen()
             }
         }
         .onChange(of: viewModel.showingError) { _, newValue in
@@ -197,13 +199,15 @@ private struct AddConnectionSheet: View {
                 username: $viewModel.username,
                 password: $viewModel.password,
                 saveCredentials: $viewModel.saveCredentials,
+                opensOnLaunch: $viewModel.opensOnLaunch,
                 onSuccess: { _, nickname in
                     viewModel.updateCredentials(
                         hostname: computer.host,
                         name: nickname ?? computer.name,
                         username: viewModel.username,
                         password: viewModel.password,
-                        saveCredentials: viewModel.saveCredentials
+                        saveCredentials: viewModel.saveCredentials,
+                        opensOnLaunch: viewModel.opensOnLaunch
                     )
                     viewModel.showingAddDialog = false
                     viewModel.selectedConnection = nil
