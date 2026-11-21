@@ -18,14 +18,12 @@ struct WhatsNewView: View {
         WhatsNewFeature(
             icon: "hare.fill",
             title: "Take Control Faster",
-            description: Text("Set “Open on launch” by swiping to edit a recent connection, or long-press the app icon to open directly to controls.")
+            description: Text("Set “Open on launch” by swiping to edit a recent connection. Or, long-press the app icon to open directly to controls.")
         ),
         WhatsNewFeature(
             icon: "keyboard",
             title: "Use Your Full Device Keyboard",
             description: Text("Adds a new key control that lets you open this device’s keyboard.")
-            
-            
         ),
         WhatsNewFeature(
             icon: "square.grid.3x3.fill",
@@ -69,11 +67,11 @@ struct WhatsNewView: View {
                                 FeatureCard(feature: feature)
                             }
                             VStack(spacing: 10){
-                                (Text("Customize keys under ")
+                                (Text("Set and customize keys in preferences or using the ")
                                  + Text(Image(systemName: "gearshape.fill")).foregroundStyle(.tint)
-                                 + Text(" on the Keyboard control screen, or in Preferences."))
+                                 + Text(" above Keyboard controls."))
                                 // Names the gear as VoiceOver announces the button itself.
-                                .accessibilityLabel("Customize keys with the Customize Keyboard Controls button on the Keyboard control screen, or in Preferences.")
+                                .accessibilityLabel("Set and customize keys in preferences or using the 'Customize Keyboard Controls' button above keyboard controls.")
 
                                 (Text("Thanks to all who provided feedback. ") + Text(Image(systemName: "heart.fill").symbolRenderingMode(.multicolor)))
                                     .accessibilityLabel("Thanks to all who provided feedback.")
