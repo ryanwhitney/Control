@@ -1,5 +1,6 @@
 
-<img src="https://github.com/user-attachments/assets/4217522e-379d-40c6-a56b-878c54335f59" width="200" style="margin:auto"/>
+<img width="1969" height="1278" alt="control-screens-3-cropped" src="https://github.com/user-attachments/assets/9bd940af-7a77-4640-9875-55b68bbe7857" />
+
 
 # Control • Mac Remote Control
 
