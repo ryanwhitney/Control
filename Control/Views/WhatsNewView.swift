@@ -17,8 +17,8 @@ struct WhatsNewView: View {
     private let newFeatures = [
         WhatsNewFeature(
             icon: "hare.fill",
-            title: "Take Control Faster",
-            description: Text("Set “Open on launch” by swiping to edit a recent connection. Or, long-press the app icon to open directly to controls.")
+            title: "Open Directly To Control View",
+            description: Text("Set “Open on launch” by swiping on a recent connection. Or, press & hold the app icon when opening Control.")
         ),
         WhatsNewFeature(
             icon: "keyboard",

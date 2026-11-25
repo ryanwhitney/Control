@@ -53,6 +53,11 @@ struct KeyboardApp: AppPlatform {
     /// ~10 ms against the read's ~13 ms, so the controller drops it once the grant
     /// is confirmed and puts it back if a press is ever refused.
     ///
+    /// `UI elements enabled` never prompts, and with the guard returning early
+    /// no key is ever sent, so macOS would never list sshd-keygen-wrapper under
+    /// Accessibility. The prompting guard asks with `AXIsProcessTrustedWithOptions`
+    /// instead, at top level: inside the tell, System Events would be the asker.
+    ///
     /// Delimiters are saved *above* the `try` and restored in both paths: they're
     /// global to the interpreter, and Fast keeps one alive per channel, so an
     /// error between set and restore would leak ":" into every later command —
@@ -60,13 +65,23 @@ struct KeyboardApp: AppPlatform {
     ///
     /// The empty middle field stands in for the absent subtitle: the shared parse
     /// needs three fields before it reads the third.
-    private func statusScript(guardingAssistiveAccess: Bool = true) -> String {
+    private func statusScript(assistiveAccessGuard: AssistiveAccessGuard) -> String {
         let sep = ScriptTokens.fieldSeparator
-        let guardLine = guardingAssistiveAccess
-            ? "\n    if not (UI elements enabled) then return \"\(ScriptTokens.accessibilityRequired)\""
-            : ""
+        let denied = "return \"\(ScriptTokens.accessibilityRequired)\""
+        var promptLine = ""
+        var checkLine = ""
+        switch assistiveAccessGuard {
+        case .none:
+            break
+        case .check:
+            checkLine = "\n    if not (UI elements enabled) then \(denied)"
+        case .prompt:
+            let js = "ObjC.import('ApplicationServices');"
+                + "$.AXIsProcessTrustedWithOptions($({AXTrustedCheckOptionPrompt:true}))"
+            promptLine = "if not (run script \"\(js)\" in \"JavaScript\") then \(denied)\n"
+        }
         return """
-        tell application "System Events"\(guardLine)
+        \(promptLine)tell application "System Events"\(checkLine)
             set frontApp to ""
             set savedDelims to AppleScript's text item delimiters
             try
@@ -101,11 +116,17 @@ struct KeyboardApp: AppPlatform {
         """
     }
 
-    func fetchState() -> String { statusScript() }
+    private enum AssistiveAccessGuard {
+        case none
+        case check
+        case prompt
+    }
+
+    func fetchState() -> String { statusScript(assistiveAccessGuard: .prompt) }
 
     /// Dropping the guard is the controller's call; see `assistiveAccessVerified`.
     func combinedStatusScript(assumingAssistiveAccess: Bool) -> String {
-        statusScript(guardingAssistiveAccess: !assumingAssistiveAccess)
+        statusScript(assistiveAccessGuard: assumingAssistiveAccess ? .none : .check)
     }
 
     /// Self-contained, not an injected fragment: a key press sends exactly this.
@@ -271,7 +292,7 @@ struct KeyboardApp: AppPlatform {
     /// Unused by the pad. Concatenated rather than injected, since
     /// `executeAction` is a standalone tell block.
     func actionWithStatus(_ action: AppAction) -> String {
-        executeAction(action) + "\n" + statusScript()
+        executeAction(action) + "\n" + statusScript(assistiveAccessGuard: .check)
     }
 
     /// Nothing here plays; the shared parse's boolean would read as "paused".

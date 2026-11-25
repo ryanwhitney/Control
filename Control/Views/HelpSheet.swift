@@ -141,8 +141,22 @@ extension HelpSheet where Explainer == EmptyView {
 }
 
 /// Numbered instructions; each step's emphasis is baked into its `Text`.
+struct HelpSheetStep {
+    let text: Text
+    /// A secondary line under the step, for an aside that shouldn't interrupt it.
+    var detail: Text?
+}
+
 struct HelpSheetSteps: View {
-    let steps: [Text]
+    let steps: [HelpSheetStep]
+
+    init(steps: [HelpSheetStep]) {
+        self.steps = steps
+    }
+
+    init(steps: [Text]) {
+        self.steps = steps.map { HelpSheetStep(text: $0) }
+    }
 
     var body: some View {
         Section {
@@ -151,7 +165,14 @@ struct HelpSheetSteps: View {
                     Text("\(index + 1).")
                         .frame(minWidth: 16, alignment: .leading)
                         .foregroundStyle(.secondary)
-                    step
+                    VStack(alignment: .leading, spacing: 4) {
+                        step.text
+                        if let detail = step.detail {
+                            detail
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(.vertical, 6)
                 // One instruction, not a stray number.

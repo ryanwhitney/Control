@@ -9,7 +9,7 @@ struct PermissionsHelpSheet: View {
     private var title: String {
         switch kind {
         case .automation: return "Automation permission needed"
-        case .accessibility: return "Accessibility permission needed"
+        case .accessibility: return "Device Control permission needed"
         }
     }
 
@@ -18,32 +18,35 @@ struct PermissionsHelpSheet: View {
         case .automation:
             return "Your Mac asks permission for each app Control works with. You only have to do this once."
         case .accessibility:
-            return "These controls need Accessibility permissions to send key presses to your Mac. You only have to do this once."
+            return "These controls need permission to send key presses to your Mac. You only have to do this once."
         }
     }
     
     private var mailSubject: String {
         switch kind {
         case .automation: return "📱 Automation permissions help/question"
-        case .accessibility: return "📱 Accessibility permissions help/question"
+        case .accessibility: return "📱 Device Control permissions help/question"
         }
     }
 
     /// Emphasis baked in, matching the Remote Login steps.
-    private var steps: [Text] {
-        let openSettings = Text("Open ") + Text("System Settings").bold() + Text(" on your Mac.")
+    private var steps: [HelpSheetStep] {
+        let openSettings = HelpSheetStep(text: Text("Open ") + Text("System Settings").bold() + Text(" on your Mac."))
         switch kind {
         case .automation:
             return [
                 openSettings,
-                Text("Go to ") + Text("Privacy & Security").bold() + Text(", then ") + Text("Automation").bold() + Text("."),
-                Text("Find ") + Text("sshd-keygen-wrapper").bold() + Text(", then turn on the apps you want to control as well as ") + Text("System Events").bold() + Text("."),
+                HelpSheetStep(text: Text("Go to ") + Text("Privacy & Security").bold() + Text(", then ") + Text("Automation").bold() + Text(".")),
+                HelpSheetStep(text: Text("Find ") + Text("sshd-keygen-wrapper").bold() + Text(", then turn on the apps you want to control as well as ") + Text("System Events").bold() + Text(".")),
             ]
         case .accessibility:
             return [
                 openSettings,
-                Text("Go to ") + Text("Privacy & Security").bold() + Text(", then ") + Text("Accessibility").bold() + Text("."),
-                Text("Turn on ") + Text("sshd-keygen-wrapper").bold() + Text("."),
+                HelpSheetStep(
+                    text: Text("Go to ") + Text("Privacy & Security").bold() + Text(", then ") + Text("Device Control and Data Access").bold() + Text("."),
+                    detail: Text("Prior versions of macOS may show this in ") + Text (" Privacy & Security ").bold() + Text(Image(systemName: "chevron.right")).font(.caption2) + Text(" Accessibility").bold()
+                ),
+                HelpSheetStep(text: Text("Turn on ") + Text("sshd-keygen-wrapper").bold() + Text(".")),
             ]
         }
     }
